@@ -92,3 +92,21 @@ estavam dentro de `<label>`, o que gruda o texto do rótulo no nome acessível d
 cada botão — o leitor de tela anunciava "Quem enxerga esta tarefa Só minha".
 O componente `Field` ganhou o modo `asGroup`, que usa `role="group"` +
 `aria-label` no lugar do `<label>`.
+
+---
+
+## 6. Responsividade no celular
+
+Todas as rotas do app autenticado percorridas a **390 × 844** (iPhone, com
+`isMobile` e toque), medindo `documentElement.scrollWidth` contra a largura da
+viewport — qualquer valor maior significa que a página rola de lado, que é o
+sintoma clássico de layout quebrado no celular.
+
+**16 rotas + 2 modais (novo KPI e nova tarefa): nenhuma rolagem horizontal e
+nenhum erro de console.**
+
+Uma quebra real foi encontrada e corrigida: a tabela de execuções das
+Integrações tinha 5 colunas e empurrava a página para 421 px. As tabelas largas
+passaram a rolar dentro do próprio cartão. Também encurtei o canvas do mapa
+mental e escondi as colunas vazias do quadro de tarefas em tela pequena, que
+gastavam meia tela sem informação.

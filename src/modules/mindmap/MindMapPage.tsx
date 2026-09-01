@@ -360,7 +360,7 @@ export default function MindMapPage() {
         />
       ) : (
         <div className="flex flex-col gap-4 lg:flex-row">
-          <div className="card relative min-h-[560px] flex-1 overflow-hidden">
+          <div className="card relative min-h-[22rem] flex-1 overflow-hidden sm:min-h-[35rem]">
             <div className="absolute left-3 top-3 z-10 flex gap-1">
               <button
                 type="button"
@@ -394,14 +394,14 @@ export default function MindMapPage() {
             </div>
 
             {canWrite && (
-              <p className="absolute bottom-3 left-3 z-10 text-[11px] text-slate-400">
+              <p className="absolute bottom-3 left-3 z-10 hidden text-[11px] text-slate-400 sm:block">
                 Arraste o fundo para mover · arraste um nó para reposicionar
               </p>
             )}
 
             <div
               ref={viewportRef}
-              className="h-full min-h-[560px] w-full cursor-grab touch-none select-none bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:20px_20px] active:cursor-grabbing"
+              className="h-full min-h-[22rem] w-full cursor-grab touch-none select-none sm:min-h-[35rem] bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:20px_20px] active:cursor-grabbing"
               onPointerDown={onCanvasPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}

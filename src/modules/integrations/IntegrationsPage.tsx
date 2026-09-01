@@ -375,7 +375,8 @@ export default function IntegrationsPage() {
 
       {runs.length > 0 && (
         <Card title="Execuções recentes">
-          <table className="w-full text-sm">
+          <div className="-mx-1 overflow-x-auto px-1">
+          <table className="w-full min-w-[34rem] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="py-2">Quando</th>
@@ -403,6 +404,7 @@ export default function IntegrationsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
 

@@ -24,23 +24,23 @@ export default function LoginPage() {
 
   return (
     <div className="grid min-h-full lg:grid-cols-2">
-      <div className="hidden flex-col justify-between bg-ink-900 p-10 text-white lg:flex">
-        <Logo size={40} withWordmark tone="light" />
+      <div className="hidden flex-col justify-between border-r border-slate-200 bg-gradient-to-br from-brand-50 via-white to-slate-100 p-10 lg:flex">
+        <Logo size={40} withWordmark />
         <div className="max-w-md">
-          <h1 className="text-3xl font-semibold leading-tight">
+          <h1 className="text-3xl font-semibold leading-tight text-ink-900">
             Uma visão só, para todas as empresas do grupo.
           </h1>
-          <p className="mt-4 text-slate-300">
+          <p className="mt-4 text-slate-600">
             KPIs, metas, tarefas e mapas mentais de cada empresa, isolados entre si — e
             consolidados no painel da holding.
           </p>
         </div>
-        <p className="text-xs text-slate-500">Acesso restrito a usuários cadastrados pelo admin.</p>
+        <p className="text-xs text-slate-400">Acesso restrito a usuários cadastrados pelo admin.</p>
       </div>
 
       <div className="flex items-center justify-center p-6">
         <form onSubmit={submit} className="card w-full max-w-sm p-6">
-          <Logo size={48} className="mb-4 lg:hidden" />
+          <Logo size={40} className="mb-4 lg:hidden" />
           <h2 className="text-lg font-semibold">Entrar</h2>
           <p className="mt-1 text-sm text-slate-500">
             Use o e-mail cadastrado pelo administrador.

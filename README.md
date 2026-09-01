@@ -89,7 +89,9 @@ src/
   modules/
     companies/         cadastro das empresas e os dados de cada uma
     dashboard/         painel da empresa e painel consolidado da holding
-    kpis/              KPIs, lançamento por período e histórico
+    kpis/              KPIs, lançamento por período e histórico. O "Novo KPI"
+                       abre em sugestões prontas (várias de uma vez) e mantém
+                       a aba de criar um indicador próprio
     goals/             metas, com ligação opcional a um KPI
     tasks/             tarefas: quem, o quê, prazo e lembrete
     mindmap/           mapa mental arrastável; nó vira tarefa
@@ -135,12 +137,14 @@ O código dos provedores mora em `supabase/functions/_shared/providers.ts`.
 Cada Edge Function é publicada sozinha, então rode `npm run sync:functions`
 depois de editar esse arquivo — ele copia para dentro de cada função.
 
-## Trocar o logo
+## A marca
 
-Todo o sistema aponta para `public/logo-apice.svg`. **Substitua esse arquivo**
-pelo SVG oficial da Ápice, mantendo o nome, e login, cabeçalho e favicon
-acompanham. O que está lá hoje é uma reprodução aproximada da marca, nas cores
-certas (`#DE4C22` e `#2B2FA0`).
+Todo o sistema aponta para `public/logo-apice.svg` — trocar esse arquivo,
+mantendo o nome, atualiza login, cabeçalho e favicon de uma vez.
+
+A marca é escura, então o componente `Logo` a envolve numa moldura branca com
+borda fina: assim ela se destaca tanto do cabeçalho claro quanto de um fundo
+escuro. O cabeçalho e o painel do login são claros pelo mesmo motivo.
 
 ## Integrações com outros sistemas
 
@@ -154,6 +158,14 @@ dados.faturamento_mes  →  KPI "Faturamento"  ·  mês atual  ·  ×1
 O caminho aceita ponto e colchete (`dados.totais[0].receita`). O valor vira um
 lançamento do KPI no período escolhido, e o histórico de execuções fica visível
 na própria tela.
+
+## Celular
+
+O sistema é usado no celular tanto quanto no computador. Todas as rotas são
+auditadas a 390 px de largura: nenhuma pode gerar rolagem horizontal da página.
+Tabelas largas rolam dentro do próprio cartão (`overflow-x-auto` + `min-w`),
+o quadro de tarefas empilha as colunas e esconde as vazias, e o canvas do mapa
+mental encurta. O roteiro de verificação está em `docs/verificacao.md`.
 
 ## Rodando localmente
 

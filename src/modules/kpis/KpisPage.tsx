@@ -35,7 +35,8 @@ import {
   Spinner,
   useToast,
 } from '../../core/ui'
-import { KPI_CATALOG, KPI_CATEGORIES } from '../../core/catalog'
+import { KPI_CATEGORIES, type KpiTemplate } from '../../core/catalog'
+import KpiSuggestions from './KpiSuggestions'
 import {
   FREQUENCY_LABEL,
   UNIT_LABEL,
@@ -72,6 +73,8 @@ export default function KpisPage() {
   const [kpiForm, setKpiForm] = useState(emptyKpi)
   const [editingKpi, setEditingKpi] = useState<Kpi | null>(null)
   const [creatingKpi, setCreatingKpi] = useState(false)
+  const [createMode, setCreateMode] = useState<'suggestions' | 'custom'>('suggestions')
+  const [chosen, setChosen] = useState<KpiTemplate[]>([])
   const [removingKpi, setRemovingKpi] = useState<Kpi | null>(null)
   const [entryFor, setEntryFor] = useState<Kpi | null>(null)
   const [historyFor, setHistoryFor] = useState<Kpi | null>(null)
@@ -117,8 +120,57 @@ export default function KpisPage() {
 
   const openCreate = () => {
     setKpiForm(emptyKpi)
+    setChosen([])
+    setCreateMode('suggestions')
     setError('')
     setCreatingKpi(true)
+  }
+
+  const closeCreate = () => {
+    setCreatingKpi(false)
+    setEditingKpi(null)
+    setChosen([])
+  }
+
+  const toggleTemplate = (template: KpiTemplate) => {
+    setChosen((current) =>
+      current.some((item) => item.name === template.name)
+        ? current.filter((item) => item.name !== template.name)
+        : [...current, template],
+    )
+  }
+
+  /** Sugestões viram KPIs de uma vez, prontos para receber valores. */
+  const addChosen = async () => {
+    if (!chosen.length) return
+    setError('')
+    setBusy(true)
+    const { error: insertError } = await supabase.from('kpis').insert(
+      chosen.map((template, index) => ({
+        company_id: company.id,
+        name: template.name,
+        description: template.description,
+        category: template.category,
+        unit: template.unit,
+        direction: template.direction,
+        frequency: template.frequency,
+        display_order: kpis.length + index,
+      })),
+    )
+    setBusy(false)
+
+    if (insertError) {
+      setError(insertError.message)
+      return
+    }
+
+    notify(
+      chosen.length === 1
+        ? `${chosen[0].name} adicionado.`
+        : `${chosen.length} indicadores adicionados.`,
+    )
+    closeCreate()
+    await load()
   }
 
   const openEdit = (kpi: Kpi) => {
@@ -367,66 +419,76 @@ export default function KpisPage() {
       <Modal
         open={creatingKpi || Boolean(editingKpi)}
         title={editingKpi ? `Editar ${editingKpi.name}` : 'Novo KPI'}
-        onClose={() => {
-          setCreatingKpi(false)
-          setEditingKpi(null)
-        }}
+        width={!editingKpi && createMode === 'suggestions' ? 'max-w-3xl' : 'max-w-lg'}
+        onClose={closeCreate}
         footer={
           <>
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => {
-                setCreatingKpi(false)
-                setEditingKpi(null)
-              }}
-            >
+            <button type="button" className="btn-ghost" onClick={closeCreate}>
               Cancelar
             </button>
-            <button type="submit" form="kpi-form" className="btn-primary" disabled={busy}>
-              {busy && <Spinner />}
-              {editingKpi ? 'Salvar' : 'Criar KPI'}
-            </button>
+            {!editingKpi && createMode === 'suggestions' ? (
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={busy || chosen.length === 0}
+                onClick={() => void addChosen()}
+              >
+                {busy && <Spinner />}
+                {chosen.length <= 1
+                  ? 'Adicionar indicador'
+                  : `Adicionar ${chosen.length} indicadores`}
+              </button>
+            ) : (
+              <button type="submit" form="kpi-form" className="btn-primary" disabled={busy}>
+                {busy && <Spinner />}
+                {editingKpi ? 'Salvar' : 'Criar KPI'}
+              </button>
+            )}
           </>
         }
       >
-        <form id="kpi-form" onSubmit={submitKpi} className="space-y-4">
-          {!editingKpi && (
-            <Field
-              label="Partir de um indicador pronto"
-              hint="Preenche nome, unidade, direção e frequência. Você ajusta o que quiser depois."
+        {!editingKpi && (
+          <div className="mb-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateMode('suggestions')}
+              className={`rounded-lg border px-3 py-2 text-sm transition ${
+                createMode === 'suggestions'
+                  ? 'border-brand-500 bg-brand-50 font-medium text-brand-700'
+                  : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+              }`}
             >
-              <select
-                className="input"
-                value=""
-                onChange={(event) => {
-                  const template = KPI_CATALOG.find((item) => item.name === event.target.value)
-                  if (!template) return
-                  setKpiForm((c) => ({
-                    ...c,
-                    name: template.name,
-                    category: template.category,
-                    unit: template.unit,
-                    direction: template.direction,
-                    frequency: template.frequency,
-                    description: template.description,
-                  }))
-                }}
-              >
-                <option value="">Começar do zero</option>
-                {KPI_CATEGORIES.map((category) => (
-                  <optgroup key={category} label={category}>
-                    {KPI_CATALOG.filter((item) => item.category === category).map((item) => (
-                      <option key={item.name} value={item.name}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </Field>
-          )}
+              Usar sugestões
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreateMode('custom')}
+              className={`rounded-lg border px-3 py-2 text-sm transition ${
+                createMode === 'custom'
+                  ? 'border-brand-500 bg-brand-50 font-medium text-brand-700'
+                  : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              Criar o meu
+            </button>
+          </div>
+        )}
 
+        {!editingKpi && createMode === 'suggestions' ? (
+          <>
+            <KpiSuggestions
+              existingNames={kpis.map((item) => item.name)}
+              selected={chosen.map((item) => item.name)}
+              onToggle={toggleTemplate}
+            />
+            {error && (
+              <div className="mt-3">
+                <ErrorText>{error}</ErrorText>
+              </div>
+            )}
+          </>
+        ) : (
+        <form id="kpi-form" onSubmit={submitKpi} className="space-y-4">
           <Field label="Nome do indicador">
             <input
               className="input"
@@ -537,6 +599,7 @@ export default function KpisPage() {
           </div>
           {error && <ErrorText>{error}</ErrorText>}
         </form>
+        )}
       </Modal>
 
       {entryFor && (
@@ -763,7 +826,8 @@ function HistoryModal({
             </ResponsiveContainer>
           </div>
 
-          <table className="mt-5 w-full text-sm">
+          <div className="-mx-1 mt-5 overflow-x-auto px-1">
+          <table className="w-full min-w-[30rem] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="py-2">Período</th>
@@ -798,6 +862,7 @@ function HistoryModal({
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </Modal>

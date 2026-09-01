@@ -184,7 +184,7 @@ export default function TasksPage() {
               </div>
 
               {items.length === 0 && (
-                <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-400">
+                <p className="hidden rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-400 md:block">
                   vazio
                 </p>
               )}
