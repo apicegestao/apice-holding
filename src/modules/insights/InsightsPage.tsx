@@ -1,0 +1,218 @@
+// Insights de IA. A geração roda numa Edge Function que lê KPIs, metas e
+// tarefas do escopo e devolve leituras acionáveis para o admin.
+import { useCallback, useEffect, useState } from 'react'
+import { Archive, Sparkles } from 'lucide-react'
+import { supabase, callFunction } from '../../core/lib/supabase'
+import { formatDateTime } from '../../core/lib/format'
+import { useCompany } from '../../core/company/CompanyProvider'
+import {
+  Badge,
+  Card,
+  EmptyState,
+  Loading,
+  PageHeader,
+  Spinner,
+  useToast,
+} from '../../core/ui'
+import type { Insight, InsightSeverity } from '../../core/types'
+
+const SEVERITY_LABEL: Record<InsightSeverity, string> = {
+  info: 'Observação',
+  opportunity: 'Oportunidade',
+  warning: 'Atenção',
+  critical: 'Crítico',
+}
+
+function severityTone(severity: InsightSeverity) {
+  if (severity === 'critical') return 'red'
+  if (severity === 'warning') return 'amber'
+  if (severity === 'opportunity') return 'green'
+  return 'slate'
+}
+
+function InsightList({
+  insights,
+  loading,
+  onArchive,
+}: {
+  insights: Insight[]
+  loading: boolean
+  onArchive: (insight: Insight) => void
+}) {
+  if (loading) return <Loading />
+  if (insights.length === 0) {
+    return (
+      <EmptyState
+        title="Nenhum insight gerado ainda"
+        description="Gere a primeira leitura para ver o que os números estão dizendo."
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {insights.map((insight) => (
+        <Card key={insight.id}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={severityTone(insight.severity)}>
+                  {SEVERITY_LABEL[insight.severity]}
+                </Badge>
+                <h3 className="text-sm font-semibold text-ink-900">{insight.title}</h3>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">{insight.body}</p>
+              {insight.recommendation && (
+                <p className="mt-2 rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-800">
+                  <strong>O que fazer:</strong> {insight.recommendation}
+                </p>
+              )}
+              <p className="mt-2 text-xs text-slate-400">
+                {formatDateTime(insight.generated_at)}
+                {insight.model && ` · ${insight.model}`}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              title="Arquivar"
+              onClick={() => onArchive(insight)}
+            >
+              <Archive className="h-4 w-4" />
+            </button>
+          </div>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
+function CompanyInsights() {
+  const { company, isAdmin } = useCompany()
+  const { notify } = useToast()
+  const [insights, setInsights] = useState<Insight[]>([])
+  const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('insights')
+      .select('*')
+      .eq('company_id', company.id)
+      .eq('is_archived', false)
+      .order('generated_at', { ascending: false })
+      .limit(30)
+    setInsights((data as Insight[]) ?? [])
+    setLoading(false)
+  }, [company.id])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const generate = async () => {
+    setGenerating(true)
+    try {
+      await callFunction('ai-insights', { scope: 'company', company_id: company.id })
+      notify('Insights gerados.')
+      await load()
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Falhou.', 'error')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const archive = async (insight: Insight) => {
+    await supabase.from('insights').update({ is_archived: true }).eq('id', insight.id)
+    setInsights((current) => current.filter((item) => item.id !== insight.id))
+  }
+
+  if (!isAdmin) {
+    return (
+      <EmptyState
+        title="Área restrita"
+        description="Os insights de IA são visíveis para administradores da empresa."
+      />
+    )
+  }
+
+  return (
+    <div className="mx-auto max-w-4xl">
+      <PageHeader
+        title={`Insights · ${company.name}`}
+        subtitle="A IA lê os KPIs, metas e tarefas desta empresa e aponta o que merece decisão."
+        actions={
+          <button type="button" className="btn-primary" disabled={generating} onClick={() => void generate()}>
+            {generating ? <Spinner /> : <Sparkles className="h-4 w-4" />}
+            Gerar insights
+          </button>
+        }
+      />
+      <InsightList insights={insights} loading={loading} onArchive={(item) => void archive(item)} />
+    </div>
+  )
+}
+
+function HoldingInsights() {
+  const { notify } = useToast()
+  const [insights, setInsights] = useState<Insight[]>([])
+  const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('insights')
+      .select('*')
+      .eq('scope', 'holding')
+      .eq('is_archived', false)
+      .order('generated_at', { ascending: false })
+      .limit(30)
+    setInsights((data as Insight[]) ?? [])
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const generate = async () => {
+    setGenerating(true)
+    try {
+      await callFunction('ai-insights', { scope: 'holding' })
+      notify('Insights gerados.')
+      await load()
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Falhou.', 'error')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const archive = async (insight: Insight) => {
+    await supabase.from('insights').update({ is_archived: true }).eq('id', insight.id)
+    setInsights((current) => current.filter((item) => item.id !== insight.id))
+  }
+
+  return (
+    <div className="mx-auto max-w-4xl">
+      <PageHeader
+        title="Insights da holding"
+        subtitle="Leitura consolidada do grupo, comparando as empresas entre si."
+        actions={
+          <button type="button" className="btn-primary" disabled={generating} onClick={() => void generate()}>
+            {generating ? <Spinner /> : <Sparkles className="h-4 w-4" />}
+            Gerar insights
+          </button>
+        }
+      />
+      <InsightList insights={insights} loading={loading} onArchive={(item) => void archive(item)} />
+    </div>
+  )
+}
+
+export default function InsightsPage({ scope }: { scope: 'company' | 'holding' }) {
+  return scope === 'company' ? <CompanyInsights /> : <HoldingInsights />
+}

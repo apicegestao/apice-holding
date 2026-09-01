@@ -1,0 +1,153 @@
+# Ápice Holding
+
+Sistema central de gestão do grupo. Uma aba por empresa, cada uma com painel,
+KPIs, metas, tarefas e mapa mental próprios — e um painel consolidado da holding
+por cima de tudo.
+
+Projeto **isolado** do `time-de-especialistas`: repositório, projeto Supabase,
+site Netlify e variáveis de ambiente próprios. Nada é compartilhado entre os dois.
+
+## Stack
+
+| Camada | Escolha |
+| --- | --- |
+| Front-end | React 18 + TypeScript + Vite + Tailwind + Recharts |
+| Banco | Supabase PostgreSQL com RLS por empresa |
+| Auth | Supabase Auth (e-mail + senha, senha padrão trocada no 1º acesso) |
+| Back-end | Supabase Edge Functions (Deno) |
+| Agendamento | pg_cron + pg_net no próprio banco |
+| IA | Claude (Anthropic) via Edge Function |
+| Hospedagem | Netlify (SPA estática) |
+
+Projeto Supabase: `apice-holding` (`hhlxazpqonkfcgrcmzpp`, região `sa-east-1`).
+
+## O isolamento entre empresas
+
+Esta é a regra que sustenta o resto: **um usuário da empresa X não vê nem altera
+nada da empresa Y**. Ela não depende do front-end.
+
+- Toda tabela de módulo carrega `company_id` e tem RLS ligada.
+- As policies chamam funções `SECURITY DEFINER` no schema `app`
+  (`is_member`, `can_write`, `is_company_admin`, `is_super_admin`), então não há
+  recursão de RLS ao consultar vínculos.
+- A view `kpi_latest_values` é `security_invoker`, e a RPC `company_snapshots()`
+  é `SECURITY INVOKER` — o consolidado da holding só devolve as empresas que
+  aquele usuário já poderia ver uma a uma.
+- `profiles` tem `GRANT UPDATE` **por coluna**: o usuário edita nome, telefone e
+  cargo, mas `is_super_admin`, `is_active` e `email` só mudam pelo service_role.
+  Um trigger repete a checagem.
+- Credenciais de integração vivem em `integration_secrets`, que **não tem policy
+  de SELECT**: nem o admin lê de volta pelo navegador; só a Edge Function.
+
+Os testes de isolamento estão descritos em [`docs/verificacao.md`](docs/verificacao.md).
+
+## Papéis
+
+| Papel | O que faz |
+| --- | --- |
+| **Admin da holding** (`profiles.is_super_admin`) | Enxerga e administra todas as empresas, cria empresas, gerencia usuários e configurações |
+| **Admin** (por empresa) | Configura a empresa, gerencia acessos, integrações e insights |
+| **Colaborador** | Lança KPIs, cria metas e tarefas, edita o mapa mental |
+| **Usuário** | Só visualiza — e conclui as tarefas atribuídas a ele |
+
+## Primeiro acesso
+
+1. O admin cadastra o e-mail da pessoa em **Usuários → Novo acesso**.
+2. O sistema cria o login com a **senha padrão** (configurável em
+   Holding → Configurações) e a mostra uma única vez para o admin repassar.
+3. No primeiro login o sistema bloqueia tudo até a troca da senha.
+4. Esqueceu a senha? O admin usa **Resetar senha** — volta para a padrão e a
+   troca é exigida de novo. O admin da holding também inativa ou exclui cadastros.
+
+## Módulos
+
+```
+src/
+  app/                 casca: rotas, layout com as abas de empresa, login, troca de senha
+  core/
+    auth/              sessão, perfil e vínculos com empresas
+    company/           escopo da empresa ativa (tudo sob /empresa/:companyId)
+    lib/               cliente Supabase, formatação, períodos
+    ui/                kit compartilhado (Card, Modal, Toast, ConfirmDialog…)
+    types.ts           tipos do domínio — fonte única de verdade
+  modules/
+    companies/         cadastro das empresas do grupo
+    dashboard/         painel da empresa e painel consolidado da holding
+    kpis/              KPIs, lançamento por período e histórico
+    goals/             metas, com ligação opcional a um KPI
+    tasks/             tarefas: quem, o quê, prazo e lembrete
+    mindmap/           mapa mental arrastável; nó vira tarefa
+    integrations/      conectores REST e mapeamento campo → KPI
+    insights/          insights gerados por IA
+    users/             acessos por empresa e do grupo
+    settings/          configurações da holding
+    audit/             trilha de auditoria
+```
+
+Cada módulo é uma pasta fechada: mexer em Tarefas não obriga a abrir KPIs.
+
+## Edge Functions
+
+| Função | JWT | O que faz |
+| --- | --- | --- |
+| `admin-users` | sim | cria acesso com senha padrão, reseta senha, muda papel, inativa e exclui cadastro |
+| `admin-settings` | sim | lê e grava as configurações da holding (chave da IA mascarada na leitura) |
+| `ai-insights` | sim | monta o retrato de KPIs/metas/tarefas e pede insights ao Claude |
+| `integrations-sync` | não | sincroniza integrações; autentica por JWT (manual) ou header assinado (cron) |
+
+`integrations-sync` roda sem `verify_jwt` porque o pg_cron não tem JWT — a
+autorização é feita dentro da função, comparando `x-sync-secret` com um segredo
+gerado no banco.
+
+## Agendamentos (pg_cron)
+
+| Job | Frequência | O que faz |
+| --- | --- | --- |
+| `apice_task_reminders` | a cada 5 min | transforma lembretes vencidos em notificação para o responsável |
+| `apice_integrations_sync` | a cada 5 min | chama `integrations-sync` para as integrações que já venceram o intervalo |
+
+## Integrações com outros sistemas
+
+Cadastre a URL que devolve JSON, o método, a autenticação (Bearer, chave em
+cabeçalho ou Basic) e a frequência. Depois mapeie cada campo:
+
+```
+dados.faturamento_mes  →  KPI "Faturamento"  ·  mês atual  ·  ×1
+```
+
+O caminho aceita ponto e colchete (`dados.totais[0].receita`). O valor vira um
+lançamento do KPI no período escolhido, e o histórico de execuções fica visível
+na própria tela.
+
+## Rodando localmente
+
+```bash
+cp .env.example .env     # preencha a URL e a publishable key do projeto
+npm install
+npm run dev
+```
+
+Scripts: `npm run build` (typecheck + build), `npm run typecheck`, `npm run test`.
+
+## Banco de dados
+
+As migrations em `supabase/migrations/` são a ordem de instalação. Num projeto
+novo, aplique-as em sequência e depois rode `supabase/seed/bootstrap.sql`, que
+cria o primeiro admin da holding e a empresa controladora.
+
+## Deploy (Netlify)
+
+Site **novo e separado** do `time-de-especialistas`:
+
+1. Netlify → Add new site → Import from Git → este repositório.
+2. Build: `npm run build` · Publish: `dist` (já em `netlify.toml`).
+3. Variáveis: `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
+
+## Pendências conhecidas
+
+- **Proteção contra senha vazada** (HaveIBeenPwned) está desligada no Supabase
+  Auth. Ligue em Authentication → Policies do projeto `apice-holding`.
+- **Lembrete por e-mail**: hoje o lembrete vira notificação dentro do sistema.
+  Enviar e-mail exige um provedor (Resend/SES) e uma Edge Function extra.
+- **Chave da Anthropic**: os insights só funcionam depois de salvá-la em
+  Holding → Configurações.

@@ -1,0 +1,762 @@
+// KPIs da empresa: cadastro, lançamento por período e histórico.
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  History,
+  Pencil,
+  Plus,
+  Trash2,
+  TrendingUp,
+} from 'lucide-react'
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import { supabase } from '../../core/lib/supabase'
+import { formatValue, isOnTarget, labelPeriod, periodBounds } from '../../core/lib/format'
+import { useCompany } from '../../core/company/CompanyProvider'
+import {
+  Badge,
+  Card,
+  ConfirmDialog,
+  EmptyState,
+  ErrorText,
+  Field,
+  Loading,
+  Modal,
+  PageHeader,
+  Spinner,
+  useToast,
+} from '../../core/ui'
+import {
+  FREQUENCY_LABEL,
+  UNIT_LABEL,
+  type Kpi,
+  type KpiDirection,
+  type KpiFrequency,
+  type KpiUnit,
+  type KpiValue,
+} from '../../core/types'
+
+const UNITS: KpiUnit[] = ['currency', 'percent', 'number', 'days', 'ratio']
+const FREQUENCIES: KpiFrequency[] = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
+
+const emptyKpi = {
+  name: '',
+  description: '',
+  category: '',
+  unit: 'number' as KpiUnit,
+  direction: 'up' as KpiDirection,
+  frequency: 'monthly' as KpiFrequency,
+  target_value: '',
+  roll_up: true,
+  is_active: true,
+}
+
+export default function KpisPage() {
+  const { company, canWrite } = useCompany()
+  const { notify } = useToast()
+
+  const [kpis, setKpis] = useState<Kpi[]>([])
+  const [values, setValues] = useState<KpiValue[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const [kpiForm, setKpiForm] = useState(emptyKpi)
+  const [editingKpi, setEditingKpi] = useState<Kpi | null>(null)
+  const [creatingKpi, setCreatingKpi] = useState(false)
+  const [removingKpi, setRemovingKpi] = useState<Kpi | null>(null)
+  const [entryFor, setEntryFor] = useState<Kpi | null>(null)
+  const [historyFor, setHistoryFor] = useState<Kpi | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data: kpiRows } = await supabase
+      .from('kpis')
+      .select('*')
+      .eq('company_id', company.id)
+      .order('display_order')
+      .order('name')
+
+    const ids = (kpiRows ?? []).map((row) => row.id)
+    const { data: valueRows } = ids.length
+      ? await supabase
+          .from('kpi_values')
+          .select('*')
+          .in('kpi_id', ids)
+          .order('period_start', { ascending: true })
+      : { data: [] as KpiValue[] }
+
+    setKpis((kpiRows as Kpi[]) ?? [])
+    setValues((valueRows as KpiValue[]) ?? [])
+    setLoading(false)
+  }, [company.id])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const seriesByKpi = useMemo(() => {
+    const map = new Map<string, KpiValue[]>()
+    for (const value of values) {
+      const list = map.get(value.kpi_id) ?? []
+      list.push(value)
+      map.set(value.kpi_id, list)
+    }
+    return map
+  }, [values])
+
+  const openCreate = () => {
+    setKpiForm(emptyKpi)
+    setError('')
+    setCreatingKpi(true)
+  }
+
+  const openEdit = (kpi: Kpi) => {
+    setKpiForm({
+      name: kpi.name,
+      description: kpi.description ?? '',
+      category: kpi.category ?? '',
+      unit: kpi.unit,
+      direction: kpi.direction,
+      frequency: kpi.frequency,
+      target_value: kpi.target_value === null ? '' : String(kpi.target_value),
+      roll_up: kpi.roll_up,
+      is_active: kpi.is_active,
+    })
+    setError('')
+    setEditingKpi(kpi)
+  }
+
+  const submitKpi = async (event: FormEvent) => {
+    event.preventDefault()
+    setError('')
+
+    const payload = {
+      company_id: company.id,
+      name: kpiForm.name.trim(),
+      description: kpiForm.description.trim() || null,
+      category: kpiForm.category.trim() || null,
+      unit: kpiForm.unit,
+      direction: kpiForm.direction,
+      frequency: kpiForm.frequency,
+      target_value: kpiForm.target_value === '' ? null : Number(kpiForm.target_value),
+      roll_up: kpiForm.roll_up,
+      is_active: kpiForm.is_active,
+    }
+
+    if (!payload.name) {
+      setError('Dê um nome ao indicador.')
+      return
+    }
+
+    setBusy(true)
+    const result = editingKpi
+      ? await supabase.from('kpis').update(payload).eq('id', editingKpi.id)
+      : await supabase.from('kpis').insert(payload)
+    setBusy(false)
+
+    if (result.error) {
+      setError(
+        result.error.code === '23505'
+          ? 'Já existe um KPI com esse nome nesta empresa.'
+          : result.error.message,
+      )
+      return
+    }
+
+    notify(editingKpi ? 'KPI atualizado.' : 'KPI criado.')
+    setCreatingKpi(false)
+    setEditingKpi(null)
+    await load()
+  }
+
+  const removeKpi = async () => {
+    if (!removingKpi) return
+    setBusy(true)
+    const { error: deleteError } = await supabase.from('kpis').delete().eq('id', removingKpi.id)
+    setBusy(false)
+    if (deleteError) {
+      notify(deleteError.message, 'error')
+      return
+    }
+    notify('KPI excluído.')
+    setRemovingKpi(null)
+    await load()
+  }
+
+  return (
+    <div className="mx-auto max-w-6xl">
+      <PageHeader
+        title={`KPIs · ${company.name}`}
+        subtitle="Indicadores desta empresa. Os marcados como consolidados aparecem no painel da holding."
+        actions={
+          canWrite && (
+            <button type="button" className="btn-primary" onClick={openCreate}>
+              <Plus className="h-4 w-4" /> Novo KPI
+            </button>
+          )
+        }
+      />
+
+      {loading ? (
+        <Loading />
+      ) : kpis.length === 0 ? (
+        <EmptyState
+          title="Nenhum indicador ainda"
+          description="Comece pelos números que você olharia primeiro se pudesse ver só três."
+          action={
+            canWrite && (
+              <button type="button" className="btn-primary" onClick={openCreate}>
+                <Plus className="h-4 w-4" /> Novo KPI
+              </button>
+            )
+          }
+        />
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {kpis.map((kpi) => {
+            const series = seriesByKpi.get(kpi.id) ?? []
+            const latest = series[series.length - 1]
+            const previous = series[series.length - 2]
+            const onTarget = latest ? isOnTarget(Number(latest.value), kpi.target_value, kpi.direction) : null
+            const delta =
+              latest && previous ? Number(latest.value) - Number(previous.value) : null
+            const improving =
+              delta === null ? null : kpi.direction === 'up' ? delta >= 0 : delta <= 0
+
+            const chartData = series.slice(-12).map((item) => ({
+              label: labelPeriod(item.period_start, kpi.frequency),
+              value: Number(item.value),
+            }))
+
+            return (
+              <Card key={kpi.id} className={kpi.is_active ? '' : 'opacity-60'}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-ink-900">{kpi.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {kpi.category ? `${kpi.category} · ` : ''}
+                      {FREQUENCY_LABEL[kpi.frequency]}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <button
+                      type="button"
+                      className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      title="Histórico"
+                      onClick={() => setHistoryFor(kpi)}
+                    >
+                      <History className="h-4 w-4" />
+                    </button>
+                    {canWrite && (
+                      <>
+                        <button
+                          type="button"
+                          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          title="Editar"
+                          onClick={() => openEdit(kpi)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          title="Excluir"
+                          onClick={() => setRemovingKpi(kpi)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-end justify-between gap-2">
+                  <div>
+                    <p className="text-2xl font-semibold text-ink-900">
+                      {latest ? formatValue(Number(latest.value), kpi.unit) : '—'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {latest ? labelPeriod(latest.period_start, kpi.frequency) : 'sem lançamento'}
+                      {kpi.target_value !== null && (
+                        <> · meta {formatValue(kpi.target_value, kpi.unit)}</>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    {onTarget !== null && (
+                      <Badge tone={onTarget ? 'green' : 'red'}>
+                        {onTarget ? 'na meta' : 'fora da meta'}
+                      </Badge>
+                    )}
+                    {delta !== null && (
+                      <span
+                        className={`flex items-center gap-0.5 text-xs font-medium ${
+                          improving ? 'text-emerald-600' : 'text-rose-600'
+                        }`}
+                      >
+                        {improving ? (
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                        ) : (
+                          <ArrowDownRight className="h-3.5 w-3.5" />
+                        )}
+                        {formatValue(Math.abs(delta), kpi.unit)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {chartData.length > 1 && (
+                  <div className="mt-4 h-24">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+                        <XAxis dataKey="label" hide />
+                        <YAxis hide domain={['auto', 'auto']} />
+                        <Tooltip
+                          formatter={(value: number) => formatValue(value, kpi.unit)}
+                          labelFormatter={(label: string) => label}
+                          contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                        />
+                        {kpi.target_value !== null && (
+                          <ReferenceLine
+                            y={kpi.target_value}
+                            stroke="#94A3B8"
+                            strokeDasharray="4 4"
+                          />
+                        )}
+                        <Line
+                          type="monotone"
+                          dataKey="value"
+                          stroke={company.color}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                <div className="mt-4 flex items-center justify-between gap-2">
+                  <div className="flex gap-1.5">
+                    {kpi.roll_up && <Badge tone="blue">consolidado</Badge>}
+                    {kpi.source === 'integration' && <Badge tone="violet">integração</Badge>}
+                  </div>
+                  {canWrite && (
+                    <button type="button" className="btn-ghost py-1.5" onClick={() => setEntryFor(kpi)}>
+                      <TrendingUp className="h-3.5 w-3.5" /> Lançar valor
+                    </button>
+                  )}
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------ form de KPI */}
+      <Modal
+        open={creatingKpi || Boolean(editingKpi)}
+        title={editingKpi ? `Editar ${editingKpi.name}` : 'Novo KPI'}
+        onClose={() => {
+          setCreatingKpi(false)
+          setEditingKpi(null)
+        }}
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => {
+                setCreatingKpi(false)
+                setEditingKpi(null)
+              }}
+            >
+              Cancelar
+            </button>
+            <button type="submit" form="kpi-form" className="btn-primary" disabled={busy}>
+              {busy && <Spinner />}
+              {editingKpi ? 'Salvar' : 'Criar KPI'}
+            </button>
+          </>
+        }
+      >
+        <form id="kpi-form" onSubmit={submitKpi} className="space-y-4">
+          <Field label="Nome do indicador">
+            <input
+              className="input"
+              required
+              placeholder="Faturamento, Ticket médio, Churn…"
+              value={kpiForm.name}
+              onChange={(event) => setKpiForm((c) => ({ ...c, name: event.target.value }))}
+            />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Categoria">
+              <input
+                className="input"
+                placeholder="Comercial, Financeiro…"
+                value={kpiForm.category}
+                onChange={(event) => setKpiForm((c) => ({ ...c, category: event.target.value }))}
+              />
+            </Field>
+            <Field label="Frequência de medição">
+              <select
+                className="input"
+                value={kpiForm.frequency}
+                onChange={(event) =>
+                  setKpiForm((c) => ({ ...c, frequency: event.target.value as KpiFrequency }))
+                }
+              >
+                {FREQUENCIES.map((item) => (
+                  <option key={item} value={item}>
+                    {FREQUENCY_LABEL[item]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Unidade">
+              <select
+                className="input"
+                value={kpiForm.unit}
+                onChange={(event) => setKpiForm((c) => ({ ...c, unit: event.target.value as KpiUnit }))}
+              >
+                {UNITS.map((item) => (
+                  <option key={item} value={item}>
+                    {UNIT_LABEL[item]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Direção">
+              <select
+                className="input"
+                value={kpiForm.direction}
+                onChange={(event) =>
+                  setKpiForm((c) => ({ ...c, direction: event.target.value as KpiDirection }))
+                }
+              >
+                <option value="up">Quanto maior, melhor</option>
+                <option value="down">Quanto menor, melhor</option>
+              </select>
+            </Field>
+            <Field label="Meta">
+              <input
+                className="input"
+                type="number"
+                step="any"
+                value={kpiForm.target_value}
+                onChange={(event) => setKpiForm((c) => ({ ...c, target_value: event.target.value }))}
+              />
+            </Field>
+          </div>
+          <Field label="Descrição">
+            <textarea
+              className="input min-h-16"
+              placeholder="Como esse número é apurado?"
+              value={kpiForm.description}
+              onChange={(event) => setKpiForm((c) => ({ ...c, description: event.target.value }))}
+            />
+          </Field>
+          <div className="space-y-2">
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={kpiForm.roll_up}
+                onChange={(event) => setKpiForm((c) => ({ ...c, roll_up: event.target.checked }))}
+              />
+              <span>
+                Mostrar no painel consolidado da holding
+                <span className="block text-xs text-slate-500">
+                  Continua visível só para quem tem acesso a esta empresa.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={kpiForm.is_active}
+                onChange={(event) => setKpiForm((c) => ({ ...c, is_active: event.target.checked }))}
+              />
+              Indicador ativo
+            </label>
+          </div>
+          {error && <ErrorText>{error}</ErrorText>}
+        </form>
+      </Modal>
+
+      {entryFor && (
+        <ValueEntryModal
+          kpi={entryFor}
+          companyId={company.id}
+          existing={seriesByKpi.get(entryFor.id) ?? []}
+          onClose={() => setEntryFor(null)}
+          onSaved={async () => {
+            setEntryFor(null)
+            await load()
+          }}
+        />
+      )}
+
+      {historyFor && (
+        <HistoryModal
+          kpi={historyFor}
+          series={seriesByKpi.get(historyFor.id) ?? []}
+          canWrite={canWrite}
+          onClose={() => setHistoryFor(null)}
+          onChanged={load}
+        />
+      )}
+
+      <ConfirmDialog
+        open={Boolean(removingKpi)}
+        title="Excluir KPI"
+        danger
+        busy={busy}
+        confirmLabel="Excluir"
+        message={
+          <>
+            Excluir <strong>{removingKpi?.name}</strong> remove também todo o histórico de valores
+            lançados nele.
+          </>
+        }
+        onConfirm={() => void removeKpi()}
+        onCancel={() => setRemovingKpi(null)}
+      />
+    </div>
+  )
+}
+
+// ------------------------------------------------------------- lançamento
+function ValueEntryModal({
+  kpi,
+  companyId,
+  existing,
+  onClose,
+  onSaved,
+}: {
+  kpi: Kpi
+  companyId: string
+  existing: KpiValue[]
+  onClose: () => void
+  onSaved: () => Promise<void>
+}) {
+  const { notify } = useToast()
+  const bounds = periodBounds(kpi.frequency)
+  const [periodStart, setPeriodStart] = useState(bounds.start)
+  const [periodEnd, setPeriodEnd] = useState(bounds.end)
+  const [value, setValue] = useState('')
+  const [note, setNote] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // Se já existe lançamento no período escolhido, o formulário vira edição.
+  useEffect(() => {
+    const found = existing.find((item) => item.period_start === periodStart)
+    setValue(found ? String(found.value) : '')
+    setNote(found?.note ?? '')
+  }, [periodStart, existing])
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    setError('')
+    if (value === '') {
+      setError('Informe o valor apurado.')
+      return
+    }
+
+    setBusy(true)
+    const { error: upsertError } = await supabase.from('kpi_values').upsert(
+      {
+        kpi_id: kpi.id,
+        company_id: companyId,
+        period_start: periodStart,
+        period_end: periodEnd,
+        value: Number(value),
+        note: note.trim() || null,
+        source: 'manual',
+      },
+      { onConflict: 'kpi_id,period_start' },
+    )
+    setBusy(false)
+
+    if (upsertError) {
+      setError(upsertError.message)
+      return
+    }
+    notify('Valor lançado.')
+    await onSaved()
+  }
+
+  return (
+    <Modal
+      open
+      title={`Lançar valor · ${kpi.name}`}
+      description={`Medição ${FREQUENCY_LABEL[kpi.frequency].toLowerCase()}`}
+      onClose={onClose}
+      width="max-w-md"
+      footer={
+        <>
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" form="value-form" className="btn-primary" disabled={busy}>
+            {busy && <Spinner />}
+            Salvar
+          </button>
+        </>
+      }
+    >
+      <form id="value-form" onSubmit={submit} className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Início do período">
+            <input
+              className="input"
+              type="date"
+              required
+              value={periodStart}
+              onChange={(event) => setPeriodStart(event.target.value)}
+            />
+          </Field>
+          <Field label="Fim do período">
+            <input
+              className="input"
+              type="date"
+              required
+              value={periodEnd}
+              onChange={(event) => setPeriodEnd(event.target.value)}
+            />
+          </Field>
+        </div>
+        <Field
+          label={`Valor apurado (${UNIT_LABEL[kpi.unit]})`}
+          hint={kpi.target_value !== null ? `Meta: ${formatValue(kpi.target_value, kpi.unit)}` : undefined}
+        >
+          <input
+            className="input"
+            type="number"
+            step="any"
+            required
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+          />
+        </Field>
+        <Field label="Observação">
+          <textarea
+            className="input min-h-16"
+            placeholder="O que explica esse número?"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </Field>
+        {error && <ErrorText>{error}</ErrorText>}
+      </form>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------- histórico
+function HistoryModal({
+  kpi,
+  series,
+  canWrite,
+  onClose,
+  onChanged,
+}: {
+  kpi: Kpi
+  series: KpiValue[]
+  canWrite: boolean
+  onClose: () => void
+  onChanged: () => Promise<void>
+}) {
+  const { notify } = useToast()
+  const chartData = series.map((item) => ({
+    label: labelPeriod(item.period_start, kpi.frequency),
+    value: Number(item.value),
+  }))
+
+  const removeValue = async (id: string) => {
+    const { error } = await supabase.from('kpi_values').delete().eq('id', id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify('Lançamento removido.')
+    await onChanged()
+  }
+
+  return (
+    <Modal open title={`Histórico · ${kpi.name}`} onClose={onClose} width="max-w-2xl">
+      {series.length === 0 ? (
+        <EmptyState title="Sem lançamentos" description="Registre o primeiro valor deste KPI." />
+      ) : (
+        <>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} width={70} />
+                <Tooltip
+                  formatter={(value: number) => formatValue(value, kpi.unit)}
+                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                />
+                {kpi.target_value !== null && (
+                  <ReferenceLine y={kpi.target_value} stroke="#94A3B8" strokeDasharray="4 4" />
+                )}
+                <Line type="monotone" dataKey="value" stroke="#0EA5E9" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          <table className="mt-5 w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th className="py-2">Período</th>
+                <th className="py-2">Valor</th>
+                <th className="py-2">Origem</th>
+                <th className="py-2">Observação</th>
+                {canWrite && <th className="py-2" />}
+              </tr>
+            </thead>
+            <tbody>
+              {[...series].reverse().map((item) => (
+                <tr key={item.id} className="border-b border-slate-50">
+                  <td className="py-2">{labelPeriod(item.period_start, kpi.frequency)}</td>
+                  <td className="py-2 font-medium">{formatValue(Number(item.value), kpi.unit)}</td>
+                  <td className="py-2 text-xs text-slate-500">
+                    {item.source === 'integration' ? 'integração' : 'manual'}
+                  </td>
+                  <td className="py-2 text-xs text-slate-500">{item.note ?? '—'}</td>
+                  {canWrite && (
+                    <td className="py-2 text-right">
+                      <button
+                        type="button"
+                        className="rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        onClick={() => void removeValue(item.id)}
+                        aria-label="Remover lançamento"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </Modal>
+  )
+}
