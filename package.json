@@ -3,14 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Ápice Holding — sistema central de gestão multiempresas",
+  "description": "\u00c1pice Holding \u2014 sistema central de gest\u00e3o multiempresas",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "sync:functions": "node scripts/sync-edge-shared.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

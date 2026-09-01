@@ -1,6 +1,7 @@
-// Geração de insights com IA (Claude) para o admin da empresa ou da holding.
+// Geração de insights com IA para o admin da empresa ou da holding.
+// O provedor (Gemini ou Claude) e o modelo vêm das configurações da holding.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import Anthropic from 'npm:@anthropic-ai/sdk@0.71.0'
+import { generateText, listModels, pickDefaultModel, type Provider } from './providers.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -195,41 +196,47 @@ Deno.serve(async (req) => {
     }
   }
 
-  const { data: apiKey } = await admin.rpc('get_system_setting', { p_key: 'anthropic_api_key' })
+  const { data: configuredProvider } = await admin.rpc('get_system_setting', {
+    p_key: 'ai_provider',
+  })
+  const provider: Provider = configuredProvider === 'anthropic' ? 'anthropic' : 'gemini'
+  const keyName = provider === 'anthropic' ? 'anthropic_api_key' : 'gemini_api_key'
+
+  const { data: apiKey } = await admin.rpc('get_system_setting', { p_key: keyName })
   if (!apiKey) {
     return json(
-      { error: 'Configure a chave da Anthropic em Holding → Configurações antes de gerar insights.' },
+      {
+        error: `Configure a chave do ${
+          provider === 'anthropic' ? 'Claude (Anthropic)' : 'Gemini (Google)'
+        } em Holding → Configurações antes de gerar insights.`,
+      },
       400,
     )
   }
 
   const { data: configuredModel } = await admin.rpc('get_system_setting', { p_key: 'insights_model' })
-  const model = (configuredModel as string | null) ?? 'claude-opus-5'
+  let model = (configuredModel as string | null) ?? ''
 
   const context = scope === 'holding' ? await holdingContext() : await companyContext(companyId!)
 
   let insights: ReturnType<typeof parseInsights>
   try {
-    const client = new Anthropic({ apiKey: apiKey as string })
-    const response = await client.messages.create({
+    // Sem modelo escolhido, pergunta ao provedor o que existe hoje em vez de
+    // apostar num identificador que pode ter sido aposentado.
+    if (!model) {
+      const available = await listModels(provider, apiKey as string)
+      model = pickDefaultModel(provider, available) ?? ''
+      if (!model) throw new Error('O provedor não devolveu nenhum modelo utilizável.')
+      await admin.rpc('set_system_setting', { p_key: 'insights_model', p_value: model })
+    }
+
+    const text = await generateText(
+      provider,
+      apiKey as string,
       model,
-      max_tokens: 8000,
-      system: SYSTEM_PROMPT,
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'medium' },
-      messages: [
-        {
-          role: 'user',
-          content: `Retrato atual em JSON:\n\n${JSON.stringify(context, null, 2)}`,
-        },
-      ],
-    })
-
-    const text = response.content
-      .filter((block) => block.type === 'text')
-      .map((block) => (block as { text: string }).text)
-      .join('\n')
-
+      SYSTEM_PROMPT,
+      `Retrato atual em JSON:\n\n${JSON.stringify(context, null, 2)}`,
+    )
     insights = parseInsights(text)
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : 'Falha ao consultar a IA' }, 502)

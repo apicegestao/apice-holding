@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useAuth } from '../core/auth/AuthProvider'
+import { Logo } from '../core/ui/Logo'
 import { ErrorText, Field, Spinner } from '../core/ui'
 
 export default function LoginPage() {
@@ -24,10 +25,7 @@ export default function LoginPage() {
   return (
     <div className="grid min-h-full lg:grid-cols-2">
       <div className="hidden flex-col justify-between bg-ink-900 p-10 text-white lg:flex">
-        <div className="flex items-center gap-2">
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand-500 font-bold">Á</span>
-          <span className="text-lg font-semibold">Ápice Holding</span>
-        </div>
+        <Logo size={40} withWordmark tone="light" />
         <div className="max-w-md">
           <h1 className="text-3xl font-semibold leading-tight">
             Uma visão só, para todas as empresas do grupo.
@@ -42,6 +40,7 @@ export default function LoginPage() {
 
       <div className="flex items-center justify-center p-6">
         <form onSubmit={submit} className="card w-full max-w-sm p-6">
+          <Logo size={48} className="mb-4 lg:hidden" />
           <h2 className="text-lg font-semibold">Entrar</h2>
           <p className="mt-1 text-sm text-slate-500">
             Use o e-mail cadastrado pelo administrador.

@@ -3,7 +3,6 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Building2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
-import { slugify } from '../../core/lib/format'
 import { useAuth } from '../../core/auth/AuthProvider'
 import {
   Badge,
@@ -11,7 +10,6 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorText,
-  Field,
   Loading,
   Modal,
   PageHeader,
@@ -19,20 +17,13 @@ import {
   useToast,
 } from '../../core/ui'
 import type { Company } from '../../core/types'
-
-const PALETTE = ['#0EA5E9', '#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#14B8A6', '#EC4899']
-
-const emptyForm = {
-  name: '',
-  slug: '',
-  legal_name: '',
-  tax_id: '',
-  sector: '',
-  description: '',
-  color: PALETTE[0],
-  display_order: 0,
-  is_active: true,
-}
+import {
+  COMPANY_PALETTE,
+  CompanyFields,
+  companyPayload,
+  emptyCompanyForm,
+  type CompanyFormState,
+} from './CompanyFields'
 
 export default function CompaniesPage() {
   const { refresh } = useAuth()
@@ -42,7 +33,7 @@ export default function CompaniesPage() {
   const [editing, setEditing] = useState<Company | null>(null)
   const [creating, setCreating] = useState(false)
   const [removing, setRemoving] = useState<Company | null>(null)
-  const [form, setForm] = useState(emptyForm)
+  const [form, setForm] = useState<CompanyFormState>(emptyCompanyForm)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -63,7 +54,11 @@ export default function CompaniesPage() {
   }, [])
 
   const openCreate = () => {
-    setForm({ ...emptyForm, color: PALETTE[companies.length % PALETTE.length], display_order: companies.length })
+    setForm({
+      ...emptyCompanyForm,
+      color: COMPANY_PALETTE[companies.length % COMPANY_PALETTE.length],
+      display_order: companies.length,
+    })
     setError('')
     setCreating(true)
   }
@@ -84,22 +79,16 @@ export default function CompaniesPage() {
     setEditing(company)
   }
 
+  const close = () => {
+    setCreating(false)
+    setEditing(null)
+  }
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setError('')
 
-    const payload = {
-      name: form.name.trim(),
-      slug: (form.slug.trim() || slugify(form.name)) || slugify(form.name),
-      legal_name: form.legal_name.trim() || null,
-      tax_id: form.tax_id.trim() || null,
-      sector: form.sector.trim() || null,
-      description: form.description.trim() || null,
-      color: form.color,
-      display_order: Number(form.display_order) || 0,
-      is_active: form.is_active,
-    }
-
+    const payload = companyPayload(form)
     if (!payload.name) {
       setError('Informe o nome da empresa.')
       return
@@ -121,8 +110,7 @@ export default function CompaniesPage() {
     }
 
     notify(editing ? 'Empresa atualizada.' : 'Empresa criada.')
-    setCreating(false)
-    setEditing(null)
+    close()
     await load()
     await refresh()
   }
@@ -142,100 +130,6 @@ export default function CompaniesPage() {
     await load()
     await refresh()
   }
-
-  const formFields = (
-    <form id="company-form" onSubmit={submit} className="space-y-4">
-      <Field label="Nome da empresa">
-        <input
-          className="input"
-          required
-          value={form.name}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              name: event.target.value,
-              slug: editing ? current.slug : slugify(event.target.value),
-            }))
-          }
-        />
-      </Field>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Identificador" hint="Usado em URLs. Só letras, números e hífen.">
-          <input
-            className="input"
-            value={form.slug}
-            onChange={(event) => setForm((c) => ({ ...c, slug: slugify(event.target.value) }))}
-          />
-        </Field>
-        <Field label="Setor">
-          <input
-            className="input"
-            placeholder="Contabilidade, Varejo…"
-            value={form.sector}
-            onChange={(event) => setForm((c) => ({ ...c, sector: event.target.value }))}
-          />
-        </Field>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Razão social">
-          <input
-            className="input"
-            value={form.legal_name}
-            onChange={(event) => setForm((c) => ({ ...c, legal_name: event.target.value }))}
-          />
-        </Field>
-        <Field label="CNPJ">
-          <input
-            className="input"
-            value={form.tax_id}
-            onChange={(event) => setForm((c) => ({ ...c, tax_id: event.target.value }))}
-          />
-        </Field>
-      </div>
-      <Field label="Descrição">
-        <textarea
-          className="input min-h-20"
-          value={form.description}
-          onChange={(event) => setForm((c) => ({ ...c, description: event.target.value }))}
-        />
-      </Field>
-      <Field label="Cor da aba">
-        <div className="flex flex-wrap gap-2">
-          {PALETTE.map((color) => (
-            <button
-              key={color}
-              type="button"
-              onClick={() => setForm((c) => ({ ...c, color }))}
-              className={`h-8 w-8 rounded-full border-2 transition ${
-                form.color === color ? 'border-ink-900 scale-110' : 'border-transparent'
-              }`}
-              style={{ backgroundColor: color }}
-              aria-label={`Cor ${color}`}
-            />
-          ))}
-        </div>
-      </Field>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Ordem na barra de abas">
-          <input
-            className="input"
-            type="number"
-            value={form.display_order}
-            onChange={(event) => setForm((c) => ({ ...c, display_order: Number(event.target.value) }))}
-          />
-        </Field>
-        <label className="flex items-end gap-2 pb-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.is_active}
-            onChange={(event) => setForm((c) => ({ ...c, is_active: event.target.checked }))}
-          />
-          Empresa ativa
-        </label>
-      </div>
-      {error && <ErrorText>{error}</ErrorText>}
-    </form>
-  )
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -264,7 +158,7 @@ export default function CompaniesPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {companies.map((company) => (
-            <Card key={company.id} className="overflow-hidden">
+            <Card key={company.id}>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
                   <span
@@ -275,7 +169,9 @@ export default function CompaniesPage() {
                   </span>
                   <div>
                     <p className="font-medium text-ink-900">{company.name}</p>
-                    <p className="text-xs text-slate-500">{company.sector || 'Sem setor definido'}</p>
+                    <p className="text-xs text-slate-500">
+                      {company.sector || 'Sem setor definido'}
+                    </p>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {company.is_holding && <Badge tone="violet">Holding</Badge>}
                       {!company.is_active && <Badge tone="amber">Inativa</Badge>}
@@ -323,20 +219,10 @@ export default function CompaniesPage() {
         open={creating || Boolean(editing)}
         title={editing ? `Editar ${editing.name}` : 'Nova empresa'}
         description="A empresa aparece como uma aba no topo para quem tiver acesso."
-        onClose={() => {
-          setCreating(false)
-          setEditing(null)
-        }}
+        onClose={close}
         footer={
           <>
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => {
-                setCreating(false)
-                setEditing(null)
-              }}
-            >
+            <button type="button" className="btn-ghost" onClick={close}>
               Cancelar
             </button>
             <button type="submit" form="company-form" className="btn-primary" disabled={busy}>
@@ -346,7 +232,14 @@ export default function CompaniesPage() {
           </>
         }
       >
-        {formFields}
+        <form id="company-form" onSubmit={submit}>
+          <CompanyFields form={form} setForm={setForm} lockSlug={Boolean(editing)} />
+          {error && (
+            <div className="mt-4">
+              <ErrorText>{error}</ErrorText>
+            </div>
+          )}
+        </form>
       </Modal>
 
       <ConfirmDialog

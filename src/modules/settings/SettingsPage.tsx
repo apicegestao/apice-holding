@@ -1,32 +1,54 @@
-// Configurações da holding: chave da IA, senha padrão e modelo usado.
+// Configurações da holding: provedor de IA, chaves, modelo e a senha padrão.
+// A lista de modelos vem da API do provedor, não de uma lista fixa aqui.
 import { useCallback, useEffect, useState } from 'react'
+import { RefreshCw, Sparkles } from 'lucide-react'
 import { callFunction } from '../../core/lib/supabase'
 import { Card, ErrorText, Field, Loading, PageHeader, Spinner, useToast } from '../../core/ui'
 
 type Settings = Record<string, string | null>
+type ModelOption = { id: string; label: string }
+type Provider = 'gemini' | 'anthropic'
 
-const MODELS = [
-  { value: 'claude-opus-5', label: 'Claude Opus 5 — leitura mais profunda' },
-  { value: 'claude-sonnet-5', label: 'Claude Sonnet 5 — mais barato e rápido' },
+const PROVIDERS: { value: Provider; label: string; hint: string; keyName: string; placeholder: string }[] = [
+  {
+    value: 'gemini',
+    label: 'Gemini (Google)',
+    hint: 'Padrão do sistema. Chave gerada no Google AI Studio.',
+    keyName: 'gemini_api_key',
+    placeholder: 'AIza…',
+  },
+  {
+    value: 'anthropic',
+    label: 'Claude (Anthropic)',
+    hint: 'Alternativa. Chave gerada no console da Anthropic.',
+    keyName: 'anthropic_api_key',
+    placeholder: 'sk-ant-…',
+  },
 ]
 
 export default function SettingsPage() {
   const { notify } = useToast()
   const [settings, setSettings] = useState<Settings>({})
   const [loading, setLoading] = useState(true)
+  const [provider, setProvider] = useState<Provider>('gemini')
   const [apiKey, setApiKey] = useState('')
+  const [model, setModel] = useState('')
+  const [models, setModels] = useState<ModelOption[]>([])
+  const [loadingModels, setLoadingModels] = useState(false)
   const [defaultPassword, setDefaultPassword] = useState('')
-  const [model, setModel] = useState('claude-opus-5')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+
+  const active = PROVIDERS.find((item) => item.value === provider)!
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const result = await callFunction<{ settings: Settings }>('admin-settings', { action: 'list' })
       setSettings(result.settings)
+      setProvider(result.settings.ai_provider === 'anthropic' ? 'anthropic' : 'gemini')
+      setModel(result.settings.insights_model ?? '')
       setDefaultPassword(result.settings.default_password ?? '')
-      setModel(result.settings.insights_model ?? 'claude-opus-5')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível carregar as configurações.')
     } finally {
@@ -38,25 +60,46 @@ export default function SettingsPage() {
     void load()
   }, [load])
 
-  const save = async (key: string, value: string) => {
+  const save = async (key: string, value: string, successMessage = 'Configuração salva.') => {
     if (!value.trim()) {
       notify('Informe um valor.', 'error')
-      return
+      return false
     }
     setBusy(key)
     try {
       await callFunction('admin-settings', { action: 'set', key, value })
-      notify('Configuração salva.')
-      if (key === 'anthropic_api_key') setApiKey('')
+      notify(successMessage)
+      if (key === active.keyName) setApiKey('')
       await load()
+      return true
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Falhou.', 'error')
+      return false
     } finally {
       setBusy(null)
     }
   }
 
+  const fetchModels = async () => {
+    setLoadingModels(true)
+    setModels([])
+    try {
+      const result = await callFunction<{ models: ModelOption[] }>('admin-settings', {
+        action: 'list_models',
+        provider,
+      })
+      setModels(result.models)
+      if (!result.models.length) notify('O provedor não devolveu modelos.', 'error')
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Falhou.', 'error')
+    } finally {
+      setLoadingModels(false)
+    }
+  }
+
   if (loading) return <Loading />
+
+  const keyConfigured = settings[active.keyName]
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -69,14 +112,46 @@ export default function SettingsPage() {
 
       <Card
         title="Inteligência artificial"
-        description="Necessária para gerar os insights nos painéis."
+        description="Usada para gerar os insights nos painéis."
       >
         <div className="space-y-4">
+          <Field asGroup label="Provedor">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {PROVIDERS.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  disabled={busy === 'ai_provider'}
+                  onClick={async () => {
+                    if (item.value === provider) return
+                    const ok = await save('ai_provider', item.value, `Provedor alterado para ${item.label}.`)
+                    if (ok) {
+                      setProvider(item.value)
+                      setModels([])
+                      setModel('')
+                    }
+                  }}
+                  className={`rounded-lg border px-3 py-2.5 text-left text-sm transition ${
+                    provider === item.value
+                      ? 'border-brand-500 bg-brand-50'
+                      : 'border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 font-medium text-ink-900">
+                    {provider === item.value && <Sparkles className="h-3.5 w-3.5 text-brand-600" />}
+                    {item.label}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-slate-500">{item.hint}</span>
+                </button>
+              ))}
+            </div>
+          </Field>
+
           <Field
-            label="Chave da API Anthropic"
+            label={`Chave da API — ${active.label}`}
             hint={
-              settings.anthropic_api_key
-                ? `Chave configurada: ${settings.anthropic_api_key}. Preencha só se quiser trocar.`
+              keyConfigured
+                ? `Chave configurada: ${keyConfigured}. Preencha só para trocar.`
                 : 'Ainda não configurada — os insights ficam indisponíveis até você salvar uma chave.'
             }
           >
@@ -85,40 +160,67 @@ export default function SettingsPage() {
                 className="input"
                 type="password"
                 autoComplete="off"
-                placeholder="sk-ant-..."
+                placeholder={active.placeholder}
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
               />
               <button
                 type="button"
                 className="btn-primary shrink-0"
-                disabled={busy === 'anthropic_api_key'}
-                onClick={() => void save('anthropic_api_key', apiKey)}
+                disabled={busy === active.keyName}
+                onClick={() => void save(active.keyName, apiKey)}
               >
-                {busy === 'anthropic_api_key' && <Spinner />}
+                {busy === active.keyName && <Spinner />}
                 Salvar
               </button>
             </div>
           </Field>
 
-          <Field label="Modelo usado nos insights">
+          <Field
+            label="Modelo"
+            hint={
+              model
+                ? 'Trocar aqui muda o modelo usado nos insights.'
+                : 'Em branco, o sistema pergunta ao provedor qual usar na primeira geração.'
+            }
+          >
             <div className="flex gap-2">
-              <select
-                className="input"
-                value={model}
-                onChange={(event) => setModel(event.target.value)}
-              >
-                {MODELS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
+              {models.length > 0 ? (
+                <select
+                  className="input"
+                  value={model}
+                  onChange={(event) => setModel(event.target.value)}
+                >
+                  <option value="">Escolher automaticamente</option>
+                  {models.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label} ({item.id})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="input"
+                  value={model}
+                  placeholder="automático"
+                  onChange={(event) => setModel(event.target.value)}
+                />
+              )}
               <button
                 type="button"
                 className="btn-ghost shrink-0"
+                disabled={loadingModels || !keyConfigured}
+                onClick={() => void fetchModels()}
+                title={keyConfigured ? 'Buscar os modelos disponíveis' : 'Salve a chave primeiro'}
+              >
+                {loadingModels ? <Spinner /> : <RefreshCw className="h-4 w-4" />}
+                Buscar
+              </button>
+              <button
+                type="button"
+                className="btn-primary shrink-0"
                 disabled={busy === 'insights_model'}
-                onClick={() => void save('insights_model', model)}
+                onClick={() => void save('insights_model', model || ' ', 'Modelo atualizado.')}
               >
                 {busy === 'insights_model' && <Spinner />}
                 Salvar

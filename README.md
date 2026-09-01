@@ -16,7 +16,7 @@ site Netlify e variáveis de ambiente próprios. Nada é compartilhado entre os 
 | Auth | Supabase Auth (e-mail + senha, senha padrão trocada no 1º acesso) |
 | Back-end | Supabase Edge Functions (Deno) |
 | Agendamento | pg_cron + pg_net no próprio banco |
-| IA | Claude (Anthropic) via Edge Function |
+| IA | Gemini (Google) por padrão, Claude (Anthropic) como alternativa |
 | Hospedagem | Netlify (SPA estática) |
 
 Projeto Supabase: `apice-holding` (`hhlxazpqonkfcgrcmzpp`, região `sa-east-1`).
@@ -40,6 +40,22 @@ nada da empresa Y**. Ela não depende do front-end.
   de SELECT**: nem o admin lê de volta pelo navegador; só a Edge Function.
 
 Os testes de isolamento estão descritos em [`docs/verificacao.md`](docs/verificacao.md).
+
+## Quem enxerga cada tarefa
+
+Tarefa não é automaticamente da empresa. Ao criar, escolhe-se uma das três:
+
+| Modo | Quem vê |
+| --- | --- |
+| **Só minha** (padrão) | O criador e o responsável. Nem o admin da holding enxerga. |
+| **Da empresa** | Todos que têm acesso àquela empresa. |
+| **Compartilhada** | Só quem for escolhido: uma ou várias empresas, e/ou pessoas específicas. |
+
+Isso é garantido pela RLS, não pela tela. Um usuário só compartilha com empresas
+das quais ele participa e com pessoas com quem já divide alguma empresa. O quadro
+de uma empresa mostra as tarefas dela **e** as que outras empresas compartilharam
+com ela; o painel da holding reúne todas as tarefas do usuário, em todas as
+empresas, inclusive as privadas dele.
 
 ## Papéis
 
@@ -71,7 +87,7 @@ src/
     ui/                kit compartilhado (Card, Modal, Toast, ConfirmDialog…)
     types.ts           tipos do domínio — fonte única de verdade
   modules/
-    companies/         cadastro das empresas do grupo
+    companies/         cadastro das empresas e os dados de cada uma
     dashboard/         painel da empresa e painel consolidado da holding
     kpis/              KPIs, lançamento por período e histórico
     goals/             metas, com ligação opcional a um KPI
@@ -92,7 +108,7 @@ Cada módulo é uma pasta fechada: mexer em Tarefas não obriga a abrir KPIs.
 | --- | --- | --- |
 | `admin-users` | sim | cria acesso com senha padrão, reseta senha, muda papel, inativa e exclui cadastro |
 | `admin-settings` | sim | lê e grava as configurações da holding (chave da IA mascarada na leitura) |
-| `ai-insights` | sim | monta o retrato de KPIs/metas/tarefas e pede insights ao Claude |
+| `ai-insights` | sim | monta o retrato de KPIs/metas/tarefas e pede insights ao provedor configurado |
 | `integrations-sync` | não | sincroniza integrações; autentica por JWT (manual) ou header assinado (cron) |
 
 `integrations-sync` roda sem `verify_jwt` porque o pg_cron não tem JWT — a
@@ -105,6 +121,26 @@ gerado no banco.
 | --- | --- | --- |
 | `apice_task_reminders` | a cada 5 min | transforma lembretes vencidos em notificação para o responsável |
 | `apice_integrations_sync` | a cada 5 min | chama `integrations-sync` para as integrações que já venceram o intervalo |
+
+## Inteligência artificial
+
+O provedor é escolhido em Holding → Configurações; o padrão é o **Gemini**.
+
+Nenhum identificador de modelo fica fixo no código. A tela busca a lista de
+modelos na API do próprio provedor, e quando nenhum está escolhido a Edge
+Function pergunta a lista e grava a escolha na primeira geração. Assim nada
+quebra quando um modelo é lançado ou aposentado.
+
+O código dos provedores mora em `supabase/functions/_shared/providers.ts`.
+Cada Edge Function é publicada sozinha, então rode `npm run sync:functions`
+depois de editar esse arquivo — ele copia para dentro de cada função.
+
+## Trocar o logo
+
+Todo o sistema aponta para `public/logo-apice.svg`. **Substitua esse arquivo**
+pelo SVG oficial da Ápice, mantendo o nome, e login, cabeçalho e favicon
+acompanham. O que está lá hoje é uma reprodução aproximada da marca, nas cores
+certas (`#DE4C22` e `#2B2FA0`).
 
 ## Integrações com outros sistemas
 

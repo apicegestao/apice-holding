@@ -66,19 +66,33 @@ export function Field({
   hint,
   children,
   className = '',
+  asGroup = false,
 }: {
   label: string
   hint?: string
   children: ReactNode
   className?: string
+  /** Para conjuntos de botões ou chips: <label> colaria o texto do rótulo
+   *  no nome acessível de cada botão. */
+  asGroup?: boolean
 }) {
-  return (
-    <label className={`block ${className}`}>
+  const content = (
+    <>
       <span className="label">{label}</span>
       {children}
       {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
-    </label>
+    </>
   )
+
+  if (asGroup) {
+    return (
+      <div role="group" aria-label={label} className={`block ${className}`}>
+        {content}
+      </div>
+    )
+  }
+
+  return <label className={`block ${className}`}>{content}</label>
 }
 
 export function Badge({

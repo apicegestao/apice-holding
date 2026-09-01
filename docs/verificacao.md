@@ -64,3 +64,31 @@ simuladas — vale conferir no primeiro uso real:
 - geração de insights pela `ai-insights` (também depende da chave da Anthropic);
 - sincronização de uma integração real e o disparo pelo pg_cron;
 - entrega dos lembretes de tarefa pelo job do banco.
+
+---
+
+## 4. Visibilidade das tarefas (segunda rodada)
+
+Mesmo método: usuários reais impersonados numa transação com `rollback`.
+Cenário: Ana e Bruno na Empresa A; Bruno também é admin da Empresa B.
+
+| Cenário | Resultado |
+| --- | --- |
+| Ana cria tarefa privada, da empresa e compartilhada | OK |
+| Ana compartilha com a Empresa B, onde ela não entra | bloqueado `42501` |
+| Ana compartilha com o Bruno, colega da mesma empresa | permitido |
+| Bruno lista as tarefas | vê "Da empresa" e "Compartilhada" — **não** vê a privada da Ana |
+| Bruno tenta editar a tarefa privada da Ana | sem efeito |
+| Quadro da Empresa A para o Bruno (`tasks_for_company`) | as duas visíveis, a privada fora |
+
+## 5. Interface (segunda rodada)
+
+Build limpo e as **16 rotas** do app autenticado percorridas no Chromium com o
+Supabase interceptado — nenhum erro de console ou exceção.
+
+**Um problema de acessibilidade foi encontrado e corrigido no caminho:** os
+grupos de botões (visibilidade da tarefa, paletas de cor, escolha do provedor)
+estavam dentro de `<label>`, o que gruda o texto do rótulo no nome acessível de
+cada botão — o leitor de tela anunciava "Quem enxerga esta tarefa Só minha".
+O componente `Field` ganhou o modo `asGroup`, que usa `role="group"` +
+`aria-label` no lugar do `<label>`.

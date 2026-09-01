@@ -488,7 +488,7 @@ export default function MindMapPage() {
                     }
                   />
                 </Field>
-                <Field label="Cor">
+                <Field asGroup label="Cor">
                   <div className="flex flex-wrap gap-2">
                     {PALETTE.map((color) => (
                       <button

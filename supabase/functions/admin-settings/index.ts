@@ -1,6 +1,8 @@
-// Configurações internas da holding (chave da IA, senha padrão do 1º acesso).
-// Somente super admin. Valores nunca voltam em texto puro — só mascarados.
+// Configurações internas da holding: provedor de IA, chaves, modelo e a senha
+// padrão do primeiro acesso. Somente super admin. As chaves nunca voltam em
+// texto puro — só mascaradas.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { listModels, type Provider } from './providers.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -20,9 +22,14 @@ const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } })
 
-// Chaves que o admin pode gerenciar pela interface.
-const EDITABLE = new Set(['anthropic_api_key', 'default_password', 'insights_model'])
-const SECRET = new Set(['anthropic_api_key'])
+const EDITABLE = new Set([
+  'ai_provider',
+  'gemini_api_key',
+  'anthropic_api_key',
+  'insights_model',
+  'default_password',
+])
+const SECRET = new Set(['gemini_api_key', 'anthropic_api_key'])
 
 function mask(key: string, value: string | null) {
   if (!value) return null
@@ -46,7 +53,12 @@ async function requireSuperAdmin(req: Request) {
     .eq('id', data.user.id)
     .maybeSingle()
 
-  return profile?.is_super_admin && profile.is_active ? profile.id as string : null
+  return profile?.is_super_admin && profile.is_active ? (profile.id as string) : null
+}
+
+async function readSetting(key: string) {
+  const { data } = await admin.rpc('get_system_setting', { p_key: key })
+  return (data as string | null) ?? null
 }
 
 Deno.serve(async (req) => {
@@ -63,23 +75,34 @@ Deno.serve(async (req) => {
     return json({ error: 'JSON inválido' }, 400)
   }
 
+  // ------------------------------------------------------------------ ler
   if (payload.action === 'list') {
-    const out: Record<string, string | null> = {}
+    const settings: Record<string, string | null> = {}
     for (const key of EDITABLE) {
-      const { data } = await admin.rpc('get_system_setting', { p_key: key })
-      out[key] = mask(key, data as string | null)
+      settings[key] = mask(key, await readSetting(key))
     }
-    return json({ settings: out })
+    // O padrão é o Gemini enquanto ninguém escolher outro.
+    settings.ai_provider = settings.ai_provider ?? 'gemini'
+    return json({ settings })
   }
 
+  // -------------------------------------------------------------- gravar
   if (payload.action === 'set') {
     const key = String(payload.key ?? '')
     const value = String(payload.value ?? '')
     if (!EDITABLE.has(key)) return json({ error: 'Configuração não editável' }, 400)
     if (!value) return json({ error: 'Valor obrigatório' }, 400)
+    if (key === 'ai_provider' && !['gemini', 'anthropic'].includes(value)) {
+      return json({ error: 'Provedor inválido' }, 400)
+    }
 
     const { error } = await admin.rpc('set_system_setting', { p_key: key, p_value: value })
     if (error) return json({ error: error.message }, 400)
+
+    // Trocar de provedor invalida o modelo escolhido para o anterior.
+    if (key === 'ai_provider') {
+      await admin.rpc('set_system_setting', { p_key: 'insights_model', p_value: '' })
+    }
 
     await admin.from('audit_logs').insert({
       actor_id: callerId,
@@ -89,6 +112,31 @@ Deno.serve(async (req) => {
       meta: SECRET.has(key) ? {} : { value },
     })
     return json({ ok: true })
+  }
+
+  // ------------------------------------------------- modelos disponíveis
+  // Perguntamos ao provedor em vez de manter uma lista fixa no código, que
+  // envelhece a cada lançamento.
+  if (payload.action === 'list_models') {
+    const provider: Provider =
+      payload.provider === 'anthropic'
+        ? 'anthropic'
+        : payload.provider === 'gemini'
+          ? 'gemini'
+          : ((await readSetting('ai_provider')) as Provider) ?? 'gemini'
+
+    const keyName = provider === 'anthropic' ? 'anthropic_api_key' : 'gemini_api_key'
+    const apiKey = await readSetting(keyName)
+    if (!apiKey) {
+      return json({ error: 'Salve a chave deste provedor antes de listar os modelos.' }, 400)
+    }
+
+    try {
+      const models = await listModels(provider, apiKey)
+      return json({ provider, models })
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : 'Falha ao listar modelos' }, 502)
+    }
   }
 
   return json({ error: 'Ação desconhecida' }, 400)

@@ -132,6 +132,19 @@ export type Goal = {
 
 export type TaskStatus = 'todo' | 'doing' | 'blocked' | 'done' | 'canceled'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
+export type TaskVisibility = 'private' | 'company' | 'shared'
+
+export const VISIBILITY_LABEL: Record<TaskVisibility, string> = {
+  private: 'Só minha',
+  company: 'Da empresa',
+  shared: 'Compartilhada',
+}
+
+export const VISIBILITY_HINT: Record<TaskVisibility, string> = {
+  private: 'Ninguém mais vê esta tarefa — nem o admin da holding.',
+  company: 'Todos que têm acesso a esta empresa enxergam.',
+  shared: 'Só quem você escolher: empresas e/ou pessoas específicas.',
+}
 
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   todo: 'A fazer',
@@ -160,12 +173,22 @@ export type Task = {
   reminder_sent_at: string | null
   priority: TaskPriority
   status: TaskStatus
+  visibility: TaskVisibility
   tags: string[]
   mind_map_node_id: string | null
   goal_id: string | null
   completed_at: string | null
   created_at: string
   updated_at: string
+}
+
+export type TaskShare = {
+  id: string
+  task_id: string
+  company_id: string | null
+  user_id: string | null
+  created_by: string | null
+  created_at: string
 }
 
 export type MindMap = {

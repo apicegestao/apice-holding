@@ -9,6 +9,7 @@ import ProfilePage from './ProfilePage'
 import HoldingDashboard from '../modules/dashboard/HoldingDashboard'
 import CompanyDashboard from '../modules/dashboard/CompanyDashboard'
 import CompaniesPage from '../modules/companies/CompaniesPage'
+import CompanySettingsPage from '../modules/companies/CompanySettingsPage'
 import KpisPage from '../modules/kpis/KpisPage'
 import GoalsPage from '../modules/goals/GoalsPage'
 import TasksPage from '../modules/tasks/TasksPage'
@@ -151,6 +152,7 @@ export default function App() {
           <Route path="insights" element={<InsightsPage scope="company" />} />
           <Route path="equipe" element={<UsersPage scope="company" />} />
           <Route path="auditoria" element={<AuditPage scope="company" />} />
+          <Route path="configuracoes" element={<CompanySettingsPage />} />
         </Route>
       </Route>
 

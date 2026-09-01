@@ -20,6 +20,7 @@ import {
   Users,
 } from 'lucide-react'
 import { useAuth } from '../core/auth/AuthProvider'
+import { Logo } from '../core/ui/Logo'
 import { supabase } from '../core/lib/supabase'
 import { formatDateTime, initials } from '../core/lib/format'
 import { ROLE_LABEL, type Notification } from '../core/types'
@@ -93,6 +94,7 @@ export default function AppLayout() {
         { to: `${base}/integracoes`, label: 'Integrações', icon: Cable },
         { to: `${base}/insights`, label: 'Insights de IA', icon: Sparkles },
         { to: `${base}/auditoria`, label: 'Auditoria', icon: ScrollText },
+        { to: `${base}/configuracoes`, label: 'Dados da empresa', icon: Settings },
       )
     }
     return items
@@ -106,20 +108,8 @@ export default function AppLayout() {
       {/* ------------------------------------------------------------ topo */}
       <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-900 text-white">
         <div className="flex items-center justify-between gap-4 px-4 py-2.5 sm:px-6">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="flex items-center gap-2 text-left"
-          >
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-500 font-bold">
-              Á
-            </span>
-            <span>
-              <span className="block text-sm font-semibold leading-tight">Ápice Holding</span>
-              <span className="block text-[11px] leading-tight text-slate-400">
-                Gestão do grupo
-              </span>
-            </span>
+          <button type="button" onClick={() => navigate('/')} className="text-left">
+            <Logo size={32} withWordmark subtitle="Gestão do grupo" tone="light" />
           </button>
 
           <div className="flex items-center gap-2">
@@ -286,7 +276,7 @@ export default function AppLayout() {
               to="/holding/empresas"
               className="flex shrink-0 items-center gap-1 px-3 py-2 text-sm text-slate-400 hover:text-white"
             >
-              + empresa
+              + Empresa
             </NavLink>
           )}
         </nav>

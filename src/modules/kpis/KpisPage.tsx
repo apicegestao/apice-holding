@@ -35,6 +35,7 @@ import {
   Spinner,
   useToast,
 } from '../../core/ui'
+import { KPI_CATALOG, KPI_CATEGORIES } from '../../core/catalog'
 import {
   FREQUENCY_LABEL,
   UNIT_LABEL,
@@ -390,6 +391,42 @@ export default function KpisPage() {
         }
       >
         <form id="kpi-form" onSubmit={submitKpi} className="space-y-4">
+          {!editingKpi && (
+            <Field
+              label="Partir de um indicador pronto"
+              hint="Preenche nome, unidade, direção e frequência. Você ajusta o que quiser depois."
+            >
+              <select
+                className="input"
+                value=""
+                onChange={(event) => {
+                  const template = KPI_CATALOG.find((item) => item.name === event.target.value)
+                  if (!template) return
+                  setKpiForm((c) => ({
+                    ...c,
+                    name: template.name,
+                    category: template.category,
+                    unit: template.unit,
+                    direction: template.direction,
+                    frequency: template.frequency,
+                    description: template.description,
+                  }))
+                }}
+              >
+                <option value="">Começar do zero</option>
+                {KPI_CATEGORIES.map((category) => (
+                  <optgroup key={category} label={category}>
+                    {KPI_CATALOG.filter((item) => item.category === category).map((item) => (
+                      <option key={item.name} value={item.name}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </Field>
+          )}
+
           <Field label="Nome do indicador">
             <input
               className="input"
@@ -403,10 +440,16 @@ export default function KpisPage() {
             <Field label="Categoria">
               <input
                 className="input"
+                list="kpi-categorias"
                 placeholder="Comercial, Financeiro…"
                 value={kpiForm.category}
                 onChange={(event) => setKpiForm((c) => ({ ...c, category: event.target.value }))}
               />
+              <datalist id="kpi-categorias">
+                {KPI_CATEGORIES.map((category) => (
+                  <option key={category} value={category} />
+                ))}
+              </datalist>
             </Field>
             <Field label="Frequência de medição">
               <select
