@@ -138,10 +138,17 @@ cria o primeiro admin da holding e a empresa controladora.
 ## Deploy (Netlify)
 
 Site **novo e separado** do `time-de-especialistas`:
+[`apice-holding`](https://app.netlify.com/projects/apice-holding) →
+https://apice-holding.netlify.app
 
-1. Netlify → Add new site → Import from Git → este repositório.
-2. Build: `npm run build` · Publish: `dist` (já em `netlify.toml`).
-3. Variáveis: `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
+Já configurado: `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` nas variáveis de
+ambiente, e o acesso ao site liberado (a autenticação do próprio sistema é a
+porta, não o login de time do Netlify). O build e o publish saem do
+`netlify.toml`.
+
+Falta apenas ligar o site a este repositório, o que dá o deploy contínuo a cada
+push: **Project configuration → Build & deploy → Link repository → GitHub →
+`apicegestao/apice-holding`**, branch `main`.
 
 ## Pendências conhecidas
 
@@ -151,3 +158,5 @@ Site **novo e separado** do `time-de-especialistas`:
   Enviar e-mail exige um provedor (Resend/SES) e uma Edge Function extra.
 - **Chave da Anthropic**: os insights só funcionam depois de salvá-la em
   Holding → Configurações.
+- **Deploy contínuo**: o site do Netlify existe e está configurado, mas ainda
+  não está ligado a este repositório (ver a seção de Deploy).
