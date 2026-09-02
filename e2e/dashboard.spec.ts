@@ -3,7 +3,7 @@
 // 390px) — assim qualquer recurso novo entra automaticamente na cobertura
 // dos dois formatos, sem depender de alguém lembrar de testar o celular.
 import { expect, test } from '@playwright/test'
-import { COMPANY_ID, COMPANY_ID_2, login, mockSupabase, ROUTES, USER_ID } from './fixtures'
+import { COMPANY_ID, COMPANY_ID_2, HOLDING_ID, login, mockSupabase, ROUTES, USER_ID } from './fixtures'
 
 // Todo input/select/textarea precisa ter pelo menos 16px no celular — abaixo
 // disso o Safari do iOS dá zoom sozinho ao focar o campo, e como as trocas de
@@ -133,6 +133,79 @@ test.describe('painel', () => {
     await expect(page.getByText('Hoje', { exact: true })).toBeVisible()
     await expect(page.getByText('Vibra puxa o resultado do grupo')).toBeVisible()
     await expect(page.getByText('MDD sem lançamento de faturamento há semanas')).toBeVisible()
+  })
+})
+
+// Busca no seletor de empresa (celular): só aparece com empresas de sobra
+// pra valer a pena, filtra sem acento/caixa, e mostra o "nenhuma encontrada"
+// quando a busca não bate com nada. Mock com mais empresas que o padrão da
+// suíte (2) — é isso que liga a busca.
+test.describe('seletor de empresa: busca', () => {
+  test('filtra a lista e ignora acento/caixa', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'Mobile 390', 'o seletor em menu suspenso só existe no celular')
+    await login(page)
+
+    const manyCompanies = [
+      { id: HOLDING_ID, name: 'Ápice Holding', slug: 'apice-holding', is_holding: true, parent_id: null },
+      { id: COMPANY_ID, name: 'MDD', slug: 'mdd', is_holding: false, parent_id: HOLDING_ID },
+      { id: COMPANY_ID_2, name: 'Vibra', slug: 'vibra', is_holding: false, parent_id: HOLDING_ID },
+      { id: 'c-orbita', name: 'Órbita Consultoria', slug: 'orbita', is_holding: false, parent_id: HOLDING_ID },
+      { id: 'c-nexus', name: 'Nexus Tech', slug: 'nexus', is_holding: false, parent_id: HOLDING_ID },
+      { id: 'c-fortaleza', name: 'Fortaleza Log', slug: 'fortaleza', is_holding: false, parent_id: HOLDING_ID },
+      { id: 'c-aurora', name: 'Aurora Eventos', slug: 'aurora', is_holding: false, parent_id: HOLDING_ID },
+    ].map((c) => ({
+      ...c,
+      legal_name: null,
+      tax_id: null,
+      sector: null,
+      description: null,
+      color: '#0EA5E9',
+      logo_url: null,
+      display_order: 0,
+      is_active: true,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }))
+
+    await page.route('**/rest/v1/companies*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(manyCompanies) })
+    })
+    await page.route('**/rest/v1/company_members*', async (route) => {
+      const rows = manyCompanies.map((c) => ({ company_id: c.id, user_id: USER_ID, role: 'admin', created_at: c.created_at }))
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+    })
+
+    await page.goto('/holding')
+    await page.waitForLoadState('networkidle')
+
+    // Escopado no próprio seletor — a holding tem tarefas de outras empresas
+    // na tela por trás, e "Vibra" também aparece lá.
+    const switcher = page.locator('div.md\\:hidden').first()
+    await switcher.locator('button').first().click()
+
+    const search = switcher.getByPlaceholder('Buscar empresa…')
+    await expect(search).toBeVisible()
+
+    await search.fill('vib')
+    await expect(switcher.getByRole('button', { name: /Vibra/ })).toBeVisible()
+    await expect(switcher.getByRole('button', { name: /^MDD/ })).toBeHidden()
+
+    // Sem acento e sem caixa acha "Órbita" mesmo assim.
+    await search.fill('orbita')
+    await expect(switcher.getByRole('button', { name: /Órbita/ })).toBeVisible()
+
+    await search.fill('empresa que não existe')
+    await expect(switcher.getByText('Nenhuma empresa encontrada.')).toBeVisible()
+  })
+
+  test('não aparece com poucas empresas', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'Mobile 390', 'o seletor em menu suspenso só existe no celular')
+    await login(page)
+    await page.goto('/holding')
+    await page.waitForLoadState('networkidle')
+    const switcher = page.locator('div.md\\:hidden').first()
+    await switcher.locator('button').first().click()
+    await expect(switcher.getByPlaceholder('Buscar empresa…')).toBeHidden()
   })
 })
 

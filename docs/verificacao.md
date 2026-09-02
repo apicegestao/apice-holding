@@ -703,3 +703,30 @@ o aviso informativo esperado ("RLS ligada, sem policy" — proposital, é
 `service_role` que usa esta tabela) e o de senha vazada (ajuste de
 configuração no painel do Supabase, fora do alcance de uma migração SQL).
 Edge Functions `admin-users` e `integrations-sync` redeployadas (v2 cada).
+
+---
+
+## 18. Busca no seletor de empresa (celular)
+
+Pedido direto: opção de pesquisar empresa dentro do menu suspenso de troca de
+empresa (a versão de celular do `CompanySwitcher`, abaixo do breakpoint `md`
+— no computador continua sendo a barra de abas de sempre, que não precisa
+disso porque já mostra tudo lado a lado).
+
+Campo de busca aparece só quando **compensa**: com mais de 5 empresas na
+lista. Pra 2 ou 3, procurar é mais lento que só olhar — e o campo sumir
+sozinho quando sobra pouca empresa evita uma tela mais cheia à toa. Busca
+ignora acento e caixa (`Ápice Holding` também aparece por "apice"), filtra só
+as empresas de verdade — "Holding" e "+ Empresa" continuam fixos, são atalho
+de navegação, não item de lista — e mostra "Nenhuma empresa encontrada"
+quando não bate com nada. Campo de busca reaproveita a classe `.input`
+padrão do sistema (mesma proteção contra zoom automático no iOS da rodada
+16) e fica fixo no topo do menu (`sticky`) enquanto a lista rola por baixo.
+
+**Verificação:** `npm run build`, `npm run test` (9/9) e
+`npm run check:contrast` (24/24) limpos. Duas rotinas novas em `e2e/`, só no
+projeto "Mobile 390" (é onde esse seletor existe): uma com 7 empresas
+simuladas confere que buscar "vib" acha só a Vibra, que "orbita" (sem
+acento) acha "Órbita Consultoria", e que uma busca sem resultado mostra o
+aviso; outra confere que o campo nem aparece com as 2 empresas padrão da
+suíte. `npm run test:e2e` subiu de 140 para **142 testes**.

@@ -213,7 +213,8 @@ formatado quando o campo perde o foco. As regras estão fixadas em testes
 
 O sistema é usado no celular tanto quanto no computador. O painel do usuário
 funciona nos dois formatos a partir dos mesmos componentes — a seleção de
-empresa vira menu suspenso abaixo do `md` (`CompanySwitcher.tsx`) — e todas as
+empresa vira menu suspenso abaixo do `md` (`CompanySwitcher.tsx`, com busca —
+ignora acento e caixa — quando a lista passa de 5 empresas) — e todas as
 rotas são auditadas a 390 px de largura: nenhuma pode gerar rolagem horizontal
 da página. Cada grid com colunas responsivas define uma coluna explícita
 também no celular (`grid-cols-1`), tabelas largas rolam dentro do próprio
@@ -235,14 +236,15 @@ contrário. O roteiro de verificação está em `docs/verificacao.md`.
 
 ## Testes automatizados (desktop + celular)
 
-`e2e/` tem uma suíte do Playwright (120 testes) que roda a mesma bateria em
+`e2e/` tem uma suíte do Playwright (142 testes) que roda a mesma bateria em
 dois formatos (`playwright.config.ts`, projetos "Desktop" e "Mobile 390")
 contra o Supabase simulado — sem rede de verdade. Ela cobre rolagem lateral
 em todas as rotas, o KPI sem lançamento continuar visível, os gráficos
-comparativos, o seletor de empresa certo em cada formato, dropdowns
-fechando ao clicar fora, os totais de orçamento calculados corretamente e —
-em todas as rotas, mais a tela de login — nenhum campo de formulário abrindo
-com zoom no celular. `.github/workflows/ci.yml` roda essa
+comparativos, o seletor de empresa certo em cada formato (busca incluída),
+dropdowns fechando ao clicar fora, os totais de orçamento calculados
+corretamente, nenhuma violação da Content-Security-Policy em nenhuma rota, e
+— em todas as rotas, mais a tela de login — nenhum campo de formulário
+abrindo com zoom no celular. `.github/workflows/ci.yml` roda essa
 suíte (mais build, testes unitários e contraste) em todo push e pull request,
 para que um recurso novo chegue nos dois formatos sem precisar ser pedido de
 novo.
