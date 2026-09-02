@@ -963,3 +963,132 @@ sistema (indicador do carrossel), então não abriu combinação nova pra
 auditar. `npm run test:e2e` sem regressão: nenhum teste fixava a ordem dos
 cards de empresa no painel da holding, então reordenar por urgência não
 quebrou nada.
+
+---
+
+## 22. Produtos e edições, consistência de dados, e mais inteligência no sistema
+
+Três pedidos abertos do usuário.
+
+### 1) Múltiplas frentes de produto/serviço dentro de uma empresa
+
+Caso real que motivou o pedido: a MDD (Mesa dos Donos) controla ao mesmo
+tempo "Entre Donos", "Imersão", "Mentoria" e "Club" — as duas primeiras com
+várias edições por ano (turmas, encontros), as outras rodando contínuo.
+Faltava um jeito de abrir e acompanhar cada frente separadamente dentro da
+mesma empresa.
+
+**Modelo escolhido — dois níveis:**
+- `products` — a frente em si, permanente (ex. "Entre Donos"). Cadastrada
+  uma vez, fica.
+- `product_editions` — uma rodada dela, com data (ex. "Turma 12"). Opcional:
+  frente contínua (Mentoria, Club) não precisa de nenhuma.
+
+KPI, tarefa e orçamento ganharam uma coluna opcional `product_id` (KPI e
+orçamento também `product_edition_id`) — **nullable**, então nada que já
+existia mudou de comportamento; quem nunca usar produto continua com um
+indicador "da empresa toda", exatamente como sempre foi.
+
+**O que foi construído:**
+- Migração `0024_products.sql`: as duas tabelas novas, guardas de
+  integridade (uma edição não pode apontar pra produto de outra empresa; um
+  KPI/orçamento com edição precisa que a edição seja do mesmo produto
+  escolhido — os mesmos `assert_*_company()` que já protegiam
+  `kpi_values`/`kpi_checkpoints`), RLS no padrão de todo módulo do sistema
+  (`app.is_member` pra ler, `app.can_write` pra escrever). Aplicada
+  diretamente no projeto de produção via Supabase MCP; `get_advisors`
+  conferido depois — nenhum alerta novo.
+- Nova página `/empresa/:id/produtos`: lista de produtos com uma barra de
+  "saúde da frente" (mesma conta de `attainmentRatio`, restrita aos KPIs
+  daquele produto) e a contagem de tarefas abertas; clicar num cartão abre
+  edição do produto e a lista de edições dele (adicionar, mudar situação,
+  excluir) — mesmo padrão de "orçamento → itens" que `BudgetsPage` já usava.
+- `KpisPage`: formulário de KPI ganha "Produto" e, se o produto tiver
+  edições, "Edição" (os dois opcionais, só aparecem se a empresa já tem
+  produto cadastrado). Cartão do KPI mostra a etiqueta do produto/edição.
+  Filtro por produto no topo da página — importante pra empresa com muitos
+  indicadores espalhados entre frentes diferentes.
+- `TaskFormModal`: mesmo campo opcional de produto.
+- Painel da empresa: novo card "Produtos", cada um com sua barra de saúde e
+  link pra gerenciar.
+- Painel da holding: `company_snapshots()` ganhou `products_active` (uma
+  função só, reaproveitada por toda tela que já a chama); cada cartão de
+  empresa mostra "N produto(s)" com link direto — é o "refletir na holding
+  pra controle" pedido.
+- `kpi_latest_values` (a view usada em quase toda tela) ganhou as colunas
+  `product_id`/`product_edition_id`, pra qualquer painel poder filtrar ou
+  agrupar por produto sem outra consulta.
+
+**Deixado de fora por ora** (a própria orientação do usuário foi "vamos
+adaptando o que achar necessário com o uso" — não travar tudo de uma vez):
+`budgets.product_id`/`product_edition_id` existem no banco, mas a tela de
+Orçamentos ainda não tem o seletor — um orçamento hoje já nomeia o evento
+livremente ("Imersão 2027.1"), e a ligação formal fica pra quando o uso
+real pedir. A holding não ganhou aba de Produtos própria — o conceito é de
+empresa operacional, do mesmo jeito que KPIs também não existem no nível da
+holding (conferido: o menu da holding nunca teve link de KPIs).
+
+### 2) Consistência: mudar um dado em um lugar reflete em todo o sistema
+
+Pergunta direta do usuário — "se mudo o título de uma meta, isso deve
+refletir em todos os pontos que esse título aparece". Resposta depois de
+auditar o banco inteiro (toda tabela, toda view): **já reflete, e por
+design.** O nome de um KPI mora numa única coluna (`kpis.name`); todo outro
+lugar do sistema — o painel da empresa, o painel da holding, a lista de
+KPIs, o histórico — lê esse nome através de uma referência (`kpi_id`) e uma
+`view`/`select` que busca o valor **na hora**, nunca uma cópia gravada à
+parte. O mesmo vale pra nome de empresa, título de tarefa, nome de produto:
+nenhuma tabela do sistema duplica o texto de outra só pra exibir mais
+rápido. Renomear um KPI e salvar já muda o texto em toda tela que o mostra,
+na próxima vez que ela carregar os dados (o padrão do sistema inteiro é
+recarregar a lista logo depois de qualquer salvamento, confirmado em cada
+módulo nesta sessão e nas anteriores).
+
+A única coisa que **não** muda com um rename — e é assim de propósito, não
+um bug — é o texto já registrado em notificações e auditoria: se uma
+notificação disse "Você é responsável por Faturamento" e o KPI depois vira
+"Receita Recorrente", a notificação antiga continua com o nome de quando
+foi criada, do mesmo jeito que um e-mail não se reescreve sozinho. É
+histórico, não um rótulo ao vivo.
+
+O que essa auditoria **não** cobre — e não é o que foi pedido — é
+sincronização em tempo real entre duas abas abertas ao mesmo tempo (o
+sistema não tem WebSocket/realtime; cada tela busca os dados quando é
+aberta). Se isso vier a ser necessário, é uma frente própria, maior, pra
+uma rodada dedicada.
+
+### 3) Mais inteligência — o que já foi resolvido nas duas frentes acima
+
+O pedido genérico de "melhorias que achar boas" ficou concentrado no
+módulo de produtos em si (a resposta mais concreta e útil pro caso real
+descrito) e no reforço de que a arquitetura de dados já é sólida —
+preferido a espalhar pequenos ajustes soltos por todo canto nesta rodada.
+
+**Verificação:** migração aplicada em produção via Supabase MCP;
+`get_advisors` (security) conferido antes e depois — mesmos dois avisos
+pré-existentes (RLS sem policy em `app.system_settings`, proposital; senha
+vazada, configuração do painel do Supabase), nenhum novo. `npx tsc
+--noEmit` e `npm run build` limpos. `npm run test` (13/13) e `npm run
+check:contrast` (24/24) limpos. Rota `/produtos` adicionada à lista de
+rotas cobertas pela suíte e2e (`ROUTES`, em `e2e/fixtures.ts`) — ganha de
+graça a checagem de "sem rolagem lateral" e "sem zoom automático no
+celular" nos dois formatos. `npm run test:e2e` subiu de 142 para
+**147 testes**, todos passando, sem regressão.
+
+### Bug encontrado de brinde: modal escondido atrás de outro modal
+
+Construindo a tela de edições (produto aberto → clicar "Editar produto"
+abre um segundo modal por cima), reparei que os dois modais renderizam com
+o mesmo `z-index` (`Modal`, em `core/ui`, é sempre `z-50`) — então, com dois
+abertos ao mesmo tempo, quem decide quem fica visível por cima não é a
+ordem em que foram abertos, é a ordem em que aparecem no JSX (empate de
+z-index resolve por ordem no DOM; confirmado com um teste isolado via
+Playwright). `ProductsPage` nasceu com essa ordem errada, copiada de
+`BudgetsPage` — e aí percebi que `BudgetsPage` tinha o mesmo problema desde
+que o módulo existe: abrir um orçamento (modal de detalhe) e clicar
+"Editar" nunca mostrava o formulário de edição — ele abria, sim, só que
+atrás do modal de detalhe, que continuava cobrindo a tela inteira.
+Corrigido nos dois arquivos: o modal "de fora" (detalhe/edições) agora é
+declarado antes do modal "de dentro" (form de editar) — comentário deixado
+em cada um explicando a ordem, pra ninguém inverter de novo sem querer.
+Nenhuma lógica mudou, só a posição dos blocos no JSX.

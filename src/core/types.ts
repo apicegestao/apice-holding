@@ -53,6 +53,48 @@ export type CompanyMember = {
   created_at: string
 }
 
+// ---------------------------------------------------------- produtos/frentes
+// Dentro de uma empresa, várias frentes de produto ou serviço (ex.: numa
+// empresa de eventos e cursos, "Entre Donos", "Imersão", "Mentoria", "Club").
+// Frente recorrente (Entre Donos, Imersão) cadastra uma edição por turma;
+// frente contínua (Mentoria, Club) pode não ter edição nenhuma — o produto
+// funciona sozinho. KPI, tarefa e orçamento se ligam a um produto (e,
+// quando existe, a uma edição) por uma coluna opcional — nada muda pra quem
+// não usa.
+export type Product = {
+  id: string
+  company_id: string
+  name: string
+  description: string | null
+  color: string | null
+  display_order: number
+  is_active: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ProductEditionStatus = 'planejamento' | 'em_andamento' | 'encerrado'
+
+export const PRODUCT_EDITION_STATUS_LABEL: Record<ProductEditionStatus, string> = {
+  planejamento: 'Planejamento',
+  em_andamento: 'Em andamento',
+  encerrado: 'Encerrado',
+}
+
+export type ProductEdition = {
+  id: string
+  product_id: string
+  company_id: string
+  name: string
+  start_date: string | null
+  end_date: string | null
+  status: ProductEditionStatus
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 export type KpiUnit = 'currency' | 'percent' | 'number' | 'days' | 'ratio'
 export type KpiDirection = 'up' | 'down'
 export type KpiFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
@@ -94,6 +136,11 @@ export type Kpi = {
   due_date: string | null
   owner_id: string | null
   status: GoalStatus
+  // Frente de produto/serviço (ex. "Entre Donos") e, se ela roda em turmas,
+  // a edição específica (ex. "Turma 12") — os dois opcionais, um KPI segue
+  // podendo ser só "da empresa" sem nenhum dos dois.
+  product_id: string | null
+  product_edition_id: string | null
 }
 
 /** Uma parcela semanal do alvo de um KPI com prazo — "essa semana precisa
@@ -186,6 +233,7 @@ export type Task = {
   tags: string[]
   mind_map_node_id: string | null
   kpi_id: string | null
+  product_id: string | null
   completed_at: string | null
   created_at: string
   updated_at: string
@@ -340,6 +388,7 @@ export type CompanySnapshot = {
   tasks_overdue: number
   tasks_done_30d: number
   members_total: number
+  products_active: number
   last_activity: string
 }
 
@@ -380,6 +429,8 @@ export type Budget = {
   event_date: string | null
   status: BudgetStatus
   owner_id: string | null
+  product_id: string | null
+  product_edition_id: string | null
   created_by: string | null
   created_at: string
   updated_at: string
@@ -418,4 +469,6 @@ export type KpiLatestValue = {
   due_date: string | null
   owner_id: string | null
   status: GoalStatus
+  product_id: string | null
+  product_edition_id: string | null
 }

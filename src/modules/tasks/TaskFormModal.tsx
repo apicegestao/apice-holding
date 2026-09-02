@@ -13,6 +13,7 @@ import {
   TASK_STATUS_LABEL,
   VISIBILITY_HINT,
   VISIBILITY_LABEL,
+  type Product,
   type Profile,
   type Task,
   type TaskChecklistItem,
@@ -32,6 +33,7 @@ type FormState = {
   title: string
   description: string
   assignee_id: string
+  product_id: string
   due_date: string
   remind_days_before: string
   remind_time: string
@@ -46,6 +48,7 @@ const blank: FormState = {
   title: '',
   description: '',
   assignee_id: '',
+  product_id: '',
   due_date: '',
   remind_days_before: '1',
   remind_time: '09:00',
@@ -75,6 +78,7 @@ export default function TaskFormModal({
 
   const [form, setForm] = useState<FormState>(blank)
   const [people, setPeople] = useState<Profile[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [shareCompanies, setShareCompanies] = useState<string[]>([])
   const [sharePeople, setSharePeople] = useState<string[]>([])
   const [allPeople, setAllPeople] = useState<Profile[]>([])
@@ -105,6 +109,7 @@ export default function TaskFormModal({
         title: task.title,
         description: task.description ?? '',
         assignee_id: task.assignee_id ?? '',
+        product_id: task.product_id ?? '',
         due_date: task.due_date ?? '',
         remind_days_before: task.remind_days_before?.toString() ?? '',
         remind_time: task.remind_time?.slice(0, 5) || '09:00',
@@ -287,6 +292,27 @@ export default function TaskFormModal({
     if (open) void loadPeople(form.company_id)
   }, [open, form.company_id, loadPeople])
 
+  // Produtos possíveis: as frentes cadastradas na empresa escolhida —
+  // "vincular a tarefa a um produto" só faz sentido depois de escolher a
+  // empresa, exatamente como o responsável.
+  const loadProducts = useCallback(async (companyId: string) => {
+    if (!companyId) {
+      setProducts([])
+      return
+    }
+    const { data } = await supabase
+      .from('products')
+      .select('*')
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+      .order('display_order')
+    setProducts((data as Product[]) ?? [])
+  }, [])
+
+  useEffect(() => {
+    if (open) void loadProducts(form.company_id)
+  }, [open, form.company_id, loadProducts])
+
   // Para compartilhar com uma pessoa específica: todo mundo que eu enxergo.
   useEffect(() => {
     if (!open || form.visibility !== 'shared' || allPeople.length) return
@@ -327,6 +353,7 @@ export default function TaskFormModal({
       title: form.title.trim(),
       description: form.description.trim() || null,
       assignee_id: form.assignee_id || null,
+      product_id: form.product_id || null,
       due_date: form.due_date || null,
       // remind_at é recalculado pelo próprio banco (trigger app.sync_task_reminder)
       // a partir de due_date + remind_days_before + remind_time — nada aqui.
@@ -411,7 +438,7 @@ export default function TaskFormModal({
               className="input"
               value={form.company_id}
               onChange={(event) =>
-                setForm((c) => ({ ...c, company_id: event.target.value, assignee_id: '' }))
+                setForm((c) => ({ ...c, company_id: event.target.value, assignee_id: '', product_id: '' }))
               }
             >
               {companyOptions.map((company) => (
@@ -465,6 +492,23 @@ export default function TaskFormModal({
             />
           </Field>
         </div>
+
+        {products.length > 0 && (
+          <Field label="Produto" hint="Opcional — deixe em branco se for uma tarefa geral da empresa.">
+            <select
+              className="input"
+              value={form.product_id}
+              onChange={(event) => setForm((c) => ({ ...c, product_id: event.target.value }))}
+            >
+              <option value="">Nenhum — tarefa da empresa toda</option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
 
         {/* Lembretes padrão: o responsável já é avisado quando a tarefa é
             atribuída. Com prazo definido, entram mais dois avisos automáticos

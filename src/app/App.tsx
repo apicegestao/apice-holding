@@ -15,6 +15,7 @@ import TasksPage from '../modules/tasks/TasksPage'
 import HoldingTasksPage from '../modules/tasks/HoldingTasksPage'
 import MindMapPage from '../modules/mindmap/MindMapPage'
 import BudgetsPage from '../modules/budgets/BudgetsPage'
+import ProductsPage from '../modules/products/ProductsPage'
 import IntegrationsPage from '../modules/integrations/IntegrationsPage'
 import InsightsPage from '../modules/insights/InsightsPage'
 import UsersPage from '../modules/users/UsersPage'
@@ -175,6 +176,7 @@ export default function App() {
               cai num lugar de verdade em vez de dar 404. */}
           <Route path="metas" element={<Navigate to="../kpis" replace />} />
           <Route path="tarefas" element={<TasksPage />} />
+          <Route path="produtos" element={<ProductsPage />} />
           <Route path="mapa-mental" element={<MindMapPage />} />
           <Route path="orcamentos" element={<BudgetsPage />} />
           <Route path="integracoes" element={<IntegrationsPage />} />

@@ -103,13 +103,24 @@ src/
                        repartição do alvo por semana); barra de progresso
                        meta × realizado em todo cartão de KPI e no
                        "Lançar valor", que pede só uma data de referência —
-                       a frequência do KPI já define o período
+                       a frequência do KPI já define o período; pode ligar o
+                       KPI a um produto (e a uma edição dele), com filtro por
+                       produto na lista
     tasks/             tarefas: quem, o quê, prazo e lembrete padrão (dias
                        antes + horário) — com subtarefas e notas editáveis
                        dentro da própria tarefa; quadro por empresa e um
                        consolidado de todo o grupo em /holding/tarefas; setas
                        de avançar/voltar em cada cartão do quadro, e marcar
-                       como concluída direto dos painéis (sem abrir a tarefa)
+                       como concluída direto dos painéis (sem abrir a tarefa);
+                       pode ligar a tarefa a um produto
+    products/          as frentes de produto/serviço de uma empresa (ex.:
+                       "Entre Donos", "Imersão", "Mentoria", "Club" — caso
+                       real que motivou o módulo). Frente recorrente cadastra
+                       uma edição por turma/encontro; frente contínua roda
+                       sem edição nenhuma. Cada produto mostra sua própria
+                       saúde (atingimento dos KPIs daquela frente) e conta de
+                       tarefas abertas — reflete no painel da empresa e, com
+                       a contagem de produtos ativos, no painel da holding
     mindmap/           mapa mental arrastável, organograma, fluxo lógico ou
                        linha do tempo automático, ramifica pra qualquer
                        lado; nó vira tarefa e edita o texto nele mesmo;
@@ -251,7 +262,7 @@ contrário. O roteiro de verificação está em `docs/verificacao.md`.
 
 ## Testes automatizados (desktop + celular)
 
-`e2e/` tem uma suíte do Playwright (142 testes) que roda a mesma bateria em
+`e2e/` tem uma suíte do Playwright (147 testes) que roda a mesma bateria em
 dois formatos (`playwright.config.ts`, projetos "Desktop" e "Mobile 390")
 contra o Supabase simulado — sem rede de verdade. Ela cobre rolagem lateral
 em todas as rotas, o KPI sem lançamento continuar visível, os gráficos

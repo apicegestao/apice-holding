@@ -8,6 +8,7 @@ import {
   Building2,
   CalendarClock,
   ClipboardList,
+  Layers,
   Lock,
   Network,
   Plus,
@@ -712,7 +713,7 @@ export default function HoldingDashboard() {
                     </ul>
                   )}
 
-                  <div className="mt-4 flex gap-2">
+                  <div className="mt-4 flex flex-wrap gap-2">
                     <Link to={`/empresa/${snapshot.company_id}`} className="btn-ghost py-1.5 text-xs">
                       <Target className="h-3.5 w-3.5" /> Painel
                     </Link>
@@ -722,6 +723,14 @@ export default function HoldingDashboard() {
                     >
                       <ClipboardList className="h-3.5 w-3.5" /> Tarefas
                     </Link>
+                    {Number(snapshot.products_active) > 0 && (
+                      <Link
+                        to={`/empresa/${snapshot.company_id}/produtos`}
+                        className="btn-ghost py-1.5 text-xs"
+                      >
+                        <Layers className="h-3.5 w-3.5" /> {snapshot.products_active} produto(s)
+                      </Link>
+                    )}
                   </div>
                 </Card>
               )

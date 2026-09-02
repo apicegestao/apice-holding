@@ -44,6 +44,7 @@ import {
   type Insight,
   type Kpi,
   type KpiLatestValue,
+  type Product,
   type Profile,
   type Task,
   type TaskStatus,
@@ -93,6 +94,7 @@ type KpiRow = {
   due_date: string | null
   owner_id: string | null
   status: GoalStatus
+  product_id: string | null
 }
 
 function StatTile({
@@ -135,30 +137,33 @@ export default function CompanyDashboard() {
   const [people, setPeople] = useState<Profile[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [kpiDefResult, kpiValueResult, memberResult, taskResult, insightResult] = await Promise.all([
-      supabase
-        .from('kpis')
-        .select('*')
-        .eq('company_id', company.id)
-        .eq('is_active', true)
-        .order('display_order'),
-      supabase.from('kpi_latest_values').select('*').eq('company_id', company.id),
-      supabase.from('company_members').select('user_id').eq('company_id', company.id),
-      supabase.from('tasks').select('*').eq('company_id', company.id),
-      isAdmin
-        ? supabase
-            .from('insights')
-            .select('*')
-            .eq('company_id', company.id)
-            .eq('is_archived', false)
-            .order('generated_at', { ascending: false })
-            .limit(3)
-        : Promise.resolve({ data: [] as Insight[] }),
-    ])
+    const [kpiDefResult, kpiValueResult, memberResult, taskResult, insightResult, productResult] =
+      await Promise.all([
+        supabase
+          .from('kpis')
+          .select('*')
+          .eq('company_id', company.id)
+          .eq('is_active', true)
+          .order('display_order'),
+        supabase.from('kpi_latest_values').select('*').eq('company_id', company.id),
+        supabase.from('company_members').select('user_id').eq('company_id', company.id),
+        supabase.from('tasks').select('*').eq('company_id', company.id),
+        isAdmin
+          ? supabase
+              .from('insights')
+              .select('*')
+              .eq('company_id', company.id)
+              .eq('is_archived', false)
+              .order('generated_at', { ascending: false })
+              .limit(3)
+          : Promise.resolve({ data: [] as Insight[] }),
+        supabase.from('products').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
+      ])
 
     const memberIds = (memberResult.data ?? []).map((row) => row.user_id)
     const { data: profileRows } = memberIds.length
@@ -170,6 +175,7 @@ export default function CompanyDashboard() {
     setPeople((profileRows as Profile[]) ?? [])
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
+    setProducts((productResult.data as Product[]) ?? [])
     setLoading(false)
   }, [company.id, isAdmin])
 
@@ -206,10 +212,32 @@ export default function CompanyDashboard() {
           due_date: def.due_date,
           owner_id: def.owner_id,
           status: def.status,
+          product_id: def.product_id,
         }
       }),
     [kpiDefs, kpiValues],
   )
+
+  // Saúde de cada produto: mesma conta da saúde geral da empresa (média do
+  // attainmentRatio dos KPIs com meta), restrita aos KPIs daquela frente —
+  // mais quantas tarefas dela estão abertas.
+  const productStats = useMemo(() => {
+    const map = new Map<string, { ratio: number | null; open: number }>()
+    for (const product of products) {
+      const ratios = kpiRows
+        .filter((row) => row.product_id === product.id && row.target_value !== null && Number(row.target_value) !== 0)
+        .map((row) => attainmentRatio(row.value, row.target_value, row.direction))
+        .filter((ratio): ratio is number => ratio !== null)
+      const open = tasks.filter(
+        (task) => task.product_id === product.id && ['todo', 'doing', 'blocked'].includes(task.status),
+      )
+      map.set(product.id, {
+        ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
+        open: open.length,
+      })
+    }
+    return map
+  }, [products, kpiRows, tasks])
 
   // Um KPI com prazo é também uma meta — mesma linha, sem cadastro à parte.
   const metas = useMemo(
@@ -364,6 +392,45 @@ export default function CompanyDashboard() {
           icon={AlertTriangle}
         />
       </div>
+
+      {products.length > 0 && (
+        <Card
+          title="Produtos"
+          description="A saúde de cada frente — clique pra abrir edições, KPIs e tarefas dela."
+          actions={
+            <Link to={`/empresa/${company.id}/produtos`} className="btn-ghost py-1.5 text-xs">
+              Gerenciar
+            </Link>
+          }
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {products.map((product) => {
+              const stats = productStats.get(product.id)
+              return (
+                <Link
+                  key={product.id}
+                  to={`/empresa/${company.id}/produtos`}
+                  className="block rounded-lg border border-line p-3 transition hover:border-line-strong hover:bg-hover"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: product.color ?? '#94A3B8' }}
+                    />
+                    <p className="min-w-0 truncate text-sm font-medium text-content">{product.name}</p>
+                  </div>
+                  <p className="mt-1 text-xs text-content-faint">{stats?.open ?? 0} tarefa(s) aberta(s)</p>
+                  {stats?.ratio !== null && stats?.ratio !== undefined && (
+                    <div className="mt-2">
+                      <ProgressBar ratio={stats.ratio} />
+                    </div>
+                  )}
+                </Link>
+              )
+            })}
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card

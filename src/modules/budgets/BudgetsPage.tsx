@@ -379,54 +379,11 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
         </div>
       )}
 
-      {/* --------------------------------------------------- novo/editar */}
-      <Modal
-        open={Boolean(budgetModal)}
-        title={budgetModal?.editing ? 'Editar orçamento' : 'Novo orçamento'}
-        onClose={() => setBudgetModal(null)}
-        width="max-w-md"
-        footer={
-          <>
-            <button type="button" className="btn-ghost" onClick={() => setBudgetModal(null)}>
-              Cancelar
-            </button>
-            <button type="submit" form="budget-form" className="btn-primary" disabled={busy}>
-              {busy && <Spinner />}
-              {budgetModal?.editing ? 'Salvar' : 'Criar'}
-            </button>
-          </>
-        }
-      >
-        <form id="budget-form" onSubmit={submitBudget} className="space-y-4">
-          <Field label="Nome do evento ou projeto">
-            <input
-              className="input"
-              required
-              autoFocus
-              value={budgetForm.title}
-              onChange={(event) => setBudgetForm((c) => ({ ...c, title: event.target.value }))}
-              placeholder="Imersão 2027, Confraternização de fim de ano…"
-            />
-          </Field>
-          <Field label="Descrição" hint="Opcional.">
-            <textarea
-              className="input min-h-16"
-              value={budgetForm.description}
-              onChange={(event) => setBudgetForm((c) => ({ ...c, description: event.target.value }))}
-            />
-          </Field>
-          <Field label="Data do evento" hint="Opcional — deixe em branco se ainda não tem data.">
-            <input
-              className="input"
-              type="date"
-              value={budgetForm.event_date}
-              onChange={(event) => setBudgetForm((c) => ({ ...c, event_date: event.target.value }))}
-            />
-          </Field>
-        </form>
-      </Modal>
-
-      {/* ------------------------------------------------------- detalhe */}
+      {/* ------------------------------------------------------- detalhe
+          Declarado ANTES do form de novo/editar de propósito: os dois usam
+          o mesmo z-index (Modal é sempre z-50) e, com os dois abertos ao
+          mesmo tempo (editar o orçamento de dentro do próprio detalhe), quem
+          vem depois no JSX é que fica visível por cima. */}
       <Modal
         open={Boolean(activeBudget)}
         title={activeBudget?.title ?? ''}
@@ -680,6 +637,54 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
             )}
           </div>
         )}
+      </Modal>
+
+      {/* --------------------------------------------------- novo/editar
+          Declarado DEPOIS do detalhe — ver comentário lá em cima. */}
+      <Modal
+        open={Boolean(budgetModal)}
+        title={budgetModal?.editing ? 'Editar orçamento' : 'Novo orçamento'}
+        onClose={() => setBudgetModal(null)}
+        width="max-w-md"
+        footer={
+          <>
+            <button type="button" className="btn-ghost" onClick={() => setBudgetModal(null)}>
+              Cancelar
+            </button>
+            <button type="submit" form="budget-form" className="btn-primary" disabled={busy}>
+              {busy && <Spinner />}
+              {budgetModal?.editing ? 'Salvar' : 'Criar'}
+            </button>
+          </>
+        }
+      >
+        <form id="budget-form" onSubmit={submitBudget} className="space-y-4">
+          <Field label="Nome do evento ou projeto">
+            <input
+              className="input"
+              required
+              autoFocus
+              value={budgetForm.title}
+              onChange={(event) => setBudgetForm((c) => ({ ...c, title: event.target.value }))}
+              placeholder="Imersão 2027, Confraternização de fim de ano…"
+            />
+          </Field>
+          <Field label="Descrição" hint="Opcional.">
+            <textarea
+              className="input min-h-16"
+              value={budgetForm.description}
+              onChange={(event) => setBudgetForm((c) => ({ ...c, description: event.target.value }))}
+            />
+          </Field>
+          <Field label="Data do evento" hint="Opcional — deixe em branco se ainda não tem data.">
+            <input
+              className="input"
+              type="date"
+              value={budgetForm.event_date}
+              onChange={(event) => setBudgetForm((c) => ({ ...c, event_date: event.target.value }))}
+            />
+          </Field>
+        </form>
       </Modal>
 
       <ConfirmDialog

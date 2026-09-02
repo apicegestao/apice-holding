@@ -63,6 +63,8 @@ import {
   type KpiFrequency,
   type KpiUnit,
   type KpiValue,
+  type Product,
+  type ProductEdition,
   type Profile,
 } from '../../core/types'
 
@@ -89,6 +91,8 @@ const emptyKpi = {
   due_date: '',
   owner_id: '',
   status: 'active' as GoalStatus,
+  product_id: '',
+  product_edition_id: '',
 }
 
 export default function KpisPage() {
@@ -101,6 +105,9 @@ export default function KpisPage() {
   const [values, setValues] = useState<KpiValue[]>([])
   const [people, setPeople] = useState<Profile[]>([])
   const [checkpoints, setCheckpoints] = useState<KpiCheckpoint[]>([])
+  const [products, setProducts] = useState<Product[]>([])
+  const [editions, setEditions] = useState<ProductEdition[]>([])
+  const [productFilter, setProductFilter] = useState('')
   const [loading, setLoading] = useState(true)
 
   const [kpiForm, setKpiForm] = useState(emptyKpi)
@@ -116,15 +123,18 @@ export default function KpisPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: kpiRows }, { data: memberRows }] = await Promise.all([
-      supabase
-        .from('kpis')
-        .select('*')
-        .eq('company_id', company.id)
-        .order('display_order')
-        .order('name'),
-      supabase.from('company_members').select('user_id').eq('company_id', company.id),
-    ])
+    const [{ data: kpiRows }, { data: memberRows }, { data: productRows }, { data: editionRows }] =
+      await Promise.all([
+        supabase
+          .from('kpis')
+          .select('*')
+          .eq('company_id', company.id)
+          .order('display_order')
+          .order('name'),
+        supabase.from('company_members').select('user_id').eq('company_id', company.id),
+        supabase.from('products').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
+        supabase.from('product_editions').select('*').eq('company_id', company.id),
+      ])
 
     const ids = (kpiRows ?? []).map((row) => row.id)
     const [{ data: valueRows }, { data: checkpointRows }] = await Promise.all([
@@ -145,6 +155,8 @@ export default function KpisPage() {
     setValues((valueRows as KpiValue[]) ?? [])
     setCheckpoints((checkpointRows as KpiCheckpoint[]) ?? [])
     setPeople((profileRows as Profile[]) ?? [])
+    setProducts((productRows as Product[]) ?? [])
+    setEditions((editionRows as ProductEdition[]) ?? [])
     setLoading(false)
   }, [company.id])
 
@@ -245,6 +257,8 @@ export default function KpisPage() {
       due_date: kpi.due_date ?? '',
       owner_id: kpi.owner_id ?? '',
       status: kpi.status,
+      product_id: kpi.product_id ?? '',
+      product_edition_id: kpi.product_edition_id ?? '',
     })
     setError('')
     setEditingKpi(kpi)
@@ -267,6 +281,11 @@ export default function KpisPage() {
       due_date: kpiForm.due_date || null,
       owner_id: kpiForm.owner_id || null,
       status: kpiForm.status,
+      product_id: kpiForm.product_id || null,
+      // Edição só faz sentido junto do produto — trocar o produto e deixar
+      // a edição antiga presa nele seria o mesmo bug que a guarda no banco
+      // (assert_kpi_product) já rejeitaria; melhor nem tentar gravar.
+      product_edition_id: kpiForm.product_id ? kpiForm.product_edition_id || null : null,
     }
 
     if (!payload.name) {
@@ -312,6 +331,15 @@ export default function KpisPage() {
   const ownerName = (id: string | null) =>
     id ? (people.find((person) => person.id === id)?.full_name ?? '—') : null
 
+  const productName = (id: string | null) => (id ? products.find((item) => item.id === id)?.name : null) ?? null
+  const editionsForProduct = (productId: string) =>
+    editions.filter((edition) => edition.product_id === productId)
+
+  const visibleKpis = useMemo(
+    () => (productFilter ? kpis.filter((kpi) => kpi.product_id === productFilter) : kpis),
+    [kpis, productFilter],
+  )
+
   const checkpointsByKpi = useMemo(() => {
     const map = new Map<string, KpiCheckpoint[]>()
     for (const checkpoint of checkpoints) {
@@ -328,11 +356,28 @@ export default function KpisPage() {
         title={`KPIs e metas · ${company.name}`}
         subtitle="Indicadores desta empresa. Um KPI com prazo já é a meta — com responsável e andamento."
         actions={
-          canWrite && (
-            <button type="button" className="btn-primary" onClick={openCreate}>
-              <Plus className="h-4 w-4" /> Novo KPI
-            </button>
-          )
+          <>
+            {products.length > 0 && (
+              <select
+                className="input w-auto"
+                value={productFilter}
+                onChange={(event) => setProductFilter(event.target.value)}
+                aria-label="Filtrar por produto"
+              >
+                <option value="">Todos os produtos</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {canWrite && (
+              <button type="button" className="btn-primary" onClick={openCreate}>
+                <Plus className="h-4 w-4" /> Novo KPI
+              </button>
+            )}
+          </>
         }
       />
 
@@ -350,9 +395,14 @@ export default function KpisPage() {
             )
           }
         />
+      ) : visibleKpis.length === 0 ? (
+        <EmptyState
+          title="Nenhum KPI neste produto"
+          description="Troque o filtro ou cadastre um indicador vinculado a este produto."
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {kpis.map((kpi) => {
+          {visibleKpis.map((kpi) => {
             const series = seriesByKpi.get(kpi.id) ?? []
             const latest = series[series.length - 1]
             const previous = series[series.length - 2]
@@ -385,6 +435,15 @@ export default function KpisPage() {
                       {kpi.category ? `${kpi.category} · ` : ''}
                       {FREQUENCY_LABEL[kpi.frequency]}
                     </p>
+                    {kpi.product_id && (
+                      <p className="mt-1">
+                        <Badge tone="violet">
+                          {productName(kpi.product_id)}
+                          {kpi.product_edition_id &&
+                            ` · ${editions.find((edition) => edition.id === kpi.product_edition_id)?.name ?? ''}`}
+                        </Badge>
+                      </p>
+                    )}
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <button
@@ -623,6 +682,42 @@ export default function KpisPage() {
               onChange={(event) => setKpiForm((c) => ({ ...c, name: event.target.value }))}
             />
           </Field>
+          {products.length > 0 && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Produto" hint="Opcional — deixe em branco pra um KPI geral da empresa.">
+                <select
+                  className="input"
+                  value={kpiForm.product_id}
+                  onChange={(event) =>
+                    setKpiForm((c) => ({ ...c, product_id: event.target.value, product_edition_id: '' }))
+                  }
+                >
+                  <option value="">Nenhum — indicador da empresa toda</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {kpiForm.product_id && editionsForProduct(kpiForm.product_id).length > 0 && (
+                <Field label="Edição" hint="Opcional — só se este KPI for de uma turma específica.">
+                  <select
+                    className="input"
+                    value={kpiForm.product_edition_id}
+                    onChange={(event) => setKpiForm((c) => ({ ...c, product_edition_id: event.target.value }))}
+                  >
+                    <option value="">Todas as edições (o produto como um todo)</option>
+                    {editionsForProduct(kpiForm.product_id).map((edition) => (
+                      <option key={edition.id} value={edition.id}>
+                        {edition.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Categoria">
               <input

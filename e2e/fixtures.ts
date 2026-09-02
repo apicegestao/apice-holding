@@ -540,6 +540,7 @@ export const ROUTES: [string, string][] = [
   // num lugar de verdade em vez de dar 404.
   [`/empresa/${COMPANY_ID_2}/metas`, 'Metas (link antigo redireciona)'],
   [`/empresa/${COMPANY_ID_2}/tarefas`, 'Tarefas'],
+  [`/empresa/${COMPANY_ID_2}/produtos`, 'Produtos'],
   [`/empresa/${COMPANY_ID_2}/mapa-mental`, 'Mapa mental'],
   [`/empresa/${COMPANY_ID_2}/orcamentos`, 'Orçamentos'],
   [`/empresa/${COMPANY_ID_2}/equipe`, 'Equipe'],
