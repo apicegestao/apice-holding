@@ -349,7 +349,6 @@ export const TASKS = [
     status: 'todo',
     visibility: 'company',
     tags: ['financeiro', 'urgente'],
-    mind_map_node_id: null,
     kpi_id: null,
     completed_at: null,
     created_at: '2026-08-01T00:00:00Z',
@@ -369,7 +368,6 @@ export const TASKS = [
     status: 'doing',
     visibility: 'private',
     tags: [],
-    mind_map_node_id: null,
     kpi_id: null,
     completed_at: null,
     created_at: '2026-08-01T00:00:00Z',
@@ -389,7 +387,6 @@ export const TASKS = [
     status: 'done',
     visibility: 'company',
     tags: [],
-    mind_map_node_id: null,
     kpi_id: null,
     completed_at: '2026-08-15T00:00:00Z',
     created_at: '2026-08-01T00:00:00Z',
@@ -454,42 +451,18 @@ export const SNAPSHOTS = [
   },
 ]
 
-const MAP_ID = '88888888-8888-8888-8888-888888888881'
-const MAPS = [
+// Nota é privada de quem escreveu (RLS: user_id = auth.uid()) — como o mock
+// da REST não simula RLS, a fixture já representa o que o próprio USER_ID
+// enxergaria: só as notas dele.
+export const NOTES = [
   {
-    id: MAP_ID,
+    id: 'note1',
     company_id: HOLDING_ID,
-    title: 'Ideias gerais',
-    description: null,
-    created_by: USER_ID,
+    user_id: USER_ID,
+    title: 'Ideias para 2027',
+    body: 'Expansão para Curitiba — estudar viabilidade antes do orçamento anual.',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
-  },
-]
-const NODES = [
-  {
-    id: 'n1',
-    map_id: MAP_ID,
-    company_id: HOLDING_ID,
-    parent_id: null,
-    label: 'Expansão 2027',
-    notes: null,
-    color: '#0EA5E9',
-    position_x: 320,
-    position_y: 220,
-    collapsed: false,
-  },
-  {
-    id: 'n2',
-    map_id: MAP_ID,
-    company_id: HOLDING_ID,
-    parent_id: 'n1',
-    label: 'Nova filial em Curitiba',
-    notes: 'Estudar viabilidade',
-    color: '#10B981',
-    position_x: 580,
-    position_y: 180,
-    collapsed: false,
   },
 ]
 
@@ -596,8 +569,7 @@ const TABLES: Record<string, unknown[]> = {
   kpi_checkpoints: [],
   task_checklist_items: [],
   task_comments: [],
-  mind_maps: MAPS,
-  mind_map_nodes: NODES,
+  notes: NOTES,
   budgets: BUDGETS,
   budget_items: BUDGET_ITEMS,
   integrations: [],
@@ -653,7 +625,7 @@ export const ROUTES: [string, string][] = [
   ['/holding/empresas', 'Empresas'],
   ['/holding/usuarios', 'Usuários'],
   ['/holding/insights', 'Insights'],
-  ['/holding/mapa-mental', 'Mapa da holding'],
+  ['/holding/notas', 'Notas da holding'],
   ['/holding/orcamentos', 'Orçamentos da holding'],
   ['/holding/auditoria', 'Auditoria'],
   ['/holding/configuracoes', 'Configurações'],
@@ -665,7 +637,7 @@ export const ROUTES: [string, string][] = [
   [`/empresa/${COMPANY_ID_2}/metas`, 'Metas (link antigo redireciona)'],
   [`/empresa/${COMPANY_ID_2}/tarefas`, 'Tarefas'],
   [`/empresa/${COMPANY_ID_2}/produtos`, 'Produtos'],
-  [`/empresa/${COMPANY_ID_2}/mapa-mental`, 'Mapa mental'],
+  [`/empresa/${COMPANY_ID_2}/notas`, 'Notas'],
   [`/empresa/${COMPANY_ID_2}/orcamentos`, 'Orçamentos'],
   [`/empresa/${COMPANY_ID_2}/equipe`, 'Equipe'],
   [`/empresa/${COMPANY_ID_2}/integracoes`, 'Integrações'],

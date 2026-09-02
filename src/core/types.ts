@@ -11,7 +11,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const ROLE_HINT: Record<Role, string> = {
   admin: 'Configura a empresa, gerencia acessos e integrações.',
-  collaborator: 'Lança KPIs, cria tarefas e edita o mapa mental.',
+  collaborator: 'Lança KPIs e cria tarefas.',
   viewer: 'Só visualiza — e conclui as tarefas atribuídas a ele.',
 }
 
@@ -261,7 +261,6 @@ export type Task = {
   status: TaskStatus
   visibility: TaskVisibility
   tags: string[]
-  mind_map_node_id: string | null
   kpi_id: string | null
   product_id: string | null
   completed_at: string | null
@@ -298,26 +297,18 @@ export type TaskComment = {
   created_at: string
 }
 
-export type MindMap = {
+// Bloco de notas pessoal — veio no lugar do mapa mental. A diferença que
+// importa não é a interface (lista simples em vez de canvas), é a
+// privacidade: RLS restringe leitura e escrita a user_id = auth.uid(), nem
+// outro admin da mesma empresa enxerga a nota de alguém.
+export type Note = {
   id: string
   company_id: string
+  user_id: string
   title: string
-  description: string | null
+  body: string
   created_at: string
   updated_at: string
-}
-
-export type MindMapNode = {
-  id: string
-  map_id: string
-  company_id: string
-  parent_id: string | null
-  label: string
-  notes: string | null
-  color: string
-  position_x: number
-  position_y: number
-  collapsed: boolean
 }
 
 export type IntegrationStatus = 'idle' | 'running' | 'success' | 'error'

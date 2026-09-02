@@ -718,7 +718,7 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
 }
 
 // O orçamento da holding é o orçamento da empresa controladora: mesma
-// tabela, mesma RLS — igual ao mapa mental e às tarefas da holding.
+// tabela, mesma RLS — igual às notas e às tarefas da holding.
 function CompanyBudgets() {
   const { company, canWrite } = useCompany()
   return <BudgetsBoard company={company} canWrite={canWrite} />

@@ -1,8 +1,8 @@
 # Ápice Holding
 
 Sistema central de gestão do grupo. Uma aba por empresa, cada uma com painel,
-KPIs, metas, tarefas e mapa mental próprios — e um painel consolidado da holding
-por cima de tudo.
+KPIs, metas, tarefas e bloco de notas próprios — e um painel consolidado da
+holding por cima de tudo.
 
 Projeto **isolado** do `time-de-especialistas`: repositório, projeto Supabase,
 site Netlify e variáveis de ambiente próprios. Nada é compartilhado entre os dois.
@@ -63,7 +63,7 @@ empresas, inclusive as privadas dele.
 | --- | --- |
 | **Admin da holding** (`profiles.is_super_admin`) | Enxerga e administra todas as empresas, cria empresas, gerencia usuários e configurações |
 | **Admin** (por empresa) | Configura a empresa, gerencia acessos, integrações e insights |
-| **Colaborador** | Lança KPIs, cria metas e tarefas, edita o mapa mental |
+| **Colaborador** | Lança KPIs, cria metas e tarefas |
 | **Usuário** | Só visualiza — e conclui as tarefas atribuídas a ele |
 
 ## Primeiro acesso
@@ -141,11 +141,12 @@ src/
                        KPIs dela) e conta de tarefas abertas; reflete no
                        painel da empresa e, com a contagem de produtos
                        ativos, no painel da holding
-    mindmap/           mapa mental arrastável, organograma, fluxo lógico ou
-                       linha do tempo automático, ramifica pra qualquer
-                       lado; nó vira tarefa e edita o texto nele mesmo;
-                       editar um nó abre um botão/modal, não uma barra
-                       lateral fixa — o canvas fica com o espaço todo
+    notes/             bloco de notas pessoal — substituiu o mapa mental, que
+                       quase ninguém usava. Sem canvas nem organograma: só
+                       escrever e guardar. A diferença que importa não é a
+                       interface, é a privacidade — RLS restringe leitura e
+                       escrita a quem escreveu (user_id = auth.uid()), nem
+                       outro admin da mesma empresa enxerga a nota de alguém
     budgets/           orçamento por evento/projeto: linhas de receita e
                        despesa (cotação → aprovado → pago/recebido, previsto
                        e realizado lado a lado), barra de execução da
@@ -166,7 +167,7 @@ Cada módulo é uma pasta fechada: mexer em Tarefas não obriga a abrir KPIs.
 | --- | --- | --- |
 | `admin-users` | sim | cria acesso com senha padrão, reseta senha, muda papel, inativa e exclui cadastro |
 | `admin-settings` | sim | lê e grava as configurações da holding (chave da IA mascarada na leitura) |
-| `ai-insights` | não | monta o retrato de KPIs/metas, tarefas, mapa mental, orçamentos e integrações, e pede insights ao provedor configurado; autentica por JWT (botão "Gerar Insights") ou header assinado (chamada diária do pg_cron, sem usuário logado) |
+| `ai-insights` | não | monta o retrato de KPIs/metas, tarefas, orçamentos e integrações, e pede insights ao provedor configurado; autentica por JWT (botão "Gerar Insights") ou header assinado (chamada diária do pg_cron, sem usuário logado). Notas ficam de fora de propósito — são privadas de quem escreveu |
 | `integrations-sync` | não | sincroniza integrações; autentica por JWT (manual) ou header assinado (cron) |
 
 `integrations-sync` e `ai-insights` rodam sem `verify_jwt` porque o pg_cron
@@ -198,8 +199,7 @@ depois de editar esse arquivo — ele copia para dentro de cada função.
 
 **O retrato que a IA recebe é o sistema inteiro, não só KPIs.** Em
 `supabase/functions/ai-insights/index.ts`, `MODULE_READERS` é a lista de
-leitores — um por módulo (KPIs/metas, tarefas, mapa mental, orçamentos,
-integrações) —
+leitores — um por módulo (KPIs/metas, tarefas, orçamentos, integrações) —
 que juntos montam o contexto de uma empresa numa chamada só, para a IA poder
 cruzar sinais entre módulos (uma integração parada, o KPI que ela alimenta
 sem lançamento, a tarefa atrasada que resolveria isso). Um módulo novo no
@@ -272,10 +272,9 @@ arrasta ou avança sozinho a cada 4,5s, parando de vez ao primeiro toque) —
 e todas as rotas são auditadas a 390 px de largura: nenhuma pode gerar
 rolagem horizontal da página. Cada grid com colunas responsivas define uma coluna explícita
 também no celular (`grid-cols-1`), tabelas largas rolam dentro do próprio
-cartão (`overflow-x-auto` + `min-w`), o quadro de tarefas empilha as colunas e
-esconde as vazias, e o canvas do mapa mental usa o espaço todo (editar um nó
-abre um modal, não uma barra lateral fixa). `Modal` tem `overflow-x-hidden`
-como rede de segurança contra qualquer flex item que esqueça o `min-w-0`.
+cartão (`overflow-x-auto` + `min-w`), e o quadro de tarefas empilha as
+colunas e esconde as vazias. `Modal` tem `overflow-x-hidden` como rede de
+segurança contra qualquer flex item que esqueça o `min-w-0`.
 Dropdowns (notificações, perfil, seletor de empresa) fecham ao clicar fora
 — hook `useClickOutside` compartilhado — e, no celular, o painel de
 notificações usa posição fixa própria em vez de ficar ancorado ao botão, pra

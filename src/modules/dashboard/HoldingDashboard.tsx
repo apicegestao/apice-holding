@@ -10,11 +10,11 @@ import {
   ClipboardList,
   Layers,
   Lock,
-  Network,
   Plus,
   Share2,
   Sparkles,
   Square,
+  StickyNote,
   Target,
   Wallet,
 } from 'lucide-react'
@@ -292,8 +292,8 @@ export default function HoldingDashboard() {
         subtitle="Todas as empresas do grupo em um lugar só."
         actions={
           <>
-            <Link to="/holding/mapa-mental" className="btn-ghost py-1.5 text-xs">
-              <Network className="h-3.5 w-3.5" /> Mapa mental
+            <Link to="/holding/notas" className="btn-ghost py-1.5 text-xs">
+              <StickyNote className="h-3.5 w-3.5" /> Notas
             </Link>
             <Link to="/holding/orcamentos" className="btn-ghost py-1.5 text-xs">
               <Wallet className="h-3.5 w-3.5" /> Orçamentos

@@ -12,6 +12,7 @@ import {
   KPI_PRODUCT,
   login,
   mockSupabase,
+  NOTES,
   PRODUCT_ID,
   ROUTES,
   USER_ID,
@@ -342,30 +343,58 @@ test.describe('lembretes de tarefa', () => {
   })
 })
 
-// Itens 6, 7 e 8: menu único de organização (com linha do tempo), painel de
-// edição de nó virou botão/modal, e a barra de ferramentas nunca esconde
-// botão nenhum no celular.
-test.describe('mapa mental', () => {
+// Item 82: o mapa mental virou um bloco de notas simples — privado por
+// usuário (RLS, coberto por teste de RLS direto no banco, não aqui: o mock
+// da REST roda sempre como um único usuário). Aqui cobrimos só o CRUD e o
+// aviso de privacidade na tela.
+test.describe('notas', () => {
   test.beforeEach(async ({ page }) => {
     await login(page)
   })
 
-  test('menu Organizar oferece linha do tempo', async ({ page }) => {
-    await page.goto('/holding/mapa-mental')
+  test('lista a nota existente e avisa que é só do usuário', async ({ page }) => {
+    await page.goto('/holding/notas')
     await page.waitForLoadState('networkidle')
-    await page.getByRole('button', { name: 'Organizar' }).click()
-    await expect(page.getByText('Linha do tempo')).toBeVisible()
-    await expect(page.getByText('Organograma')).toBeVisible()
-    await expect(page.getByText('Fluxo lógico')).toBeVisible()
+    await expect(page.getByText('Ideias para 2027', { exact: true })).toBeVisible()
+    await expect(page.getByText('Só você enxerga estas notas')).toBeVisible()
   })
 
-  test('clicar num nó mostra o botão Editar nó em vez de painel fixo', async ({ page }) => {
-    await page.goto('/holding/mapa-mental')
+  test('cria uma nota nova e ela aparece na lista', async ({ page }) => {
+    // Mock com estado próprio (como em "subtarefas e notas" acima) — a nota
+    // criada precisa aparecer na recarga que a página faz depois de salvar,
+    // e o mock estático de TABLES não persiste POST nenhum.
+    const notes: Record<string, unknown>[] = [...NOTES]
+    await page.route('**/rest/v1/notes*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        notes.push({ id: `note${notes.length + 1}`, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...body })
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(notes) })
+    })
+
+    await page.goto('/holding/notas')
     await page.waitForLoadState('networkidle')
-    await page.getByText('Expansão 2027', { exact: true }).click()
-    await page.getByRole('button', { name: 'Editar nó' }).click()
-    await expect(page.getByLabel('Ideia')).toBeVisible()
-    await expect(page.getByLabel('Anotações')).toBeVisible()
+    await page.getByRole('button', { name: 'Nova nota' }).click()
+    await page.getByLabel('Título').fill('Reunião de sócios')
+    await page.getByLabel('Anotação').fill('Pauta: revisão do orçamento anual.')
+    await page.getByRole('button', { name: 'Salvar' }).click()
+    await expect(page.getByRole('heading', { name: 'Nova nota' })).not.toBeVisible()
+    await expect(page.getByText('Reunião de sócios', { exact: true })).toBeVisible()
+  })
+
+  test('editar nota abre o modal preenchido', async ({ page }) => {
+    await page.goto('/holding/notas')
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Editar nota' }).click()
+    await expect(page.getByLabel('Título')).toHaveValue('Ideias para 2027')
+  })
+
+  test('pedir exclusão de nota abre confirmação, não exclui direto', async ({ page }) => {
+    await page.goto('/holding/notas')
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Excluir nota' }).click()
+    await expect(page.getByText('Excluir nota?')).toBeVisible()
   })
 })
 

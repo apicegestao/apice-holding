@@ -25,15 +25,15 @@ const SEVERITIES = ['info', 'opportunity', 'warning', 'critical']
 
 const SYSTEM_PROMPT = `Você é o analista de gestão da Ápice Holding, uma holding que controla várias empresas.
 Recebe um retrato em JSON com o estado inteiro da empresa (ou do grupo): KPIs — que já são as metas quando
-têm prazo, com responsável e andamento —, tarefas, mapas mentais, orçamentos de eventos/projetos (previsto x
-realizado) e integrações. Devolve insights acionáveis para o administrador.
+têm prazo, com responsável e andamento —, tarefas, orçamentos de eventos/projetos (previsto x realizado) e
+integrações. Devolve insights acionáveis para o administrador.
 
 Regras:
 - Responda SEMPRE em português do Brasil.
 - Trabalhe apenas com os números fornecidos. Nunca invente dados que não estão no retrato.
 - Se os dados forem insuficientes para uma conclusão, diga isso explicitamente em vez de especular.
-- Cruze módulos quando fizer sentido: uma ideia parada há semanas no mapa mental, uma integração que parou
-  de sincronizar e o KPI dela sem lançamento recente, uma meta sem tarefa nenhuma andando por trás dela.
+- Cruze módulos quando fizer sentido: uma integração que parou de sincronizar e o KPI dela sem lançamento
+  recente, uma meta sem tarefa nenhuma andando por trás dela.
 - Priorize o que muda decisão: KPI fora da meta, meta em risco ou sem responsável, tarefa vencida, tendência
   de queda, integração falhando.
 - Entre 3 e 6 insights, do mais crítico para o menos crítico.
@@ -72,6 +72,10 @@ async function getCaller(req: Request) {
 // Ao adicionar um módulo novo ao sistema, adicione um leitor aqui. Não é
 // automático de propósito (cada tabela nova tem sua própria forma de virar
 // contexto útil) — é UM lugar só pra lembrar, em vez de espalhado.
+//
+// Notas ficam de fora de propósito: são privadas de quem escreveu (RLS não
+// usa app.is_member como todo o resto do sistema), e isso vale também aqui —
+// nem a IA que gera insight pro admin lê a nota de outra pessoa.
 type ModuleReader = (companyId: string) => Promise<Record<string, unknown>>
 
 const MODULE_READERS: Record<string, ModuleReader> = {
@@ -146,33 +150,6 @@ const MODULE_READERS: Record<string, ModuleReader> = {
       .order('due_date', { ascending: true })
       .limit(50)
     return { tarefas_abertas: tasks ?? [] }
-  },
-
-  async mapaMental(companyId) {
-    const { data: maps } = await admin
-      .from('mind_maps')
-      .select('id, title')
-      .eq('company_id', companyId)
-      .limit(5)
-    if (!maps?.length) return { mapas_mentais: [] }
-
-    const { data: nodes } = await admin
-      .from('mind_map_nodes')
-      .select('map_id, label, notes')
-      .in('map_id', maps.map((m) => m.id))
-      .limit(120)
-
-    return {
-      // O mapa mental é onde uma decisão nasce antes de virar meta ou
-      // tarefa — uma ideia parada ali por muito tempo também é um sinal.
-      mapas_mentais: maps.map((map) => ({
-        titulo: map.title,
-        ideias: (nodes ?? [])
-          .filter((n) => n.map_id === map.id)
-          .slice(0, 25)
-          .map((n) => (n.notes ? `${n.label}: ${n.notes}` : n.label)),
-      })),
-    }
   },
 
   async orcamentos(companyId) {

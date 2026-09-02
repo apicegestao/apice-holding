@@ -5,9 +5,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   ClipboardList,
-  Network,
   Sparkles,
   Square,
+  StickyNote,
   Target,
   Wallet,
 } from 'lucide-react'
@@ -367,8 +367,8 @@ export default function CompanyDashboard() {
         subtitle={company.description || company.sector || 'Painel da empresa'}
         actions={
           <>
-            <Link to={`/empresa/${company.id}/mapa-mental`} className="btn-ghost py-1.5 text-xs">
-              <Network className="h-3.5 w-3.5" /> Mapa mental
+            <Link to={`/empresa/${company.id}/notas`} className="btn-ghost py-1.5 text-xs">
+              <StickyNote className="h-3.5 w-3.5" /> Notas
             </Link>
             <Link to={`/empresa/${company.id}/orcamentos`} className="btn-ghost py-1.5 text-xs">
               <Wallet className="h-3.5 w-3.5" /> Orçamentos

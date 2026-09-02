@@ -1369,3 +1369,72 @@ nova; os campos novos de `Kpi` — `archived_at`, `parent_kpi_id`,
 `entry_frequency` — foram checados com `Boolean(...)`/falsy em vez de
 `=== null` exatamente por isso, pra dado de teste sem esses campos não ser
 lido como "arquivado" por engano).
+
+## 25. Mapa mental virou bloco de notas — privado por usuário
+
+Pedido do usuário: "Transforme o mapa mental em um bloco de notas, será mais
+útil. As notas devem ser privadas por usuário." O mapa mental (organograma
+arrastável, linha do tempo, "nó vira tarefa") saiu do sistema por inteiro —
+conferido antes de mexer que os dados existentes eram só exemplo (1 mapa, 2
+nós, nenhuma tarefa vinculada), então não havia nada real pra migrar.
+
+**A diferença que importa não é a interface, é a privacidade.** Todo outro
+módulo do sistema usa `app.is_member(company_id)` pra leitura: qualquer
+membro da empresa enxerga o dado de qualquer outro membro. Notas quebram
+esse padrão de propósito — a policy de select usa só `user_id = auth.uid()`,
+então nem um admin da mesma empresa vê a nota de outra pessoa. Escrever
+ainda exige `app.is_member(company_id)` (além do dono), só pra não sobrar
+nota "órfã" numa empresa de que a pessoa nem faz mais parte — isso não
+amplia quem enxerga, só quem pode criar.
+
+Migração `0029_notes_replace_mindmap.sql`: derruba `mind_maps` e
+`mind_map_nodes`, remove `tasks.mind_map_node_id`, cria `notes` (title,
+body, company_id, user_id) com as duas policies acima.
+
+**Verificação de RLS direto no banco (não dá pra testar isso na e2e, que
+roda sempre como um único usuário mockado):** inserida uma nota real
+pertencente ao perfil verdadeiro do dono (Rafael); impersonando um UUID
+estranho, arbitrário, sem nenhum vínculo com o sistema (`set local
+request.jwt.claims`), `select count(*)` na tabela devolveu **0** e um
+`update ... returning id, title` devolveu **conjunto vazio** (RLS bloqueou a
+escrita, não só escondeu a leitura) — mesmo essa pessoa não tendo perfil
+nenhum cadastrado, o que por si só já prova que a regra não depende de
+sequer existir uma relação de "mesma empresa" com o estranho. Impersonando
+de volta o dono de verdade, o mesmo `select` e o mesmo `update` funcionaram
+normalmente. Nota de teste removida depois. `get_advisors` (security):
+mesmos dois avisos pré-existentes, nenhum novo.
+
+`supabase/functions/ai-insights/index.ts` tinha um leitor `mapaMental` que
+lia as duas tabelas derrubadas — teria quebrado com "relation does not
+exist" na primeira geração de insight depois da migração (manual ou no cron
+diário das 7h). Removido da lista `MODULE_READERS`, e o `SYSTEM_PROMPT`
+deixou de citar "mapas mentais" como fonte de dado. Notas ficam de fora do
+retrato da IA de propósito — são privadas até de quem administra a empresa,
+então nem a IA que gera insight pro admin lê a nota de outra pessoa; isso
+está documentado como comentário no próprio código, pra não ser
+"recolocado" por engano num módulo novo no futuro. Função reimplantada
+(`verify_jwt: false`, preservado — é a mesma chamada sem usuário logado do
+cron).
+
+Frontend: `modules/mindmap/` (1109 linhas, canvas com drag/pan/zoom,
+múltiplos layouts) saiu inteiro, substituído por `modules/notes/` (lista
+simples: buscar, criar, editar, excluir com confirmação — sem canvas, sem
+posição de nó). Rotas antigas (`/holding/mapa-mental`,
+`.../mapa-mental`) redirecionam pras novas (`/holding/notas`,
+`.../notas`), mesmo padrão já usado quando `/metas` virou `/kpis`. Ícone e
+label trocados na sidebar e nos atalhos dos dois painéis (holding e
+empresa): `Network` → `StickyNote`, "Mapa mental" → "Notas".
+
+**Verificação:** `npx tsc --noEmit` e `npm run build` limpos. `npm run
+test`: 26 testes, sem mudança (nenhuma lógica pura nova que precisasse de
+teste unitário). `npm run test:e2e`: suíte de mapa mental (2 testes, UI que
+não existe mais) trocada por uma suíte de notas (4 testes: lista + aviso de
+privacidade, criar e ver aparecer, editar abre preenchido, excluir pede
+confirmação); a criação precisou de um mock com estado próprio (como o de
+"subtarefas e notas") porque o mock estático de `TABLES` não persiste
+`POST`. Teste de CSP com cor dinâmica perdeu a perna de mapa mental (não
+tinha mais cor dinâmica nenhuma ali) e passou a cobrir o painel da empresa
+no lugar. Total: 190 testes (163 passando, 27 puladas por projeto/rota que
+não se aplica), mesmo saldo de antes descontada a troca de módulo. `npm run
+check:contrast`: sem mudança (nenhuma cor nova). `get_advisors` (security):
+mesmos dois avisos pré-existentes de sempre.

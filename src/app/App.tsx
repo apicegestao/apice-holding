@@ -13,7 +13,7 @@ import CompanySettingsPage from '../modules/companies/CompanySettingsPage'
 import KpisPage from '../modules/kpis/KpisPage'
 import TasksPage from '../modules/tasks/TasksPage'
 import HoldingTasksPage from '../modules/tasks/HoldingTasksPage'
-import MindMapPage from '../modules/mindmap/MindMapPage'
+import NotesPage from '../modules/notes/NotesPage'
 import BudgetsPage from '../modules/budgets/BudgetsPage'
 import ProductsPage from '../modules/products/ProductsPage'
 import IntegrationsPage from '../modules/integrations/IntegrationsPage'
@@ -128,10 +128,20 @@ export default function App() {
           }
         />
         <Route
+          path="/holding/notas"
+          element={
+            <HoldingOnly>
+              <NotesPage scope="holding" />
+            </HoldingOnly>
+          }
+        />
+        {/* /mapa-mental virou /notas — link antigo ainda cai num lugar de
+            verdade em vez de dar 404. */}
+        <Route
           path="/holding/mapa-mental"
           element={
             <HoldingOnly>
-              <MindMapPage scope="holding" />
+              <Navigate to="/holding/notas" replace />
             </HoldingOnly>
           }
         />
@@ -177,7 +187,10 @@ export default function App() {
           <Route path="metas" element={<Navigate to="../kpis" replace />} />
           <Route path="tarefas" element={<TasksPage />} />
           <Route path="produtos" element={<ProductsPage />} />
-          <Route path="mapa-mental" element={<MindMapPage />} />
+          <Route path="notas" element={<NotesPage />} />
+          {/* /mapa-mental virou /notas — mesmo tratamento do link de /metas
+              logo acima: cai num lugar de verdade, não em 404. */}
+          <Route path="mapa-mental" element={<Navigate to="../notas" replace />} />
           <Route path="orcamentos" element={<BudgetsPage />} />
           <Route path="integracoes" element={<IntegrationsPage />} />
           <Route path="insights" element={<InsightsPage scope="company" />} />
