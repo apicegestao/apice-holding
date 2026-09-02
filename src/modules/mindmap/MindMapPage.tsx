@@ -3,12 +3,17 @@
 // tarefa da empresa.
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
   ClipboardList,
   Maximize2,
   Network,
   Pencil,
   Plus,
   Trash2,
+  Workflow,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
@@ -33,14 +38,22 @@ const NODE_HEIGHT = 62
 const PALETTE = ['#2E31B0', '#DE4C22', '#0EA5E9', '#10B981', '#F59E0B', '#8B5CF6', '#64748B']
 
 type Transform = { x: number; y: number; scale: number }
+type Direction = 'up' | 'down' | 'left' | 'right'
 
-/** Organograma: raiz em cima, filhos embaixo, irmãos lado a lado sem
- *  sobrepor. Largura de cada galho = soma da largura dos netos (se não tiver
- *  filho, é a largura de um nó só) — clássico layout de árvore por camadas. */
-function layoutOrgChart(nodes: MindMapNode[]): Record<string, { x: number; y: number }> {
-  const HGAP = 32
-  const VGAP = 70
-  const SLOT = NODE_WIDTH + HGAP
+/** Duas formas do mesmo layout de árvore por camadas — largura de cada
+ *  galho = soma da largura dos netos (folha = largura de um nó só).
+ *  'down' é o organograma clássico (raiz em cima); 'right' é o fluxo lógico
+ *  (raiz na esquerda, comum em diagrama de decisão) — mesma matemática, só
+ *  troca qual eixo é "profundidade" (entre camadas) e qual é "irmãos". */
+function layoutTree(
+  nodes: MindMapNode[],
+  orientation: 'down' | 'right',
+): Record<string, { x: number; y: number }> {
+  const GAP_DEPTH = 70
+  const GAP_SIBLING = 32
+  const depthSize = orientation === 'down' ? NODE_HEIGHT : NODE_WIDTH
+  const siblingSize = orientation === 'down' ? NODE_WIDTH : NODE_HEIGHT
+  const SLOT = siblingSize + GAP_SIBLING
 
   const childrenOf = new Map<string | null, MindMapNode[]>()
   for (const node of nodes) {
@@ -62,10 +75,12 @@ function layoutOrgChart(nodes: MindMapNode[]): Record<string, { x: number; y: nu
   }
 
   const positions: Record<string, { x: number; y: number }> = {}
-  const place = (node: MindMapNode, left: number, depth: number) => {
+  const place = (node: MindMapNode, siblingStart: number, depth: number) => {
     const width = subtreeWidth(node)
-    positions[node.id] = { x: left + width / 2 - NODE_WIDTH / 2, y: depth * (NODE_HEIGHT + VGAP) }
-    let cursor = left
+    const sibling = siblingStart + width / 2 - siblingSize / 2
+    const main = depth * (depthSize + GAP_DEPTH)
+    positions[node.id] = orientation === 'down' ? { x: sibling, y: main } : { x: main, y: sibling }
+    let cursor = siblingStart
     for (const child of childrenOf.get(node.id) ?? []) {
       place(child, cursor, depth + 1)
       cursor += subtreeWidth(child)
@@ -78,6 +93,38 @@ function layoutOrgChart(nodes: MindMapNode[]): Record<string, { x: number; y: nu
     cursor += subtreeWidth(root)
   }
   return positions
+}
+
+/** Cotovelo reto entre pai e filho, escolhendo a rota pela posição relativa
+ *  real dos dois — nunca uma linha na diagonal, nunca saindo pela face
+ *  errada do nó. Funciona com o filho embaixo, em cima, do lado, em
+ *  qualquer direção — inclusive depois de arrastado à mão — porque decide
+ *  pela posição atual, não por quem pediu o quê. */
+function edgePath(parent: MindMapNode, child: MindMapNode): string {
+  const pcx = parent.position_x + NODE_WIDTH / 2
+  const pcy = parent.position_y + NODE_HEIGHT / 2
+  const ccx = child.position_x + NODE_WIDTH / 2
+  const ccy = child.position_y + NODE_HEIGHT / 2
+  const dx = ccx - pcx
+  const dy = ccy - pcy
+
+  if (Math.abs(dy) >= Math.abs(dx)) {
+    const down = dy >= 0
+    const x1 = pcx
+    const y1 = parent.position_y + (down ? NODE_HEIGHT : 0)
+    const x2 = ccx
+    const y2 = child.position_y + (down ? 0 : NODE_HEIGHT)
+    const midY = (y1 + y2) / 2
+    return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`
+  }
+
+  const right = dx >= 0
+  const x1 = parent.position_x + (right ? NODE_WIDTH : 0)
+  const y1 = pcy
+  const x2 = child.position_x + (right ? 0 : NODE_WIDTH)
+  const y2 = ccy
+  const midX = (x1 + x2) / 2
+  return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`
 }
 
 function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boolean }) {
@@ -192,12 +239,27 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
     if (error) notify(error.message, 'error')
   }
 
-  const addNode = async (parent: MindMapNode | null) => {
+  // Um nó novo pode nascer pra qualquer lado do pai — a ligação se ajusta
+  // sozinha depois (edgePath decide a rota pela posição real, não por quem
+  // pediu o quê). O deslocamento entre irmãos do mesmo lado evita que
+  // nasçam um em cima do outro.
+  const addNode = async (parent: MindMapNode | null, direction: Direction = 'right') => {
     if (!activeMapId) return
     const siblings = nodes.filter((node) => node.parent_id === (parent?.id ?? null))
-    const position = parent
-      ? { x: parent.position_x + NODE_WIDTH + 70, y: parent.position_y + siblings.length * 84 }
-      : { x: 320 + siblings.length * 30, y: 220 + siblings.length * 90 }
+    const GAP = 70
+    const STAGGER = 84
+    let position: { x: number; y: number }
+    if (!parent) {
+      position = { x: 320 + siblings.length * 30, y: 220 + siblings.length * 90 }
+    } else if (direction === 'up') {
+      position = { x: parent.position_x + siblings.length * STAGGER, y: parent.position_y - NODE_HEIGHT - GAP }
+    } else if (direction === 'down') {
+      position = { x: parent.position_x + siblings.length * STAGGER, y: parent.position_y + NODE_HEIGHT + GAP }
+    } else if (direction === 'left') {
+      position = { x: parent.position_x - NODE_WIDTH - GAP, y: parent.position_y + siblings.length * STAGGER }
+    } else {
+      position = { x: parent.position_x + NODE_WIDTH + GAP, y: parent.position_y + siblings.length * STAGGER }
+    }
 
     const { data, error } = await supabase
       .from('mind_map_nodes')
@@ -329,10 +391,13 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
 
   // Rearranja o mapa inteiro como organograma — raiz em cima, filhos embaixo
   // — e salva as posições novas. Continua tudo arrastável depois.
-  const organizeAsOrgChart = async () => {
+  const organizeAsTree = async (orientation: 'down' | 'right') => {
     if (!nodes.length) return
-    const positions = layoutOrgChart(nodes)
-    const arranged = nodes.map((node) => ({ ...node, ...(positions[node.id] ?? {}) }))
+    const positions = layoutTree(nodes, orientation)
+    const arranged = nodes.map((node) => {
+      const pos = positions[node.id]
+      return pos ? { ...node, position_x: pos.x, position_y: pos.y } : node
+    })
     setNodes(arranged)
     setBusy(true)
     const { error } = await Promise.all(
@@ -349,7 +414,7 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
       return
     }
     fitToContent(arranged)
-    notify('Mapa organizado como organograma.')
+    notify(orientation === 'down' ? 'Mapa organizado como organograma.' : 'Mapa organizado como fluxo lógico.')
   }
 
   // Ao abrir um mapa, enquadra o conteúdo uma vez — senão o usuário cai
@@ -375,14 +440,7 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
         .map((node) => {
           const parent = nodes.find((item) => item.id === node.parent_id)
           if (!parent) return null
-          return {
-            id: node.id,
-            x1: parent.position_x + NODE_WIDTH / 2,
-            y1: parent.position_y + NODE_HEIGHT,
-            x2: node.position_x + NODE_WIDTH / 2,
-            y2: node.position_y,
-            color: node.color,
-          }
+          return { id: node.id, d: edgePath(parent, node), color: node.color }
         })
         .filter((edge): edge is NonNullable<typeof edge> => Boolean(edge)),
     [nodes],
@@ -468,15 +526,26 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
                 </button>
               )}
               {canWrite && nodes.length > 1 && (
-                <button
-                  type="button"
-                  className="btn-ghost px-2 py-1"
-                  disabled={busy}
-                  onClick={() => void organizeAsOrgChart()}
-                  title="Reorganiza o mapa como organograma, raiz em cima"
-                >
-                  <Network className="h-4 w-4" /> organograma
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="btn-ghost px-2 py-1"
+                    disabled={busy}
+                    onClick={() => void organizeAsTree('down')}
+                    title="Reorganiza o mapa como organograma, raiz em cima"
+                  >
+                    <Network className="h-4 w-4" /> organograma
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost px-2 py-1"
+                    disabled={busy}
+                    onClick={() => void organizeAsTree('right')}
+                    title="Reorganiza o mapa como fluxo lógico, raiz na esquerda"
+                  >
+                    <Workflow className="h-4 w-4" /> lógica
+                  </button>
+                </>
               )}
             </div>
 
@@ -502,22 +571,9 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
                 }}
               >
                 <svg className="pointer-events-none absolute overflow-visible" width="1" height="1">
-                  {edges.map((edge) => {
-                    // Cotovelo reto (desce do pai, atravessa, desce no filho) —
-                    // se recalcula sozinho a cada posição nova, sem passar por
-                    // cima de nenhum nó no caminho.
-                    const midY = (edge.y1 + edge.y2) / 2
-                    return (
-                      <path
-                        key={edge.id}
-                        d={`M ${edge.x1} ${edge.y1} L ${edge.x1} ${midY} L ${edge.x2} ${midY} L ${edge.x2} ${edge.y2}`}
-                        stroke={edge.color}
-                        strokeWidth={2}
-                        fill="none"
-                        opacity={0.45}
-                      />
-                    )
-                  })}
+                  {edges.map((edge) => (
+                    <path key={edge.id} d={edge.d} stroke={edge.color} strokeWidth={2} fill="none" opacity={0.45} />
+                  ))}
                 </svg>
 
                 {nodes.map((node) => (
@@ -583,19 +639,40 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
-                        <button
-                          type="button"
-                          className="absolute -bottom-2.5 left-1/2 grid h-5 w-5 -translate-x-1/2 place-items-center rounded-full border border-line bg-elevated text-content-soft shadow-sm hover:text-content"
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            void addNode(node)
-                          }}
-                          aria-label="Adicionar nó a partir deste"
-                          title="Ramificar a partir daqui"
-                        >
-                          <Plus className="h-3 w-3" />
-                        </button>
+
+                        {/* Ramificar pra qualquer lado — a ligação se ajusta
+                            sozinha depois de onde o nó realmente ficou. */}
+                        {(
+                          [
+                            ['up', 'top-center', ArrowUp, 'Ramificar pra cima'],
+                            ['down', 'bottom-center', ArrowDown, 'Ramificar pra baixo'],
+                            ['left', 'left-center', ArrowLeft, 'Ramificar pra esquerda'],
+                            ['right', 'right-center', ArrowRight, 'Ramificar pra direita'],
+                          ] as const
+                        ).map(([direction, pos, Icon, label]) => (
+                          <button
+                            key={direction}
+                            type="button"
+                            className={`absolute grid h-5 w-5 place-items-center rounded-full border border-line bg-elevated text-content-soft shadow-sm hover:text-content ${
+                              pos === 'top-center'
+                                ? '-top-2 left-1/2 -translate-x-1/2'
+                                : pos === 'bottom-center'
+                                  ? '-bottom-2 left-1/2 -translate-x-1/2'
+                                  : pos === 'left-center'
+                                    ? '-left-2 top-1/2 -translate-y-1/2'
+                                    : '-right-2 top-1/2 -translate-y-1/2'
+                            }`}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void addNode(node, direction)
+                            }}
+                            aria-label={label}
+                            title={label}
+                          >
+                            <Icon className="h-3 w-3" />
+                          </button>
+                        ))}
                       </>
                     )}
                   </div>

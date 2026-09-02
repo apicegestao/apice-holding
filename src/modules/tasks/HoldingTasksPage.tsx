@@ -1,0 +1,362 @@
+// Quadro de tarefas consolidado da holding: todas as tarefas que o admin do
+// grupo enxerga, de todas as empresas, no mesmo quadro — com uma cor por
+// empresa em vez de uma aba por empresa. Mesma RLS de sempre; um super admin
+// já é "membro" de toda empresa (app.company_role), então um select sem
+// filtro já traz tudo que ele pode ver.
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Bell, CalendarClock, ListChecks, Lock, Pencil, Plus, Share2, Trash2, User } from 'lucide-react'
+import { supabase } from '../../core/lib/supabase'
+import { initials, relativeDays } from '../../core/lib/format'
+import { useAuth } from '../../core/auth/AuthProvider'
+import { Badge, ConfirmDialog, EmptyState, Loading, PageHeader, useToast } from '../../core/ui'
+import {
+  TASK_PRIORITY_LABEL,
+  TASK_STATUS_LABEL,
+  VISIBILITY_LABEL,
+  type Profile,
+  type Task,
+  type TaskChecklistItem,
+  type TaskPriority,
+  type TaskStatus,
+} from '../../core/types'
+import TaskFormModal from './TaskFormModal'
+
+const BOARD: TaskStatus[] = ['todo', 'doing', 'blocked', 'done']
+
+function priorityTone(priority: TaskPriority) {
+  if (priority === 'urgent') return 'red'
+  if (priority === 'high') return 'amber'
+  if (priority === 'low') return 'slate'
+  return 'blue'
+}
+
+export default function HoldingTasksPage() {
+  const { profile, memberships } = useAuth()
+  const { notify } = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [people, setPeople] = useState<Profile[]>([])
+  const [checklists, setChecklists] = useState<TaskChecklistItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState<Task | null>(null)
+  const [creating, setCreating] = useState<TaskStatus | null>(null)
+  const [removing, setRemoving] = useState<Task | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const onlyMine = searchParams.get('meu') === '1'
+  const showDone = searchParams.get('concluidas') === '1'
+
+  const companyName = useCallback(
+    (id: string) => memberships.find((item) => item.company.id === id)?.company.name ?? 'Empresa',
+    [memberships],
+  )
+  const companyColor = useCallback(
+    (id: string) => memberships.find((item) => item.company.id === id)?.company.color ?? '#94A3B8',
+    [memberships],
+  )
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    // Sem RPC de uma empresa só: a RLS de tasks_select já decide o que
+    // aparece (próprias, atribuídas, da empresa, compartilhadas) — e um
+    // super admin é membro de toda empresa, então isso já é "tudo".
+    const [taskResult, memberResult] = await Promise.all([
+      supabase.from('tasks').select('*').order('due_date', { ascending: true, nullsFirst: false }),
+      supabase.from('company_members').select('user_id'),
+    ])
+
+    const ids = [...new Set((memberResult.data ?? []).map((row) => row.user_id))]
+    const taskIds = (taskResult.data ?? []).map((row: Task) => row.id)
+    const [{ data: profileRows }, { data: checklistRows }] = await Promise.all([
+      ids.length
+        ? supabase.from('profiles').select('*').in('id', ids)
+        : Promise.resolve({ data: [] as Profile[] }),
+      taskIds.length
+        ? supabase.from('task_checklist_items').select('*').in('task_id', taskIds)
+        : Promise.resolve({ data: [] as TaskChecklistItem[] }),
+    ])
+
+    setTasks((taskResult.data as Task[]) ?? [])
+    setPeople((profileRows as Profile[]) ?? [])
+    setChecklists((checklistRows as TaskChecklistItem[]) ?? [])
+    setLoading(false)
+  }, [])
+
+  const checklistProgress = useCallback(
+    (taskId: string) => {
+      const items = checklists.filter((item) => item.task_id === taskId)
+      if (!items.length) return null
+      return { done: items.filter((item) => item.done).length, total: items.length }
+    },
+    [checklists],
+  )
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const visible = useMemo(
+    () =>
+      tasks.filter((task) => {
+        if (onlyMine && task.assignee_id !== profile?.id && task.created_by !== profile?.id) {
+          return false
+        }
+        if (!showDone && (task.status === 'done' || task.status === 'canceled')) return false
+        return true
+      }),
+    [tasks, onlyMine, showDone, profile?.id],
+  )
+
+  const columns = useMemo(
+    () => BOARD.map((status) => ({ status, items: visible.filter((t) => t.status === status) })),
+    [visible],
+  )
+
+  const changeStatus = async (task: Task, status: TaskStatus) => {
+    const { error } = await supabase.from('tasks').update({ status }).eq('id', task.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    await load()
+  }
+
+  const remove = async () => {
+    if (!removing) return
+    setBusy(true)
+    const { error } = await supabase.from('tasks').delete().eq('id', removing.id)
+    setBusy(false)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify('Tarefa excluída.')
+    setRemoving(null)
+    await load()
+  }
+
+  const person = (id: string | null) => people.find((item) => item.id === id)
+
+  const toggleParam = (key: string, active: boolean) => {
+    const next = new URLSearchParams(searchParams)
+    if (active) next.set(key, '1')
+    else next.delete(key)
+    setSearchParams(next, { replace: true })
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl">
+      <PageHeader
+        title="Tarefas da Holding"
+        subtitle="Todas as tarefas do grupo, de todas as empresas, num quadro só."
+        actions={
+          <>
+            <label className="flex items-center gap-1.5 text-sm text-content-muted">
+              <input
+                type="checkbox"
+                checked={onlyMine}
+                onChange={(event) => toggleParam('meu', event.target.checked)}
+              />
+              Só as minhas
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-content-muted">
+              <input
+                type="checkbox"
+                checked={showDone}
+                onChange={(event) => toggleParam('concluidas', event.target.checked)}
+              />
+              Mostrar concluídas
+            </label>
+            <button type="button" className="btn-primary" onClick={() => setCreating('todo')}>
+              <Plus className="h-4 w-4" /> Nova tarefa
+            </button>
+          </>
+        }
+      />
+
+      {loading ? (
+        <Loading />
+      ) : tasks.length === 0 ? (
+        <EmptyState
+          title="Nenhuma tarefa no grupo ainda"
+          description="Tire da cabeça e coloque no sistema: o que precisa ser feito, por quem, até quando e em qual empresa."
+          action={
+            <button type="button" className="btn-primary" onClick={() => setCreating('todo')}>
+              <Plus className="h-4 w-4" /> Nova tarefa
+            </button>
+          }
+        />
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {columns.map(({ status, items }) => (
+            <div key={status} className="flex flex-col gap-3">
+              <div className="flex items-center justify-between px-1">
+                <h2 className="text-sm font-semibold text-content">
+                  {TASK_STATUS_LABEL[status]}
+                  <span className="ml-1.5 text-xs font-normal text-content-faint">{items.length}</span>
+                </h2>
+                <button
+                  type="button"
+                  className="rounded-md p-1 text-content-faint hover:bg-hover hover:text-content"
+                  onClick={() => setCreating(status)}
+                  aria-label={`Nova tarefa em ${TASK_STATUS_LABEL[status]}`}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+
+              {items.length === 0 && (
+                <p className="hidden rounded-lg border border-dashed border-line px-3 py-6 text-center text-xs text-content-faint md:block">
+                  vazio
+                </p>
+              )}
+
+              {items.map((task) => {
+                const assignee = person(task.assignee_id)
+                const late =
+                  task.due_date &&
+                  task.due_date < new Date().toISOString().slice(0, 10) &&
+                  task.status !== 'done'
+                const checklist = checklistProgress(task.id)
+
+                return (
+                  <article key={task.id} className="card overflow-hidden p-3">
+                    <div className="flex items-start gap-2">
+                      <span
+                        className="mt-0.5 h-full min-h-[2.5rem] w-1 shrink-0 self-stretch rounded-full"
+                        style={{ backgroundColor: companyColor(task.company_id) }}
+                        title={companyName(task.company_id)}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium text-content">{task.title}</p>
+                          <div className="flex shrink-0 gap-0.5">
+                            <button
+                              type="button"
+                              className="rounded p-1 text-content-faint hover:bg-hover hover:text-content-muted"
+                              onClick={() => setEditing(task)}
+                              aria-label="Editar"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
+                              onClick={() => setRemoving(task)}
+                              aria-label="Excluir"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        <p className="mt-0.5 text-xs text-content-faint">{companyName(task.company_id)}</p>
+
+                        {task.description && (
+                          <p className="mt-1 line-clamp-2 text-xs text-content-soft">{task.description}</p>
+                        )}
+
+                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                          <Badge tone={priorityTone(task.priority)}>
+                            {TASK_PRIORITY_LABEL[task.priority]}
+                          </Badge>
+                          {task.visibility === 'private' && (
+                            <Badge tone="slate">
+                              <Lock className="h-3 w-3" /> {VISIBILITY_LABEL.private}
+                            </Badge>
+                          )}
+                          {task.visibility === 'shared' && (
+                            <Badge tone="violet">
+                              <Share2 className="h-3 w-3" /> {VISIBILITY_LABEL.shared}
+                            </Badge>
+                          )}
+                          {task.due_date && (
+                            <Badge tone={late ? 'red' : 'slate'}>
+                              <CalendarClock className="h-3 w-3" /> {relativeDays(task.due_date)}
+                            </Badge>
+                          )}
+                          {task.remind_at && !task.reminder_sent_at && (
+                            <Badge tone="blue">
+                              <Bell className="h-3 w-3" /> lembrete
+                            </Badge>
+                          )}
+                          {checklist && (
+                            <Badge tone={checklist.done === checklist.total ? 'green' : 'slate'}>
+                              <ListChecks className="h-3 w-3" /> {checklist.done}/{checklist.total}
+                            </Badge>
+                          )}
+                          {task.tags.map((tag) => (
+                            <Badge key={tag}>{tag}</Badge>
+                          ))}
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between gap-2">
+                          <span
+                            className="flex items-center gap-1.5 text-xs text-content-soft"
+                            title={assignee?.email}
+                          >
+                            {assignee ? (
+                              <>
+                                <span className="grid h-5 w-5 place-items-center rounded-full bg-hover text-[9px] font-semibold text-content-muted">
+                                  {initials(assignee.full_name || assignee.email)}
+                                </span>
+                                <span className="max-w-24 truncate">{assignee.full_name}</span>
+                              </>
+                            ) : (
+                              <>
+                                <User className="h-3.5 w-3.5" /> sem responsável
+                              </>
+                            )}
+                          </span>
+
+                          <select
+                            className="rounded border border-line bg-surface px-1.5 py-1 text-xs"
+                            value={task.status}
+                            onChange={(event) => void changeStatus(task, event.target.value as TaskStatus)}
+                          >
+                            {(Object.keys(TASK_STATUS_LABEL) as TaskStatus[]).map((item) => (
+                              <option key={item} value={item}>
+                                {TASK_STATUS_LABEL[item]}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <TaskFormModal
+        open={creating !== null || Boolean(editing)}
+        task={editing}
+        defaultStatus={creating ?? 'todo'}
+        onClose={() => {
+          setCreating(null)
+          setEditing(null)
+        }}
+        onSaved={load}
+      />
+
+      <ConfirmDialog
+        open={Boolean(removing)}
+        title="Excluir tarefa"
+        danger
+        busy={busy}
+        confirmLabel="Excluir"
+        message={
+          <>
+            Excluir <strong>{removing?.title}</strong>?
+          </>
+        }
+        onConfirm={() => void remove()}
+        onCancel={() => setRemoving(null)}
+      />
+    </div>
+  )
+}

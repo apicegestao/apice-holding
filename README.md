@@ -94,10 +94,13 @@ src/
                        criar um indicador próprio; com prazo, o próprio KPI
                        vira a meta (responsável notificado, andamento,
                        repartição do alvo por semana)
-    tasks/             tarefas: quem, o quê, prazo e lembrete — com
-                       subtarefas e notas dentro da própria tarefa
-    mindmap/           mapa mental arrastável, com organograma automático;
-                       nó vira tarefa e edita o texto nele mesmo
+    tasks/             tarefas: quem, o quê, prazo e lembrete padrão (dias
+                       antes + horário) — com subtarefas e notas editáveis
+                       dentro da própria tarefa; quadro por empresa e um
+                       consolidado de todo o grupo em /holding/tarefas
+    mindmap/           mapa mental arrastável, organograma ou fluxo lógico
+                       automático, ramifica pra qualquer lado; nó vira
+                       tarefa e edita o texto nele mesmo
     integrations/      conectores REST e mapeamento campo → KPI
     insights/          insights gerados por IA
     users/             acessos por empresa e do grupo
@@ -124,7 +127,7 @@ gerado no banco.
 
 | Job | Frequência | O que faz |
 | --- | --- | --- |
-| `apice_task_reminders` | a cada 5 min | transforma lembretes vencidos em notificação para o responsável |
+| `apice_task_reminders` | a cada 5 min | dois lembretes automáticos por tarefa com prazo: N dias antes (menu suspenso, 1-15) e no próprio dia — ambos calculados pelo banco a partir de prazo + horário, nunca digitados |
 | `apice_integrations_sync` | a cada 5 min | chama `integrations-sync` para as integrações que já venceram o intervalo |
 
 ## Inteligência artificial

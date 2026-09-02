@@ -83,6 +83,7 @@ export default function AppLayout() {
     if (onHolding) {
       return [
         { to: '/holding', label: 'Painel da Holding', icon: LayoutGrid, end: true },
+        { to: '/holding/tarefas', label: 'Tarefas', icon: ClipboardList },
         { to: '/holding/empresas', label: 'Empresas', icon: Building2 },
         { to: '/holding/usuarios', label: 'Usuários', icon: Users },
         { to: '/holding/mapa-mental', label: 'Mapa mental', icon: Network },

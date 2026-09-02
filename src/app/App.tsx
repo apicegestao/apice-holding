@@ -12,6 +12,7 @@ import CompaniesPage from '../modules/companies/CompaniesPage'
 import CompanySettingsPage from '../modules/companies/CompanySettingsPage'
 import KpisPage from '../modules/kpis/KpisPage'
 import TasksPage from '../modules/tasks/TasksPage'
+import HoldingTasksPage from '../modules/tasks/HoldingTasksPage'
 import MindMapPage from '../modules/mindmap/MindMapPage'
 import IntegrationsPage from '../modules/integrations/IntegrationsPage'
 import InsightsPage from '../modules/insights/InsightsPage'
@@ -97,6 +98,14 @@ export default function App() {
           element={
             <HoldingOnly>
               <HoldingDashboard />
+            </HoldingOnly>
+          }
+        />
+        <Route
+          path="/holding/tarefas"
+          element={
+            <HoldingOnly>
+              <HoldingTasksPage />
             </HoldingOnly>
           }
         />

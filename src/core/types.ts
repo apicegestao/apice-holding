@@ -174,6 +174,12 @@ export type Task = {
   due_date: string | null
   remind_at: string | null
   reminder_sent_at: string | null
+  // Lembretes padrão: N dias antes do prazo e no próprio dia, sempre no
+  // mesmo horário. remind_at é calculado pelo banco a partir destes três —
+  // nunca digitado direto.
+  remind_days_before: number | null
+  remind_time: string
+  due_reminder_sent_at: string | null
   priority: TaskPriority
   status: TaskStatus
   visibility: TaskVisibility

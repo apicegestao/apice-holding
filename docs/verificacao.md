@@ -351,3 +351,60 @@ leitura fixa — simulando inserir uma subtarefa e uma nota de verdade e
 conferir que aparecem). Migração `0017` aplicada em produção. Capturas de
 tela conferidas visualmente: agrupamento por data, e o formulário de tarefa
 com subtarefas marcadas/desmarcadas e uma nota.
+
+---
+
+## 14. Editar subtarefas e notas, lembretes padrão, mapa em qualquer direção, quadro de tarefas da holding
+
+**1) Editar subtarefas e notas.** A rodada anterior só deixava adicionar e
+remover — corrigir um erro de digitação exigia apagar e recriar (perdendo a
+hora original da nota). Subtarefa: clicar no texto vira um campo editável
+ali mesmo (Enter salva, Escape cancela). Nota: um lápis ao lado da lixeira
+(só na própria) abre a nota como texto editável, com "salvar" ao lado da
+data. `task_comments` ganhou a policy de `update` que faltava (migração
+`0018`) — só o autor edita a própria nota.
+
+**2) Lembretes padrão de tarefa.** O campo de lembrete era uma data e hora
+livres — fácil de esquecer, chato de digitar por extenso. Virou dois campos
+só quando a tarefa tem prazo: um menu suspenso "quantos dias antes" (1 a 15)
+e um campo de horário — `remind_at` deixa de ser digitado e passa a ser
+**calculado pelo banco** (trigger `app.sync_task_reminder`, migração `0019`)
+a partir de prazo + dias antes + horário. Todo prazo com responsável já
+dispara dois avisos automáticos: N dias antes (padrão 1, migração `0020`
+para quem cria tarefa por um caminho que não passa pelo formulário, como o
+atalho do mapa mental) e no próprio dia — cada um com seu controle de "já
+enviado" (`reminder_sent_at` e `due_reminder_sent_at`), reaberto sozinho
+quando o prazo muda. O aviso na criação/atribuição já existia (0003) e
+continua igual. Testado dentro de uma transação com rollback: mudar o prazo
+recalculou `remind_at` e reabriu os dois "já enviado" corretamente.
+
+**3) Mapa mental em qualquer direção, ligação sempre reta.** Achado e
+corrigido um bug real da rodada anterior: os botões "organograma" mostravam
+o toast de sucesso mas nunca moviam nenhum nó — o código misturava as
+chaves `x`/`y` da função de layout com os campos de verdade do banco,
+`position_x`/`position_y`, então o espalhamento nunca era aplicado. Corrigido,
+e junto: cada nó ganhou 4 setas (▲▼◀▶) em vez de um "+" só, ramificando pra
+qualquer lado; a ligação entre pai e filho decide sozinha, pela posição real
+dos dois (não por quem pediu o quê), se sai pela face de cima/baixo ou de
+lado — nunca mais uma linha torta ou saindo do lugar errado do nó, em
+qualquer direção, inclusive depois de arrastado à mão. Segundo botão de
+organização, "lógica" (raiz na esquerda, fluxo horizontal), ao lado do
+"organograma" (raiz em cima) — mesmo algoritmo de árvore por camadas, só
+troca qual eixo é profundidade e qual é irmãos. Testado visualmente: 5 nós
+em direções diferentes, organograma e lógica alternados duas vezes cada,
+layout correto nos dois sentidos.
+
+**4) Página de tarefas da holding.** Não existia um quadro que juntasse as
+tarefas de todas as empresas — só a lista "Minhas tarefas" (só as próprias)
+no painel. Nova tela em `/holding/tarefas`, com atalho no menu lateral da
+holding: mesmo quadro kanban de sempre, mas a barra lateral colorida do
+card mostra a empresa dona de cada tarefa (não a visibilidade), com uma
+legenda com o nome dela — porque aqui um cartão pode ser de qualquer
+empresa do grupo. Sem filtro de "editável": quem chega nesta tela já passou
+pelo `HoldingOnly`, então é admin da holding e mexe em qualquer tarefa.
+
+**Verificação:** `npm run build`, `npm run test` (9/9) e
+`npm run check:contrast` (24/24) limpos. `npm run test:e2e` subiu de 50 para
+**58 testes** (atalho da sidebar, quadro com tarefas de duas empresas
+diferentes no mesmo lugar, menu suspenso de dias-antes do lembrete). As
+migrações `0018`, `0019` e `0020` foram aplicadas em produção.

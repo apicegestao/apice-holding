@@ -471,6 +471,7 @@ export async function login(page: Page) {
 
 export const ROUTES: [string, string][] = [
   ['/holding', 'Painel da holding'],
+  ['/holding/tarefas', 'Tarefas da holding'],
   ['/holding/empresas', 'Empresas'],
   ['/holding/usuarios', 'Usuários'],
   ['/holding/insights', 'Insights'],

@@ -3,7 +3,7 @@
 // quem enxerga a tarefa. Editando uma tarefa já salva, ganha também
 // subtarefas (checklist) e notas — o histórico de acompanhamento dela.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { formatDateTime, initials } from '../../core/lib/format'
@@ -24,15 +24,8 @@ import {
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent']
 const VISIBILITIES: TaskVisibility[] = ['private', 'company', 'shared']
-
-/** datetime-local trabalha em horário local; o banco guarda timestamptz. */
-export function toLocalInput(iso: string | null) {
-  if (!iso) return ''
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return ''
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
+// 1 a 15 dias antes do prazo — o menu suspenso do lembrete antecipado.
+const REMIND_DAYS_OPTIONS = Array.from({ length: 15 }, (_, i) => i + 1)
 
 type FormState = {
   company_id: string
@@ -40,7 +33,8 @@ type FormState = {
   description: string
   assignee_id: string
   due_date: string
-  remind_at: string
+  remind_days_before: string
+  remind_time: string
   priority: TaskPriority
   status: TaskStatus
   visibility: TaskVisibility
@@ -53,7 +47,8 @@ const blank: FormState = {
   description: '',
   assignee_id: '',
   due_date: '',
-  remind_at: '',
+  remind_days_before: '1',
+  remind_time: '09:00',
   priority: 'medium',
   status: 'todo',
   visibility: 'private',
@@ -85,8 +80,11 @@ export default function TaskFormModal({
   const [allPeople, setAllPeople] = useState<Profile[]>([])
   const [checklist, setChecklist] = useState<TaskChecklistItem[]>([])
   const [newChecklistTitle, setNewChecklistTitle] = useState('')
+  const [editingChecklistId, setEditingChecklistId] = useState<string | null>(null)
   const [comments, setComments] = useState<TaskComment[]>([])
   const [commentAuthors, setCommentAuthors] = useState<Record<string, Profile>>({})
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
+  const [editingCommentBody, setEditingCommentBody] = useState('')
   const [newComment, setNewComment] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -108,7 +106,8 @@ export default function TaskFormModal({
         description: task.description ?? '',
         assignee_id: task.assignee_id ?? '',
         due_date: task.due_date ?? '',
-        remind_at: toLocalInput(task.remind_at),
+        remind_days_before: task.remind_days_before?.toString() ?? '',
+        remind_time: task.remind_time?.slice(0, 5) || '09:00',
         priority: task.priority,
         status: task.status,
         visibility: task.visibility,
@@ -204,6 +203,18 @@ export default function TaskFormModal({
     if (updateError) notify(updateError.message, 'error')
   }
 
+  const renameChecklistItem = async (id: string, title: string) => {
+    const trimmed = title.trim()
+    setEditingChecklistId(null)
+    if (!trimmed) return
+    setChecklist((current) => current.map((i) => (i.id === id ? { ...i, title: trimmed } : i)))
+    const { error: updateError } = await supabase
+      .from('task_checklist_items')
+      .update({ title: trimmed })
+      .eq('id', id)
+    if (updateError) notify(updateError.message, 'error')
+  }
+
   const removeChecklistItem = async (id: string) => {
     const { error: deleteError } = await supabase.from('task_checklist_items').delete().eq('id', id)
     if (deleteError) {
@@ -237,6 +248,20 @@ export default function TaskFormModal({
       return
     }
     if (task) await loadFollowUp(task.id)
+  }
+
+  const startEditingComment = (comment: TaskComment) => {
+    setEditingCommentId(comment.id)
+    setEditingCommentBody(comment.body)
+  }
+
+  const saveComment = async (id: string) => {
+    const body = editingCommentBody.trim()
+    setEditingCommentId(null)
+    if (!body) return
+    setComments((current) => current.map((c) => (c.id === id ? { ...c, body } : c)))
+    const { error: updateError } = await supabase.from('task_comments').update({ body }).eq('id', id)
+    if (updateError) notify(updateError.message, 'error')
   }
 
   // Responsáveis possíveis: quem tem acesso à empresa escolhida.
@@ -303,7 +328,10 @@ export default function TaskFormModal({
       description: form.description.trim() || null,
       assignee_id: form.assignee_id || null,
       due_date: form.due_date || null,
-      remind_at: form.remind_at ? new Date(form.remind_at).toISOString() : null,
+      // remind_at é recalculado pelo próprio banco (trigger app.sync_task_reminder)
+      // a partir de due_date + remind_days_before + remind_time — nada aqui.
+      remind_days_before: form.due_date && form.remind_days_before ? Number(form.remind_days_before) : null,
+      remind_time: form.remind_time || '09:00',
       priority: form.priority,
       status: form.status,
       visibility: form.visibility,
@@ -312,8 +340,6 @@ export default function TaskFormModal({
         .map((tag) => tag.trim())
         .filter(Boolean),
       ...(task ? {} : { created_by: profile?.id ?? null }),
-      // Mudou o lembrete: a notificação precisa poder disparar de novo.
-      ...(task && toLocalInput(task.remind_at) !== form.remind_at ? { reminder_sent_at: null } : {}),
     }
 
     setBusy(true)
@@ -439,17 +465,42 @@ export default function TaskFormModal({
           </Field>
         </div>
 
-        <Field
-          label="Lembrete"
-          hint="O responsável recebe um aviso no sistema na data e hora escolhidas."
-        >
-          <input
-            className="input"
-            type="datetime-local"
-            value={form.remind_at}
-            onChange={(event) => setForm((c) => ({ ...c, remind_at: event.target.value }))}
-          />
-        </Field>
+        {/* Lembretes padrão: o responsável já é avisado quando a tarefa é
+            atribuída. Com prazo definido, entram mais dois avisos automáticos
+            — não precisa digitar data por extenso, só escolher quanto antes. */}
+        {form.due_date ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field
+              label="Lembrar quantos dias antes"
+              hint="O dia do prazo sempre avisa também, além deste."
+            >
+              <select
+                className="input"
+                value={form.remind_days_before}
+                onChange={(event) => setForm((c) => ({ ...c, remind_days_before: event.target.value }))}
+              >
+                <option value="">Sem lembrete antecipado</option>
+                {REMIND_DAYS_OPTIONS.map((days) => (
+                  <option key={days} value={days}>
+                    {days} {days === 1 ? 'dia antes' : 'dias antes'}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Horário do lembrete">
+              <input
+                className="input"
+                type="time"
+                value={form.remind_time}
+                onChange={(event) => setForm((c) => ({ ...c, remind_time: event.target.value }))}
+              />
+            </Field>
+          </div>
+        ) : (
+          <p className="text-xs text-content-soft">
+            Defina um prazo para ligar os lembretes automáticos (N dias antes e no próprio dia).
+          </p>
+        )}
 
         {/* ------------------------------------------------- quem enxerga */}
         <Field asGroup label="Quem enxerga esta tarefa" hint={VISIBILITY_HINT[form.visibility]}>
@@ -591,11 +642,27 @@ export default function TaskFormModal({
                         checked={item.done}
                         onChange={() => void toggleChecklistItem(item)}
                       />
-                      <span
-                        className={`flex-1 text-sm ${item.done ? 'text-content-faint line-through' : 'text-content'}`}
-                      >
-                        {item.title}
-                      </span>
+                      {editingChecklistId === item.id ? (
+                        <input
+                          className="input flex-1 py-1"
+                          autoFocus
+                          defaultValue={item.title}
+                          onBlur={(event) => void renameChecklistItem(item.id, event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+                            if (event.key === 'Escape') setEditingChecklistId(null)
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className={`flex-1 truncate text-left text-sm ${item.done ? 'text-content-faint line-through' : 'text-content'}`}
+                          onClick={() => setEditingChecklistId(item.id)}
+                          title="Editar subtarefa"
+                        >
+                          {item.title}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
@@ -639,26 +706,61 @@ export default function TaskFormModal({
                   {comments.map((comment) => {
                     const author = comment.author_id ? commentAuthors[comment.author_id] : undefined
                     const mine = comment.author_id === profile?.id
+                    const editing = editingCommentId === comment.id
                     return (
                       <li key={comment.id} className="flex items-start gap-2">
                         <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-hover text-[10px] font-semibold text-content-muted">
                           {initials(author?.full_name || author?.email || '?')}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="whitespace-pre-wrap text-sm text-content">{comment.body}</p>
+                          {editing ? (
+                            <textarea
+                              className="input min-h-16"
+                              autoFocus
+                              value={editingCommentBody}
+                              onChange={(event) => setEditingCommentBody(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Escape') setEditingCommentId(null)
+                              }}
+                            />
+                          ) : (
+                            <p className="whitespace-pre-wrap text-sm text-content">{comment.body}</p>
+                          )}
                           <p className="mt-0.5 text-[11px] text-content-faint">
                             {author?.full_name ?? 'Alguém'} · {formatDateTime(comment.created_at)}
+                            {editing && (
+                              <>
+                                {' · '}
+                                <button
+                                  type="button"
+                                  className="text-brand-text hover:underline"
+                                  onClick={() => void saveComment(comment.id)}
+                                >
+                                  salvar
+                                </button>
+                              </>
+                            )}
                           </p>
                         </div>
-                        {mine && (
-                          <button
-                            type="button"
-                            className="shrink-0 rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
-                            onClick={() => void removeComment(comment.id)}
-                            aria-label="Remover nota"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                        {mine && !editing && (
+                          <div className="flex shrink-0 gap-0.5">
+                            <button
+                              type="button"
+                              className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
+                              onClick={() => startEditingComment(comment)}
+                              aria-label="Editar nota"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
+                              onClick={() => void removeComment(comment.id)}
+                              aria-label="Remover nota"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         )}
                       </li>
                     )

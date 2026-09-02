@@ -149,3 +149,51 @@ test.describe('subtarefas e notas', () => {
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1)
   })
 })
+
+// Item 4: um quadro só, com todas as empresas, acessível pelo menu da holding.
+test.describe('tarefas da holding', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+  })
+
+  test('atalho na sidebar leva ao quadro consolidado', async ({ page }) => {
+    await page.goto('/holding')
+    await page.waitForLoadState('networkidle')
+    // Escopado no menu do módulo (aside) — a página também tem um link
+    // "Tarefas" por cartão de empresa, com o mesmo texto.
+    await page.locator('aside nav a', { hasText: 'Tarefas' }).click()
+    await expect(page).toHaveURL(/\/holding\/tarefas$/)
+    await expect(page.getByText('Tarefas da Holding')).toBeVisible()
+  })
+
+  test('mostra tarefas de mais de uma empresa no mesmo quadro', async ({ page }) => {
+    await page.goto('/holding/tarefas')
+    await page.waitForLoadState('networkidle')
+    const mddTask = page.locator('article', { hasText: 'Fechar balancete de agosto' })
+    const vibraTask = page.locator('article', { hasText: 'Revisar contrato do cliente' })
+    await expect(mddTask).toBeVisible()
+    await expect(vibraTask).toBeVisible()
+    await expect(mddTask.getByText('MDD', { exact: true })).toBeVisible()
+    await expect(vibraTask.getByText('Vibra', { exact: true })).toBeVisible()
+  })
+})
+
+// Item 1: lembrete por menu suspenso (dias antes) + horário, não mais uma
+// data e hora digitadas por extenso.
+test.describe('lembretes de tarefa', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+  })
+
+  test('escolher dias antes e horário do lembrete', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID}/tarefas`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Editar' }).first().click()
+    await page.waitForTimeout(300)
+
+    await expect(page.getByLabel('Lembrar quantos dias antes')).toBeVisible()
+    await expect(page.getByLabel('Horário do lembrete')).toBeVisible()
+    await page.getByLabel('Lembrar quantos dias antes').selectOption('3')
+    await expect(page.getByLabel('Lembrar quantos dias antes')).toHaveValue('3')
+  })
+})
