@@ -1,11 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Ápice">
-  <!-- Marca da Ápice, sem fundo: o "A" em azul e a seta em laranja.
-       Para trocar, substitua ESTE arquivo mantendo o nome — login, cabeçalho
-       e favicon apontam para /logo-apice.svg. -->
-  <g fill="#2E31B0">
-    <path d="M222 92h58l88 220-40 86-77-196-76 196h-74z"/>
-    <path d="M330 320l58 148h-84z"/>
-    <path d="M368 176c2 104-58 192-166 248 132-22 214-124 216-248z"/>
+  <!-- Marca da Ápice, sem fundo: "A" azul e seta laranja. O traçado ocupa
+       x 73-440 e y 68-444 dentro da caixa de 512, com margem igual dos quatro
+       lados — nada encosta na borda em nenhum tamanho.
+       Para trocar, substitua ESTE arquivo mantendo o nome. -->
+  <g transform="translate(0 -24)">
+    <g fill="#2E31B0">
+      <path d="M222 92h58l88 220-40 86-77-196-103 266h-75z"/>
+      <path d="M330 320l58 148h-84z"/>
+      <path d="M368 176c2 104-58 192-166 248 132-22 214-124 216-248z"/>
+    </g>
+    <path fill="#E2521E" d="M376 112l64 50c-41-17-80-13-113 8z"/>
   </g>
-  <path fill="#E2521E" d="M376 112l64 50c-41-17-80-13-113 8z"/>
 </svg>
