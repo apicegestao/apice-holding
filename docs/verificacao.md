@@ -161,3 +161,23 @@ conferindo que a classe `dark` foi realmente aplicada e qual cor de fundo o
 
 **Celular no tema escuro**: as 17 rotas e os 2 modais a 390 px, sem rolagem
 horizontal e sem erro.
+
+
+---
+
+## 9. A marca oficial
+
+Duas rodadas anteriores tentaram reproduzir a marca a partir da imagem
+anexada no chat — o anexo nunca chega como arquivo a este ambiente, só como
+visualização, então cada tentativa era um desenho novo, sempre um pouco
+diferente do original (a primeira cortava a perna do "A").
+
+O arquivo oficial chegou pelo GitHub, mas com um detalhe: o nome trazia acento
+(`Secundária - paleta 2.svg`) e por isso não substituiu `logo-apice.svg` como
+o esperado — os dois arquivos ficaram lado a lado no repositório. Encontrado
+pelo histórico de commits, o conteúdo foi copiado para `logo-apice.svg` e
+`favicon.svg`, e o arquivo de nome estranho foi removido.
+
+Verificado: build limpo, as 16 rotas e o favicon no navegador nos dois temas,
+e as mesmas 16 rotas e os 2 modais a 390 px — sem erro de console e sem
+rolagem lateral.

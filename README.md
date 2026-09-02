@@ -159,11 +159,11 @@ paleta certa para o tema atual.
 Todo o sistema aponta para `public/logo-apice.svg` — trocar esse arquivo,
 mantendo o nome, atualiza login, cabeçalho e favicon de uma vez.
 
-A marca é transparente: o "A" em azul (`#2E31B0`) e a seta em laranja
-(`#E2521E`). No tema escuro ela recebe um leve ganho de brilho por CSS, para o
-azul não sumir no fundo quase preto — assim continua sendo um arquivo só.
-O componente `Logo` também aceita `framed`, que a envolve numa moldura branca
-quando precisar ir sobre uma superfície colorida.
+A marca é o arquivo oficial da Ápice: o "A" em azul (`#2e2cb2`) e a seta em
+laranja (`#dd4f1d`). No tema escuro ela recebe um leve ganho de brilho por CSS,
+para o azul não sumir no fundo quase preto — assim continua sendo um arquivo
+só. O componente `Logo` também aceita `framed`, que a envolve numa moldura
+branca quando precisar ir sobre uma superfície colorida.
 
 ## Integrações com outros sistemas
 
