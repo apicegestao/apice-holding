@@ -104,7 +104,7 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
-        title="Configurações da holding"
+        title="Configurações da Holding"
         subtitle="Valem para todas as empresas do grupo."
       />
 

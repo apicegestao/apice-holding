@@ -194,6 +194,26 @@ export type TaskShare = {
   created_at: string
 }
 
+export type TaskChecklistItem = {
+  id: string
+  task_id: string
+  company_id: string
+  title: string
+  done: boolean
+  position: number
+  created_by: string | null
+  created_at: string
+}
+
+export type TaskComment = {
+  id: string
+  task_id: string
+  company_id: string
+  author_id: string | null
+  body: string
+  created_at: string
+}
+
 export type MindMap = {
   id: string
   company_id: string

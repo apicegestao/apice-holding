@@ -287,8 +287,8 @@ export default function CompanyDashboard() {
           title="Indicadores"
           description="Último valor apurado de cada KPI."
           actions={
-            <Link to={`/empresa/${company.id}/kpis`} className="text-xs text-brand-text hover:underline">
-              ver todos
+            <Link to={`/empresa/${company.id}/kpis`} className="btn-ghost py-1.5 text-xs">
+              Ver Todos
             </Link>
           }
         >
@@ -342,11 +342,8 @@ export default function CompanyDashboard() {
           <Card
             title="Próximos prazos"
             actions={
-              <Link
-                to={`/empresa/${company.id}/tarefas`}
-                className="text-xs text-brand-text hover:underline"
-              >
-                ver tarefas
+              <Link to={`/empresa/${company.id}/tarefas`} className="btn-ghost py-1.5 text-xs">
+                Ver Tarefas
               </Link>
             }
           >
@@ -376,11 +373,8 @@ export default function CompanyDashboard() {
             title="Metas"
             description="KPIs com prazo — a meta é o próprio indicador."
             actions={
-              <Link
-                to={`/empresa/${company.id}/kpis`}
-                className="text-xs text-brand-text hover:underline"
-              >
-                ver KPIs
+              <Link to={`/empresa/${company.id}/kpis`} className="btn-ghost py-1.5 text-xs">
+                Ver KPIs
               </Link>
             }
           >
@@ -527,11 +521,8 @@ export default function CompanyDashboard() {
         <Card
           title="Insights recentes da IA"
           actions={
-            <Link
-              to={`/empresa/${company.id}/insights`}
-              className="text-xs text-brand-text hover:underline"
-            >
-              ver todos
+            <Link to={`/empresa/${company.id}/insights`} className="btn-ghost py-1.5 text-xs">
+              Ver Todos
             </Link>
           }
         >

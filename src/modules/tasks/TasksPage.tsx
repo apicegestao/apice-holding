@@ -2,7 +2,7 @@
 // empresas compartilharam com ela — sempre filtradas pela RLS.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Bell, CalendarClock, Lock, Pencil, Plus, Share2, Trash2, User } from 'lucide-react'
+import { Bell, CalendarClock, ListChecks, Lock, Pencil, Plus, Share2, Trash2, User } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { initials, relativeDays } from '../../core/lib/format'
 import { useAuth } from '../../core/auth/AuthProvider'
@@ -21,6 +21,7 @@ import {
   VISIBILITY_LABEL,
   type Profile,
   type Task,
+  type TaskChecklistItem,
   type TaskPriority,
   type TaskStatus,
 } from '../../core/types'
@@ -43,6 +44,7 @@ export default function TasksPage() {
 
   const [tasks, setTasks] = useState<Task[]>([])
   const [people, setPeople] = useState<Profile[]>([])
+  const [checklists, setChecklists] = useState<TaskChecklistItem[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Task | null>(null)
   const [creating, setCreating] = useState<TaskStatus | null>(null)
@@ -60,14 +62,30 @@ export default function TasksPage() {
     ])
 
     const ids = (memberResult.data ?? []).map((row) => row.user_id)
-    const { data: profileRows } = ids.length
-      ? await supabase.from('profiles').select('*').in('id', ids)
-      : { data: [] as Profile[] }
+    const taskIds = (taskResult.data ?? []).map((row: Task) => row.id)
+    const [{ data: profileRows }, { data: checklistRows }] = await Promise.all([
+      ids.length
+        ? supabase.from('profiles').select('*').in('id', ids)
+        : Promise.resolve({ data: [] as Profile[] }),
+      taskIds.length
+        ? supabase.from('task_checklist_items').select('*').in('task_id', taskIds)
+        : Promise.resolve({ data: [] as TaskChecklistItem[] }),
+    ])
 
     setTasks((taskResult.data as Task[]) ?? [])
     setPeople((profileRows as Profile[]) ?? [])
+    setChecklists((checklistRows as TaskChecklistItem[]) ?? [])
     setLoading(false)
   }, [company.id])
+
+  const checklistProgress = useCallback(
+    (taskId: string) => {
+      const items = checklists.filter((item) => item.task_id === taskId)
+      if (!items.length) return null
+      return { done: items.filter((item) => item.done).length, total: items.length }
+    },
+    [checklists],
+  )
 
   useEffect(() => {
     void load()
@@ -198,6 +216,7 @@ export default function TasksPage() {
                 const mine = task.created_by === profile?.id
                 const editable = mine || task.assignee_id === profile?.id || canWrite
                 const fromAnotherCompany = task.company_id !== company.id
+                const checklist = checklistProgress(task.id)
 
                 return (
                   <article key={task.id} className="card p-3">
@@ -254,6 +273,11 @@ export default function TasksPage() {
                       {task.remind_at && !task.reminder_sent_at && (
                         <Badge tone="blue">
                           <Bell className="h-3 w-3" /> lembrete
+                        </Badge>
+                      )}
+                      {checklist && (
+                        <Badge tone={checklist.done === checklist.total ? 'green' : 'slate'}>
+                          <ListChecks className="h-3 w-3" /> {checklist.done}/{checklist.total}
                         </Badge>
                       )}
                       {task.tags.map((tag) => (

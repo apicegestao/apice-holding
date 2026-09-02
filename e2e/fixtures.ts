@@ -212,7 +212,7 @@ const KPI_VALUES = LATEST.map((l) => ({
   updated_at: l.period_start + 'T00:00:00Z',
 }))
 
-const TASKS = [
+export const TASKS = [
   {
     id: 't1',
     company_id: COMPANY_ID,
@@ -371,6 +371,39 @@ const NODES = [
   },
 ]
 
+// Dois insights em dias diferentes — dá pra conferir o agrupamento por data
+// (item 1 do pedido) sem depender de fuso ou hora exata.
+const today = new Date()
+const threeDaysAgo = new Date(today.getTime() - 3 * 24 * 3600 * 1000)
+export const INSIGHTS = [
+  {
+    id: 'ins1',
+    company_id: null,
+    scope: 'holding',
+    title: 'Vibra puxa o resultado do grupo',
+    body: 'A Vibra responde por 2 dos 4 KPIs na meta do grupo neste ciclo.',
+    severity: 'opportunity',
+    recommendation: 'Replicar o processo comercial da Vibra nas demais empresas.',
+    model: 'gemini-2.5-flash',
+    generated_at: today.toISOString(),
+    generated_by: USER_ID,
+    is_archived: false,
+  },
+  {
+    id: 'ins2',
+    company_id: null,
+    scope: 'holding',
+    title: 'MDD sem lançamento de faturamento há semanas',
+    body: 'O KPI Faturamento da MDD não recebe lançamento desde a criação.',
+    severity: 'warning',
+    recommendation: 'Cobrar o primeiro lançamento do responsável pela MDD.',
+    model: 'gemini-2.5-flash',
+    generated_at: threeDaysAgo.toISOString(),
+    generated_by: USER_ID,
+    is_archived: false,
+  },
+]
+
 const TABLES: Record<string, unknown[]> = {
   profiles: [PROFILE],
   companies: COMPANIES,
@@ -385,12 +418,14 @@ const TABLES: Record<string, unknown[]> = {
   tasks: TASKS,
   task_shares: [],
   kpi_checkpoints: [],
+  task_checklist_items: [],
+  task_comments: [],
   mind_maps: MAPS,
   mind_map_nodes: NODES,
   integrations: [],
   integration_mappings: [],
   integration_runs: [],
-  insights: [],
+  insights: INSIGHTS,
   notifications: [],
   audit_logs: [],
 }

@@ -94,7 +94,8 @@ src/
                        criar um indicador próprio; com prazo, o próprio KPI
                        vira a meta (responsável notificado, andamento,
                        repartição do alvo por semana)
-    tasks/             tarefas: quem, o quê, prazo e lembrete
+    tasks/             tarefas: quem, o quê, prazo e lembrete — com
+                       subtarefas e notas dentro da própria tarefa
     mindmap/           mapa mental arrastável, com organograma automático;
                        nó vira tarefa e edita o texto nele mesmo
     integrations/      conectores REST e mapeamento campo → KPI

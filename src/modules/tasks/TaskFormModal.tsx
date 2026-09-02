@@ -1,9 +1,12 @@
 // Formulário de tarefa, usado tanto dentro da empresa quanto no painel da
 // holding. Concentra quem faz, prazo, lembrete e — o ponto delicado —
-// quem enxerga a tarefa.
+// quem enxerga a tarefa. Editando uma tarefa já salva, ganha também
+// subtarefas (checklist) e notas — o histórico de acompanhamento dela.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { useAuth } from '../../core/auth/AuthProvider'
+import { formatDateTime, initials } from '../../core/lib/format'
 import { ErrorText, Field, Modal, Spinner, useToast } from '../../core/ui'
 import {
   TASK_PRIORITY_LABEL,
@@ -12,6 +15,8 @@ import {
   VISIBILITY_LABEL,
   type Profile,
   type Task,
+  type TaskChecklistItem,
+  type TaskComment,
   type TaskPriority,
   type TaskStatus,
   type TaskVisibility,
@@ -78,6 +83,11 @@ export default function TaskFormModal({
   const [shareCompanies, setShareCompanies] = useState<string[]>([])
   const [sharePeople, setSharePeople] = useState<string[]>([])
   const [allPeople, setAllPeople] = useState<Profile[]>([])
+  const [checklist, setChecklist] = useState<TaskChecklistItem[]>([])
+  const [newChecklistTitle, setNewChecklistTitle] = useState('')
+  const [comments, setComments] = useState<TaskComment[]>([])
+  const [commentAuthors, setCommentAuthors] = useState<Record<string, Profile>>({})
+  const [newComment, setNewComment] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -128,6 +138,106 @@ export default function TaskFormModal({
     }
     void load()
   }, [open, task])
+
+  // Subtarefas e notas só existem numa tarefa já salva — nascem junto com o
+  // primeiro carregamento da edição.
+  const loadFollowUp = useCallback(async (taskId: string) => {
+    const [{ data: items }, { data: notes }] = await Promise.all([
+      supabase
+        .from('task_checklist_items')
+        .select('*')
+        .eq('task_id', taskId)
+        .order('position', { ascending: true }),
+      supabase.from('task_comments').select('*').eq('task_id', taskId).order('created_at', { ascending: true }),
+    ])
+    setChecklist((items as TaskChecklistItem[]) ?? [])
+    setComments((notes as TaskComment[]) ?? [])
+
+    const authorIds = [...new Set((notes ?? []).map((n) => n.author_id).filter((id): id is string => Boolean(id)))]
+    const missing = authorIds.filter((id) => !commentAuthors[id])
+    if (missing.length) {
+      const { data: profiles } = await supabase.from('profiles').select('*').in('id', missing)
+      setCommentAuthors((current) => {
+        const next = { ...current }
+        for (const p of (profiles as Profile[]) ?? []) next[p.id] = p
+        return next
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!open || !task) {
+      setChecklist([])
+      setComments([])
+      setNewChecklistTitle('')
+      setNewComment('')
+      return
+    }
+    void loadFollowUp(task.id)
+  }, [open, task, loadFollowUp])
+
+  const addChecklistItem = async () => {
+    const title = newChecklistTitle.trim()
+    if (!title || !task) return
+    const { error: insertError } = await supabase.from('task_checklist_items').insert({
+      task_id: task.id,
+      company_id: task.company_id,
+      title,
+      position: checklist.length,
+      created_by: profile?.id ?? null,
+    })
+    if (insertError) {
+      notify(insertError.message, 'error')
+      return
+    }
+    setNewChecklistTitle('')
+    await loadFollowUp(task.id)
+  }
+
+  const toggleChecklistItem = async (item: TaskChecklistItem) => {
+    setChecklist((current) => current.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)))
+    const { error: updateError } = await supabase
+      .from('task_checklist_items')
+      .update({ done: !item.done })
+      .eq('id', item.id)
+    if (updateError) notify(updateError.message, 'error')
+  }
+
+  const removeChecklistItem = async (id: string) => {
+    const { error: deleteError } = await supabase.from('task_checklist_items').delete().eq('id', id)
+    if (deleteError) {
+      notify(deleteError.message, 'error')
+      return
+    }
+    if (task) await loadFollowUp(task.id)
+  }
+
+  const addComment = async () => {
+    const body = newComment.trim()
+    if (!body || !task) return
+    const { error: insertError } = await supabase.from('task_comments').insert({
+      task_id: task.id,
+      company_id: task.company_id,
+      author_id: profile?.id ?? null,
+      body,
+    })
+    if (insertError) {
+      notify(insertError.message, 'error')
+      return
+    }
+    setNewComment('')
+    await loadFollowUp(task.id)
+  }
+
+  const removeComment = async (id: string) => {
+    const { error: deleteError } = await supabase.from('task_comments').delete().eq('id', id)
+    if (deleteError) {
+      notify(deleteError.message, 'error')
+      return
+    }
+    if (task) await loadFollowUp(task.id)
+  }
 
   // Responsáveis possíveis: quem tem acesso à empresa escolhida.
   const loadPeople = useCallback(async (companyId: string) => {
@@ -458,6 +568,122 @@ export default function TaskFormModal({
             placeholder="comercial, urgente"
           />
         </Field>
+
+        {/* Subtarefas e notas só fazem sentido numa tarefa que já existe —
+            a nova nasce sem elas e ganha depois de salva a primeira vez. */}
+        {task && (
+          <>
+            <div className="border-t border-line pt-4">
+              <p className="label">
+                Subtarefas
+                {checklist.length > 0 && (
+                  <span className="ml-1.5 font-normal text-content-faint">
+                    {checklist.filter((item) => item.done).length}/{checklist.length}
+                  </span>
+                )}
+              </p>
+              {checklist.length > 0 && (
+                <ul className="mt-2 space-y-1.5">
+                  {checklist.map((item) => (
+                    <li key={item.id} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={item.done}
+                        onChange={() => void toggleChecklistItem(item)}
+                      />
+                      <span
+                        className={`flex-1 text-sm ${item.done ? 'text-content-faint line-through' : 'text-content'}`}
+                      >
+                        {item.title}
+                      </span>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
+                        onClick={() => void removeChecklistItem(item.id)}
+                        aria-label="Remover subtarefa"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-2 flex gap-2">
+                <input
+                  className="input"
+                  placeholder="Adicionar subtarefa…"
+                  value={newChecklistTitle}
+                  onChange={(event) => setNewChecklistTitle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void addChecklistItem()
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn-ghost shrink-0"
+                  disabled={!newChecklistTitle.trim()}
+                  onClick={() => void addChecklistItem()}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="border-t border-line pt-4">
+              <p className="label">Notas</p>
+              {comments.length > 0 && (
+                <ul className="mt-2 space-y-3">
+                  {comments.map((comment) => {
+                    const author = comment.author_id ? commentAuthors[comment.author_id] : undefined
+                    const mine = comment.author_id === profile?.id
+                    return (
+                      <li key={comment.id} className="flex items-start gap-2">
+                        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-hover text-[10px] font-semibold text-content-muted">
+                          {initials(author?.full_name || author?.email || '?')}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="whitespace-pre-wrap text-sm text-content">{comment.body}</p>
+                          <p className="mt-0.5 text-[11px] text-content-faint">
+                            {author?.full_name ?? 'Alguém'} · {formatDateTime(comment.created_at)}
+                          </p>
+                        </div>
+                        {mine && (
+                          <button
+                            type="button"
+                            className="shrink-0 rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
+                            onClick={() => void removeComment(comment.id)}
+                            aria-label="Remover nota"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              <div className="mt-2 flex gap-2">
+                <textarea
+                  className="input min-h-16"
+                  placeholder="Escreva uma nota sobre o andamento…"
+                  value={newComment}
+                  onChange={(event) => setNewComment(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn-ghost shrink-0 self-end"
+                  disabled={!newComment.trim()}
+                  onClick={() => void addComment()}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </>
+        )}
 
         {error && <ErrorText>{error}</ErrorText>}
       </form>

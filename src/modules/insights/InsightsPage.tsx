@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Archive, Sparkles } from 'lucide-react'
 import { supabase, callFunction } from '../../core/lib/supabase'
-import { formatDateTime } from '../../core/lib/format'
 import { useCompany } from '../../core/company/CompanyProvider'
 import {
   Badge,
@@ -30,6 +29,33 @@ function severityTone(severity: InsightSeverity) {
   return 'slate'
 }
 
+/** "Hoje", "Ontem" ou a data por extenso — o cabeçalho de cada grupo. */
+function dayLabel(iso: string) {
+  const date = new Date(iso)
+  const today = new Date()
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const diff = Math.round((startOf(today) - startOf(date)) / 86_400_000)
+  if (diff === 0) return 'Hoje'
+  if (diff === 1) return 'Ontem'
+  return date.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+const timeOnly = (iso: string) =>
+  new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
+/** Agrupa por dia-calendário, mantendo a ordem (mais recente primeiro) que
+ *  já vem da consulta — só junta o que já está junto, não reordena nada. */
+function groupByDay(insights: Insight[]) {
+  const groups: { label: string; items: Insight[] }[] = []
+  for (const insight of insights) {
+    const label = dayLabel(insight.generated_at)
+    const current = groups[groups.length - 1]
+    if (current?.label === label) current.items.push(insight)
+    else groups.push({ label, items: [insight] })
+  }
+  return groups
+}
+
 function InsightList({
   insights,
   loading,
@@ -50,38 +76,51 @@ function InsightList({
   }
 
   return (
-    <div className="space-y-3">
-      {insights.map((insight) => (
-        <Card key={insight.id}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={severityTone(insight.severity)}>
-                  {SEVERITY_LABEL[insight.severity]}
-                </Badge>
-                <h3 className="text-sm font-semibold text-content">{insight.title}</h3>
-              </div>
-              <p className="mt-2 text-sm text-content-muted">{insight.body}</p>
-              {insight.recommendation && (
-                <p className="mt-2 rounded-lg bg-brand/10 px-3 py-2 text-sm text-brand-text">
-                  <strong>O que fazer:</strong> {insight.recommendation}
-                </p>
-              )}
-              <p className="mt-2 text-xs text-content-faint">
-                {formatDateTime(insight.generated_at)}
-                {insight.model && ` · ${insight.model}`}
-              </p>
-            </div>
-            <button
-              type="button"
-              className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
-              title="Arquivar"
-              onClick={() => onArchive(insight)}
-            >
-              <Archive className="h-4 w-4" />
-            </button>
+    <div className="space-y-6">
+      {groupByDay(insights).map((group) => (
+        <div key={group.label}>
+          <div className="mb-2.5 flex items-center gap-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-content-soft">
+              {group.label}
+            </h2>
+            <span className="h-px flex-1 bg-line" />
+            <span className="text-xs text-content-faint">{group.items.length}</span>
           </div>
-        </Card>
+          <div className="space-y-3">
+            {group.items.map((insight) => (
+              <Card key={insight.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={severityTone(insight.severity)}>
+                        {SEVERITY_LABEL[insight.severity]}
+                      </Badge>
+                      <h3 className="text-sm font-semibold text-content">{insight.title}</h3>
+                    </div>
+                    <p className="mt-2 text-sm text-content-muted">{insight.body}</p>
+                    {insight.recommendation && (
+                      <p className="mt-2 rounded-lg bg-brand/10 px-3 py-2 text-sm text-brand-text">
+                        <strong>O que fazer:</strong> {insight.recommendation}
+                      </p>
+                    )}
+                    <p className="mt-2 text-xs text-content-faint">
+                      {timeOnly(insight.generated_at)}
+                      {insight.model && ` · ${insight.model}`}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
+                    title="Arquivar"
+                    onClick={() => onArchive(insight)}
+                  >
+                    <Archive className="h-4 w-4" />
+                  </button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   )
@@ -199,7 +238,7 @@ function HoldingInsights() {
   return (
     <div className="mx-auto max-w-4xl">
       <PageHeader
-        title="Insights da holding"
+        title="Insights da Holding"
         subtitle="Leitura consolidada do grupo, comparando as empresas entre si."
         actions={
           <button type="button" className="btn-primary" disabled={generating} onClick={() => void generate()}>

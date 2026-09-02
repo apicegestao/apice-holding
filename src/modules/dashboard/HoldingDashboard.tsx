@@ -191,7 +191,7 @@ export default function HoldingDashboard() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
-        title="Painel da holding"
+        title="Painel da Holding"
         subtitle="Todas as empresas do grupo em um lugar só."
         actions={
           <button type="button" className="btn-primary" onClick={() => setCreatingTask(true)}>
@@ -550,10 +550,10 @@ export default function HoldingDashboard() {
 
           {insights.length > 0 && (
             <Card
-              title="Insights da holding"
+              title="Insights da Holding"
               actions={
-                <Link to="/holding/insights" className="text-xs text-brand-text hover:underline">
-                  ver todos
+                <Link to="/holding/insights" className="btn-ghost py-1.5 text-xs">
+                  Ver Todos
                 </Link>
               }
             >

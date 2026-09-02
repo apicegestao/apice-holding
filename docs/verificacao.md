@@ -307,3 +307,47 @@ que a MDD mantém `kpis_total: 1` depois da reestruturação. Organograma,
 edição inline e "ramificar a partir do nó" testados num mapa de 3 nós via
 Playwright: os três funcionam e o layout final foi conferido visualmente
 por screenshot.
+
+---
+
+## 13. Insights por data, capitalização e subtarefas/notas nas tarefas
+
+**1) Insights organizados por data.** A lista completa de insights
+(`InsightsPage.tsx`) era um bloco só, ordenado por data mas sem nenhuma
+marcação visual entre um dia e outro. Passou a agrupar por dia-calendário —
+"Hoje", "Ontem" ou a data por extenso — com um cabeçalho, uma régua e a
+contagem do grupo; o card de cada insight mostra só a hora agora, já que a
+data está no cabeçalho do grupo.
+
+**2) Capitalização.** "Insights da holding" tinha o "h" minúsculo enquanto o
+item de menu da mesma página, ao lado, já dizia "Painel da Holding" — uma
+inconsistência visível na mesma tela. Corrigido nos três lugares que tinham
+o mesmo padrão (título de página "[Algo] da holding"): painel da holding,
+insights da holding e configurações da holding. Os "ver todos"/"ver X" que
+eram link de texto solto (`text-xs text-brand-text hover:underline`) viraram
+botão de verdade no padrão do sistema (`btn-ghost`), com o texto em Title
+Case como pedido — Ver Todos, Ver Tarefas, Ver KPIs — em cinco lugares
+(painel da empresa ×3, insights da empresa, insights da holding). Deixados
+de fora de propósito: os selos de situação ("na meta", "sem lançamento", "em
+risco"...) e legendas descritivas de estatística ("metas ativas", "no
+grupo") — minúsculos em todo o sistema por estilo consistente, não por
+descuido; mudar só esses quebraria o padrão em vez de corrigi-lo.
+
+**3) Subtarefas e notas.** `task_comments` já existia no banco desde o
+módulo de tarefas mas nunca tinha ganhado tela — virou a seção "Notas" no
+formulário de editar tarefa (lista com autor e hora, adicionar, remover a
+própria). Subtarefas são banco novo (`task_checklist_items`, migração
+`0017`, RLS pela mesma regra de quem já enxerga a tarefa) — checklist com
+caixinha, adicionar por Enter, remover.
+Os dois só aparecem editando uma tarefa que já existe (uma tarefa nova ainda
+não tem `id` para pendurar subtarefa ou nota nela). O card da tarefa no
+quadro ganhou um selo com o progresso ("2/5") quando ela tem subtarefas.
+
+**Verificação:** `npm run build`, `npm run test` (9/9) e
+`npm run check:contrast` (24/24) limpos. `npm run test:e2e` subiu de 44 para
+**50 testes** (6 novos: agrupamento por data, título e botão do card de
+insights da holding, e um teste com mock de estado próprio — não só
+leitura fixa — simulando inserir uma subtarefa e uma nota de verdade e
+conferir que aparecem). Migração `0017` aplicada em produção. Capturas de
+tela conferidas visualmente: agrupamento por data, e o formulário de tarefa
+com subtarefas marcadas/desmarcadas e uma nota.

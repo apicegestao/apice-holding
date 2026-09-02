@@ -344,10 +344,10 @@ export default function IntegrationsPage() {
                     </p>
                     <button
                       type="button"
-                      className="text-xs text-brand-text hover:underline"
+                      className="btn-ghost py-1 text-xs"
                       onClick={() => setMappingFor(integration)}
                     >
-                      configurar
+                      Configurar
                     </button>
                   </div>
                   {links.length === 0 ? (
