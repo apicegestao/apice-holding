@@ -14,10 +14,10 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
-import { formatValue, isOnTarget, labelPeriod, relativeDays } from '../../core/lib/format'
+import { attainmentRatio, formatValue, isOnTarget, labelPeriod, relativeDays } from '../../core/lib/format'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
-import { Badge, Card, EmptyState, Loading, PageHeader } from '../../core/ui'
+import { Badge, Card, EmptyState, Loading, PageHeader, ProgressBar } from '../../core/ui'
 import {
   GOAL_STATUS_LABEL,
   TASK_PRIORITY_LABEL,
@@ -307,6 +307,7 @@ export default function CompanyDashboard() {
               {kpiRows.slice(0, 8).map((kpi) => {
                 const status =
                   kpi.value === null ? null : isOnTarget(kpi.value, kpi.target_value, kpi.direction)
+                const ratio = attainmentRatio(kpi.value, kpi.target_value, kpi.direction)
                 return (
                   <div key={kpi.kpi_id} className="rounded-lg border border-line p-3">
                     <p className="truncate text-xs font-medium uppercase tracking-wide text-content-soft">
@@ -331,6 +332,11 @@ export default function CompanyDashboard() {
                         <> · meta {formatValue(kpi.target_value, kpi.unit)}</>
                       )}
                     </p>
+                    {ratio !== null && (
+                      <div className="mt-2">
+                        <ProgressBar ratio={ratio} />
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -383,10 +389,7 @@ export default function CompanyDashboard() {
             ) : (
               <ul className="space-y-3">
                 {metas.map((meta) => {
-                  const progress =
-                    meta.target_value && meta.value !== null && Number(meta.target_value) !== 0
-                      ? Math.min(100, Math.round((meta.value / Number(meta.target_value)) * 100))
-                      : null
+                  const ratio = attainmentRatio(meta.value, meta.target_value, meta.direction)
                   return (
                     <li key={meta.kpi_id}>
                       <div className="flex items-center justify-between gap-2 text-sm">
@@ -398,12 +401,9 @@ export default function CompanyDashboard() {
                       <p className="mt-0.5 text-xs text-content-faint">
                         {ownerName(meta.owner_id)} · prazo {relativeDays(meta.due_date)}
                       </p>
-                      {progress !== null && (
-                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-hover">
-                          <div
-                            className="h-full rounded-full bg-brand-500"
-                            style={{ width: `${progress}%` }}
-                          />
+                      {ratio !== null && (
+                        <div className="mt-1.5">
+                          <ProgressBar ratio={ratio} />
                         </div>
                       )}
                     </li>

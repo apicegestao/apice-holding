@@ -131,6 +131,22 @@ export function isOnTarget(value: number, target: number | null, direction: 'up'
 }
 
 /**
+ * Quanto já foi entregue da meta, em fração de 1 (não em %). Mesma conta
+ * usada nos gráficos de atingimento: num KPI "up" (maior é melhor) é
+ * valor/meta; num "down" (menor é melhor, ex. churn) é meta/valor — assim
+ * também sobe acima de 1 quando o resultado supera a meta. Sem meta ou sem
+ * valor ainda, não dá pra calcular.
+ */
+export function attainmentRatio(
+  value: number | null,
+  target: number | null,
+  direction: 'up' | 'down',
+): number | null {
+  if (value === null || target === null || target === 0) return null
+  return direction === 'up' ? value / target : value > 0 ? target / value : 0
+}
+
+/**
  * Lê um número digitado por gente. Aceita "1.000.000,00", "1000000",
  * "R$ 1.234,56", "12,5%" e também o formato americano "1,234.56".
  *

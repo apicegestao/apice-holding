@@ -730,3 +730,83 @@ simuladas confere que buscar "vib" acha só a Vibra, que "orbita" (sem
 acento) acha "Órbita Consultoria", e que uma busca sem resultado mostra o
 aviso; outra confere que o campo nem aparece com as 2 empresas padrão da
 suíte. `npm run test:e2e` subiu de 140 para **142 testes**.
+
+---
+
+## 19. Carrossel de cartões no celular, barra de progresso da meta e fim da data dupla em "Lançar valor"
+
+Três pedidos direto do usuário.
+
+**Carrossel no painel da holding (celular).** Os cinco cartões de resumo do
+topo do painel da holding — Empresas, KPIs na meta, Metas em risco, Minhas
+tarefas vencidas e (novo) Minhas tarefas — ganharam uma versão horizontal
+para telas pequenas: um carrossel com `scroll-snap` nativo (arrasta com o
+dedo, sem JavaScript no gesto em si) que também avança sozinho a cada 4,5s,
+parando de vez assim que a pessoa toca ou arrasta (não some, só desliga o
+automático — quem estava navegando não quer que o carrossel puxe o cartão de
+volta). Bolinhas embaixo marcam a posição e também são clicáveis. O
+componente (`CardCarousel`, em `core/ui`) é genérico — recebe uma lista de
+cartões prontos — pra poder ser reaproveitado em outra tela sem duplicar
+lógica. No computador (`sm:` pra cima) continua a grade de sempre, sem
+carrossel: os cartões cabem lado a lado e ele só atrapalharia. Seguindo o
+mesmo padrão já usado no seletor de empresa (`CompanySwitcher`), as duas
+versões (carrossel e grade) ficam as duas no DOM o tempo todo, alternando por
+classe CSS (`sm:hidden` / `hidden sm:grid`) — não é troca condicional em
+JavaScript, então não há salto de layout na hora de trocar de tamanho de
+tela. Cartão novo "Minhas tarefas" (total em aberto, todas as empresas)
+entrou pra completar a lista que o usuário pediu — antes só existia
+implicitamente dentro do quadro de tarefas.
+
+Ficou de fora desta rodada o conjunto de indicadores do painel **da
+empresa** (`CompanyDashboard`), que é uma fileira de 4 cartões numéricos
+diferente e não foi mencionada pelo usuário — mesmo tratamento pode ser
+estendido lá se for esse o pedido.
+
+**Barra de progresso meta × realizado.** Nova função `attainmentRatio` (em
+`core/lib/format.ts`) centraliza a conta de "quanto já foi entregue da
+meta", ciente da direção do KPI: `valor / meta` quando maior é melhor, e
+`meta / valor` quando menor é melhor (ex. churn) — mesma fórmula que os
+gráficos de atingimento já usavam, só que agora num único lugar. Em cima
+dela, um componente `ProgressBar` (também em `core/ui`) — verde a partir de
+100% do caminho, vermelho abaixo, mesma convenção de cor dos gráficos
+existentes. Barra nova aparece em quatro pontos, como pedido ("em metas e
+KPIs e no painel"): no painel da holding (dentro do cartão por empresa, sob
+cada KPI da lista), no painel da empresa (nos indicadores e nas metas), na
+página de KPIs (KPI comum e o card de meta com prazo) e dentro do modal
+"Lançar valor" (atualiza ao vivo enquanto a pessoa digita, antes de salvar).
+
+Auditando os lugares que já desenhavam uma barra à mão pra fazer essa troca,
+apareceram **dois lugares com a mesma conta errada**: tanto o cartão de
+"Metas" do painel da empresa quanto o card de meta com prazo em
+`KpisPage.tsx` calculavam sempre `valor / meta`, ignorando a direção — um
+KPI de "menor é melhor" (ex. reduzir o churn de 10% para 5%) mostrava a
+barra andando pra trás em vez de mostrar progresso. Corrigido nos dois
+lugares ao trocar pela função centralizada.
+
+**Fim dos dois campos de data em "Lançar valor".** O usuário notou a
+redundância e está certo: a frequência do KPI (diária, semanal, mensal...)
+já define o tamanho do período, então pedir início **e** fim toda vez que
+alguém lança um valor duplicava informação que já foi decidida lá no
+cadastro do KPI — e ainda abria brecha pra alguém digitar um intervalo que
+não bate com a frequência (ex. 10 dias num KPI mensal). Modal agora pede só
+**uma** data de referência (qualquer dia dentro do período que quer lançar,
+hoje por padrão) — pra KPI mensal, um seletor de mês (`<input type="month">`,
+mais simples que forçar escolher um dia específico que não importa). A
+partir dela, `periodBounds` (função já existente, mesma que calcula o
+período de vencimento em outros lugares do sistema) calcula o início e fim
+de verdade sozinho, e um texto de apoio mostra o período resultante ("Período:
+1 a 31 de março") pra confirmar visualmente antes de salvar. Se já existe
+lançamento nesse período, o formulário automaticamente vira edição dele em
+vez de criar duplicado — comportamento que já existia, preservado. Barra de
+progresso (acima) também entrou nesse modal, como pedido.
+
+**Verificação:** `npx tsc --noEmit` limpo, `npm run build` limpo. Testes
+unitários novos para `attainmentRatio` (direção "up", direção "down", valor
+zero, e os três casos de nulo — sem valor, sem meta, meta zero) —
+`npm run test` subiu de 9 para **13 testes**. `npm run check:contrast`
+(24/24) segue limpo — `ProgressBar` reaproveita as mesmas cores
+(`bg-emerald-500`/`bg-rose-500`) já auditadas nos gráficos. `npm run
+test:e2e` sem regressão: **142 testes passando** nos dois projetos
+(Desktop e Mobile 390) — nenhum teste dependia dos rótulos "Início do
+período"/"Fim do período" removidos, nem foi afetado pela duplicação de DOM
+do carrossel (a suíte não testa esse painel visualmente, só funcionalmente).

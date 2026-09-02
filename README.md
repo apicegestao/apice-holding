@@ -84,7 +84,8 @@ src/
     auth/              sessão, perfil e vínculos com empresas
     company/           escopo da empresa ativa (tudo sob /empresa/:companyId)
     lib/               cliente Supabase, formatação, períodos
-    ui/                kit compartilhado (Card, Modal, Toast, ConfirmDialog…)
+    ui/                kit compartilhado (Card, Modal, Toast, ConfirmDialog,
+                       ProgressBar, CardCarousel…)
     types.ts           tipos do domínio — fonte única de verdade
   modules/
     companies/         cadastro das empresas e os dados de cada uma
@@ -93,7 +94,10 @@ src/
                        sugestões prontas (várias de uma vez) e mantém a aba de
                        criar um indicador próprio; com prazo, o próprio KPI
                        vira a meta (responsável notificado, andamento,
-                       repartição do alvo por semana)
+                       repartição do alvo por semana); barra de progresso
+                       meta × realizado em todo cartão de KPI e no
+                       "Lançar valor", que pede só uma data de referência —
+                       a frequência do KPI já define o período
     tasks/             tarefas: quem, o quê, prazo e lembrete padrão (dias
                        antes + horário) — com subtarefas e notas editáveis
                        dentro da própria tarefa; quadro por empresa e um
@@ -214,9 +218,11 @@ formatado quando o campo perde o foco. As regras estão fixadas em testes
 O sistema é usado no celular tanto quanto no computador. O painel do usuário
 funciona nos dois formatos a partir dos mesmos componentes — a seleção de
 empresa vira menu suspenso abaixo do `md` (`CompanySwitcher.tsx`, com busca —
-ignora acento e caixa — quando a lista passa de 5 empresas) — e todas as
-rotas são auditadas a 390 px de largura: nenhuma pode gerar rolagem horizontal
-da página. Cada grid com colunas responsivas define uma coluna explícita
+ignora acento e caixa — quando a lista passa de 5 empresas), os cartões de
+resumo do painel da holding viram carrossel horizontal (`CardCarousel`,
+arrasta ou avança sozinho a cada 4,5s, parando de vez ao primeiro toque) —
+e todas as rotas são auditadas a 390 px de largura: nenhuma pode gerar
+rolagem horizontal da página. Cada grid com colunas responsivas define uma coluna explícita
 também no celular (`grid-cols-1`), tabelas largas rolam dentro do próprio
 cartão (`overflow-x-auto` + `min-w`), o quadro de tarefas empilha as colunas e
 esconde as vazias, e o canvas do mapa mental usa o espaço todo (editar um nó

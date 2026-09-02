@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatNumberInput, formatValue, parseNumberInput } from '../format'
+import { attainmentRatio, formatNumberInput, formatValue, parseNumberInput } from '../format'
 
 describe('parseNumberInput', () => {
   it('lê o formato brasileiro com milhar e decimal', () => {
@@ -63,5 +63,28 @@ describe('formatValue', () => {
   it('mostra travessão quando não há valor', () => {
     expect(formatValue(null)).toBe('—')
     expect(formatValue(undefined)).toBe('—')
+  })
+})
+
+describe('attainmentRatio', () => {
+  it('num KPI "up" (maior é melhor), é valor sobre meta', () => {
+    expect(attainmentRatio(50, 100, 'up')).toBe(0.5)
+    expect(attainmentRatio(120, 100, 'up')).toBe(1.2)
+    expect(attainmentRatio(0, 100, 'up')).toBe(0)
+  })
+
+  it('num KPI "down" (menor é melhor, ex. churn), é meta sobre valor', () => {
+    expect(attainmentRatio(10, 5, 'down')).toBe(0.5)
+    expect(attainmentRatio(5, 10, 'down')).toBe(2)
+  })
+
+  it('sem valor ainda lançado (0) num KPI "down", não dá pra dividir — trata como 0', () => {
+    expect(attainmentRatio(0, 5, 'down')).toBe(0)
+  })
+
+  it('devolve nulo quando falta valor, meta, ou a meta é zero', () => {
+    expect(attainmentRatio(null, 100, 'up')).toBeNull()
+    expect(attainmentRatio(50, null, 'up')).toBeNull()
+    expect(attainmentRatio(50, 0, 'up')).toBeNull()
   })
 })

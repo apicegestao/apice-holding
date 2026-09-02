@@ -27,10 +27,10 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
-import { formatValue, isOnTarget, relativeDays } from '../../core/lib/format'
+import { attainmentRatio, formatValue, isOnTarget, relativeDays } from '../../core/lib/format'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
-import { Badge, Card, EmptyState, Loading, PageHeader } from '../../core/ui'
+import { Badge, Card, CardCarousel, EmptyState, Loading, PageHeader, ProgressBar } from '../../core/ui'
 import TaskFormModal from '../tasks/TaskFormModal'
 import {
   TASK_PRIORITY_LABEL,
@@ -212,51 +212,72 @@ export default function HoldingDashboard() {
         />
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-content-soft">Empresas</p>
-              <p className="mt-2 text-2xl font-semibold">{operating.length}</p>
-              <p className="text-xs text-content-soft">no grupo</p>
-            </div>
-            <div className="card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
-                KPIs na meta
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-emerald-600 dark:text-emerald-400">
-                {totals.kpisOnTarget}
-                <span className="text-base font-normal text-content-faint">
-                  /{totals.kpisOnTarget + totals.kpisOffTarget}
-                </span>
-              </p>
-              <p className="text-xs text-content-soft">indicadores com meta definida</p>
-            </div>
-            <div className="card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
-                Metas em risco
-              </p>
-              <p
-                className={`mt-2 text-2xl font-semibold ${
-                  totals.goalsAtRisk ? 'text-amber-600 dark:text-amber-400' : 'text-content'
-                }`}
-              >
-                {totals.goalsAtRisk}
-              </p>
-              <p className="text-xs text-content-soft">de {totals.goalsActive} em andamento</p>
-            </div>
-            <div className="card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
-                Minhas tarefas vencidas
-              </p>
-              <p
-                className={`mt-2 text-2xl font-semibold ${
-                  myOverdue.length ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
-                }`}
-              >
-                {myOverdue.length}
-              </p>
-              <p className="text-xs text-content-soft">de {myTasks.length} em aberto</p>
-            </div>
-          </div>
+          {/* Cartões de resumo — no celular viram carrossel (arrasta com o
+              dedo ou espera passar sozinho) pra caber tudo no topo sem
+              ocupar a tela toda; do tablet pra cima é grid de sempre. Os
+              cartões são montados uma vez só e reaproveitados nos dois. */}
+          {(() => {
+            const cards = [
+              <div key="empresas" className="card p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-content-soft">Empresas</p>
+                <p className="mt-2 text-2xl font-semibold">{operating.length}</p>
+                <p className="text-xs text-content-soft">no grupo</p>
+              </div>,
+              <div key="kpis" className="card p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
+                  KPIs na meta
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-emerald-600 dark:text-emerald-400">
+                  {totals.kpisOnTarget}
+                  <span className="text-base font-normal text-content-faint">
+                    /{totals.kpisOnTarget + totals.kpisOffTarget}
+                  </span>
+                </p>
+                <p className="text-xs text-content-soft">indicadores com meta definida</p>
+              </div>,
+              <div key="metas" className="card p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
+                  Metas em risco
+                </p>
+                <p
+                  className={`mt-2 text-2xl font-semibold ${
+                    totals.goalsAtRisk ? 'text-amber-600 dark:text-amber-400' : 'text-content'
+                  }`}
+                >
+                  {totals.goalsAtRisk}
+                </p>
+                <p className="text-xs text-content-soft">de {totals.goalsActive} em andamento</p>
+              </div>,
+              <div key="vencidas" className="card p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
+                  Minhas tarefas vencidas
+                </p>
+                <p
+                  className={`mt-2 text-2xl font-semibold ${
+                    myOverdue.length ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+                  }`}
+                >
+                  {myOverdue.length}
+                </p>
+                <p className="text-xs text-content-soft">de {myTasks.length} em aberto</p>
+              </div>,
+              <div key="minhas" className="card p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
+                  Minhas tarefas
+                </p>
+                <p className="mt-2 text-2xl font-semibold">{myTasks.length}</p>
+                <p className="text-xs text-content-soft">em aberto, em todas as empresas</p>
+              </div>,
+            ]
+            return (
+              <>
+                <div className="sm:hidden">
+                  <CardCarousel items={cards} />
+                </div>
+                <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-5">{cards}</div>
+              </>
+            )
+          })()}
 
           {/* ------------------------------------------- metas x realizado */}
           <Card
@@ -510,22 +531,27 @@ export default function HoldingDashboard() {
                   </div>
 
                   {companyKpis.length > 0 && (
-                    <ul className="mt-4 space-y-1.5">
+                    <ul className="mt-4 space-y-2">
                       {companyKpis.slice(0, 4).map((kpi) => {
                         const status = isOnTarget(Number(kpi.value), kpi.target_value, kpi.direction)
+                        const ratio = attainmentRatio(Number(kpi.value), kpi.target_value, kpi.direction)
                         return (
-                          <li
-                            key={kpi.kpi_id}
-                            className="flex items-center justify-between gap-2 text-sm"
-                          >
-                            <span className="min-w-0 truncate text-content-muted">{kpi.name}</span>
-                            <span
-                              className={`shrink-0 font-medium ${
-                                status === false ? 'text-rose-600 dark:text-rose-400' : 'text-content'
-                              }`}
-                            >
-                              {formatValue(Number(kpi.value), kpi.unit)}
-                            </span>
+                          <li key={kpi.kpi_id}>
+                            <div className="flex items-center justify-between gap-2 text-sm">
+                              <span className="min-w-0 truncate text-content-muted">{kpi.name}</span>
+                              <span
+                                className={`shrink-0 font-medium ${
+                                  status === false ? 'text-rose-600 dark:text-rose-400' : 'text-content'
+                                }`}
+                              >
+                                {formatValue(Number(kpi.value), kpi.unit)}
+                              </span>
+                            </div>
+                            {ratio !== null && (
+                              <div className="mt-1">
+                                <ProgressBar ratio={ratio} />
+                              </div>
+                            )}
                           </li>
                         )
                       })}

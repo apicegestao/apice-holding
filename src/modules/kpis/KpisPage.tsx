@@ -22,7 +22,15 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
-import { formatDate, formatValue, isOnTarget, labelPeriod, periodBounds, relativeDays } from '../../core/lib/format'
+import {
+  attainmentRatio,
+  formatDate,
+  formatValue,
+  isOnTarget,
+  labelPeriod,
+  periodBounds,
+  relativeDays,
+} from '../../core/lib/format'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
 import {
@@ -36,6 +44,7 @@ import {
   Modal,
   NumberInput,
   PageHeader,
+  ProgressBar,
   Spinner,
   useConfirmDelete,
   useToast,
@@ -331,6 +340,9 @@ export default function KpisPage() {
             const latest = series[series.length - 1]
             const previous = series[series.length - 2]
             const onTarget = latest ? isOnTarget(Number(latest.value), kpi.target_value, kpi.direction) : null
+            const ratio = latest
+              ? attainmentRatio(Number(latest.value), kpi.target_value, kpi.direction)
+              : null
             const delta =
               latest && previous ? Number(latest.value) - Number(previous.value) : null
             const improving =
@@ -418,6 +430,14 @@ export default function KpisPage() {
                   </div>
                 </div>
 
+                {/* KPI com prazo já ganha a barra lá embaixo, junto do resto
+                    da meta — mostrar duas vezes na mesma tela é redundante. */}
+                {ratio !== null && !kpi.due_date && (
+                  <div className="mt-3">
+                    <ProgressBar ratio={ratio} label="Meta x realizado" />
+                  </div>
+                )}
+
                 {chartData.length > 1 && (
                   <div className="mt-4 h-24">
                     <ResponsiveContainer width="100%" height="100%">
@@ -467,18 +487,9 @@ export default function KpisPage() {
                       </p>
                       <Badge tone={statusTone(kpi.status)}>{GOAL_STATUS_LABEL[kpi.status]}</Badge>
                     </div>
-                    {kpi.target_value !== null && (
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-hover">
-                        <div
-                          className={`h-full rounded-full ${onTarget ? 'bg-emerald-500' : 'bg-brand/100'}`}
-                          style={{
-                            width: `${
-                              latest
-                                ? Math.max(0, Math.min(100, Math.round((Number(latest.value) / kpi.target_value) * 100)))
-                                : 0
-                            }%`,
-                          }}
-                        />
+                    {ratio !== null && (
+                      <div className="mt-2">
+                        <ProgressBar ratio={ratio} label="Progresso da meta" />
                       </div>
                     )}
                     {(checkpointsByKpi.get(kpi.id)?.length ?? 0) > 0 && (
@@ -778,13 +789,22 @@ function ValueEntryModal({
   onSaved: () => Promise<void>
 }) {
   const { notify } = useToast()
-  const bounds = periodBounds(kpi.frequency)
-  const [periodStart, setPeriodStart] = useState(bounds.start)
-  const [periodEnd, setPeriodEnd] = useState(bounds.end)
+  // A frequência do KPI já diz o tamanho do período — pedir início E fim
+  // toda vez que alguém lança um valor é redundante (e ainda deixa abrir
+  // brecha pra um intervalo que não bate com a frequência). Um único campo
+  // de referência basta: a pessoa escolhe qualquer dia dentro do período
+  // que quer lançar (hoje, por padrão) e o sistema calcula o intervalo
+  // certo sozinho, do mesmo jeito que já calculava a data padrão antes.
+  const [reference, setReference] = useState(() => new Date().toISOString().slice(0, 10))
   const [value, setValue] = useState<number | null>(null)
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+
+  const { start: periodStart, end: periodEnd } = useMemo(
+    () => periodBounds(kpi.frequency, new Date(`${reference}T12:00:00`)),
+    [kpi.frequency, reference],
+  )
 
   // Se já existe lançamento no período escolhido, o formulário vira edição.
   useEffect(() => {
@@ -845,32 +865,43 @@ function ValueEntryModal({
       }
     >
       <form id="value-form" onSubmit={submit} className="space-y-4">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Início do período">
+        <Field
+          label={kpi.frequency === 'daily' ? 'Dia' : 'Qualquer dia do período'}
+          hint={
+            kpi.frequency === 'daily'
+              ? undefined
+              : `Período: ${formatDate(periodStart)} a ${formatDate(periodEnd)}`
+          }
+        >
+          {kpi.frequency === 'monthly' ? (
+            <input
+              className="input"
+              type="month"
+              required
+              value={reference.slice(0, 7)}
+              onChange={(event) => setReference(`${event.target.value}-01`)}
+            />
+          ) : (
             <input
               className="input"
               type="date"
               required
-              value={periodStart}
-              onChange={(event) => setPeriodStart(event.target.value)}
+              value={reference}
+              onChange={(event) => setReference(event.target.value)}
             />
-          </Field>
-          <Field label="Fim do período">
-            <input
-              className="input"
-              type="date"
-              required
-              value={periodEnd}
-              onChange={(event) => setPeriodEnd(event.target.value)}
-            />
-          </Field>
-        </div>
+          )}
+        </Field>
         <Field
           label={`Valor apurado (${UNIT_LABEL[kpi.unit]})`}
           hint={kpi.target_value !== null ? `Meta: ${formatValue(kpi.target_value, kpi.unit)}` : undefined}
         >
           <NumberInput unit={kpi.unit} required value={value} onChange={setValue} />
         </Field>
+        {/* Atualiza junto com o valor digitado — vê o efeito antes de salvar. */}
+        {(() => {
+          const ratio = attainmentRatio(value, kpi.target_value, kpi.direction)
+          return ratio !== null ? <ProgressBar ratio={ratio} label="Meta x realizado" /> : null
+        })()}
         <Field label="Observação">
           <textarea
             className="input min-h-16"

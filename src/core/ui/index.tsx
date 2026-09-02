@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -114,6 +115,125 @@ export function Badge({
     violet: 'bg-violet-100 text-violet-700',
   }
   return <span className={`chip ${tones[tone]}`}>{children}</span>
+}
+
+// Barra de progresso meta x realizado — mesmo critério de cor que os
+// gráficos de atingimento já usam (verde na meta, vermelho fora dela), pra
+// contar a mesma história em todo lugar do sistema. `ratio` vem em fração
+// (1 = meta batida), já calculada por `attainmentRatio`.
+export function ProgressBar({ ratio, label }: { ratio: number | null; label?: string }) {
+  if (ratio === null) return null
+  const pct = Math.round(ratio * 100)
+  const width = Math.max(0, Math.min(100, pct))
+  const tone = pct >= 100 ? 'bg-emerald-500' : 'bg-rose-500'
+  return (
+    <div>
+      {label && (
+        <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+          <span className="min-w-0 truncate text-content-soft">{label}</span>
+          <span className={`shrink-0 font-medium ${pct >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-content'}`}>
+            {pct}%
+          </span>
+        </div>
+      )}
+      <div className="h-1.5 overflow-hidden rounded-full bg-hover">
+        <div className={`h-full rounded-full transition-all ${tone}`} style={{ width: `${width}%` }} />
+      </div>
+    </div>
+  )
+}
+
+// Carrossel de cartões só pro celular — a rolagem manual é o scroll nativo
+// com snap (arrasta com o dedo, sem JS nenhum); o auto-play é a única parte
+// que precisa de JS, e para sozinho assim que a pessoa toca ou rola na mão,
+// pra nunca brigar com quem já está navegando. No tablet/computador quem usa
+// isto aqui é quem decide (normalmente nem chama — vira grid normal).
+export function CardCarousel({ items, autoPlayMs = 4500 }: { items: ReactNode[]; autoPlayMs?: number }) {
+  const trackRef = useRef<HTMLDivElement>(null)
+  const [index, setIndex] = useState(0)
+  const [autoPlay, setAutoPlay] = useState(true)
+
+  const cardWidth = () => {
+    const card = trackRef.current?.children[0] as HTMLElement | undefined
+    if (!card) return 0
+    const gap = parseFloat(getComputedStyle(trackRef.current!).columnGap || '0')
+    return card.getBoundingClientRect().width + gap
+  }
+
+  // Segue o scroll de verdade pra saber em qual cartão a pessoa está —
+  // tanto arrastando na mão quanto quando o auto-play move sozinho.
+  useEffect(() => {
+    const el = trackRef.current
+    if (!el) return
+    const onScroll = () => {
+      const width = cardWidth()
+      if (width) setIndex(Math.round(el.scrollLeft / width))
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
+
+  useEffect(() => {
+    const el = trackRef.current
+    if (!el) return
+    const stop = () => setAutoPlay(false)
+    el.addEventListener('pointerdown', stop, { passive: true })
+    el.addEventListener('wheel', stop, { passive: true })
+    return () => {
+      el.removeEventListener('pointerdown', stop)
+      el.removeEventListener('wheel', stop)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!autoPlay || items.length < 2) return
+    const timer = setInterval(() => {
+      const el = trackRef.current
+      const width = cardWidth()
+      if (!el || !width) return
+      const next = (Math.round(el.scrollLeft / width) + 1) % items.length
+      el.scrollTo({ left: next * width, behavior: 'smooth' })
+    }, autoPlayMs)
+    return () => clearInterval(timer)
+  }, [autoPlay, autoPlayMs, items.length])
+
+  const goTo = (i: number) => {
+    setAutoPlay(false)
+    const el = trackRef.current
+    const width = cardWidth()
+    if (!el || !width) return
+    el.scrollTo({ left: i * width, behavior: 'smooth' })
+  }
+
+  return (
+    <div>
+      <div
+        ref={trackRef}
+        className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {items.map((item, i) => (
+          <div key={i} className="w-[78%] shrink-0 snap-center">
+            {item}
+          </div>
+        ))}
+      </div>
+      {items.length > 1 && (
+        <div className="mt-2 flex justify-center gap-1.5">
+          {items.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`Ir para o cartão ${i + 1}`}
+              onClick={() => goTo(i)}
+              className={`h-1.5 rounded-full transition-all ${
+                i === index ? 'w-4 bg-brand-500' : 'w-1.5 bg-line-strong'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function Spinner({ className = '' }: { className?: string }) {
