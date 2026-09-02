@@ -127,24 +127,32 @@ export function ProgressBar({
   ratio,
   label,
   caption,
+  variant = 'goal',
 }: {
   ratio: number | null
   label?: string
   /** Texto pequeno sob a barra — pra mostrar "lançado / meta", não só o %. */
   caption?: string
+  /**
+   * 'goal' (padrão): é uma meta a bater — verde a partir de 100%, vermelho
+   * antes disso. 'spend': é execução de orçamento, não meta — passar de
+   * 100% aqui é estourar o previsto (ruim), então a cor é neutra até lá e só
+   * vira vermelho depois de estourar.
+   */
+  variant?: 'goal' | 'spend'
 }) {
   if (ratio === null) return null
   const pct = Math.round(ratio * 100)
   const width = Math.max(0, Math.min(100, pct))
-  const tone = pct >= 100 ? 'bg-emerald-500' : 'bg-rose-500'
+  const over = variant === 'spend' ? pct > 100 : pct < 100
+  const tone = variant === 'spend' ? (over ? 'bg-rose-500' : 'bg-brand-500') : over ? 'bg-rose-500' : 'bg-emerald-500'
+  const pctColor = over ? 'text-rose-600 dark:text-rose-400' : variant === 'spend' ? 'text-content' : 'text-emerald-600 dark:text-emerald-400'
   return (
     <div>
       {label && (
         <div className="mb-1 flex items-center justify-between gap-2 text-xs">
           <span className="min-w-0 truncate text-content-soft">{label}</span>
-          <span className={`shrink-0 font-medium ${pct >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-content'}`}>
-            {pct}%
-          </span>
+          <span className={`shrink-0 font-medium ${pctColor}`}>{pct}%</span>
         </div>
       )}
       <div className="h-1.5 overflow-hidden rounded-full bg-hover">

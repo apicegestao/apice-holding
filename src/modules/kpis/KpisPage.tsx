@@ -485,6 +485,7 @@ export default function KpisPage() {
                             y={kpi.target_value}
                             stroke={chart.reference}
                             strokeDasharray="4 4"
+                            ifOverflow="extendDomain"
                           />
                         )}
                         <Line
@@ -1113,7 +1114,12 @@ function HistoryModal({
                   labelStyle={{ color: chart.tooltipText }}
                 />
                 {kpi.target_value !== null && (
-                  <ReferenceLine y={kpi.target_value} stroke={chart.reference} strokeDasharray="4 4" />
+                  <ReferenceLine
+                    y={kpi.target_value}
+                    stroke={chart.reference}
+                    strokeDasharray="4 4"
+                    ifOverflow="extendDomain"
+                  />
                 )}
                 <Line type="monotone" dataKey="value" stroke="rgb(var(--brand))" strokeWidth={2} />
               </LineChart>

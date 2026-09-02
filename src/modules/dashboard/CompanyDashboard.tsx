@@ -247,6 +247,21 @@ export default function CompanyDashboard() {
     [stats.open],
   )
 
+  // Saúde geral: a média do atingimento de todo KPI com meta definida — um
+  // único número pra bater o olho e já saber como a empresa anda, antes de
+  // entrar cartão por cartão. Só conta KPI com meta; sem meta não tem o que
+  // medir atingimento.
+  const overallHealth = useMemo(() => {
+    const ratios = kpiRows
+      .filter((row) => row.target_value !== null && Number(row.target_value) !== 0)
+      .map((row) => attainmentRatio(row.value, row.target_value, row.direction))
+      .filter((ratio): ratio is number => ratio !== null)
+    return {
+      ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
+      medidos: ratios.length,
+    }
+  }, [kpiRows])
+
   // Comparação entre indicadores desta empresa: % do alvo atingido. Unidades
   // diferentes (R$, %, dias) não podem virar barra na mesma escala — só o
   // atingimento é comparável entre KPIs distintos.
@@ -305,6 +320,16 @@ export default function CompanyDashboard() {
           </>
         }
       />
+
+      {overallHealth.ratio !== null && (
+        <div className="card p-4">
+          <ProgressBar
+            ratio={overallHealth.ratio}
+            label="Saúde geral dos indicadores"
+            caption={`média de atingimento em ${overallHealth.medidos} indicador(es) com meta definida`}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
@@ -543,7 +568,7 @@ export default function CompanyDashboard() {
                     labelStyle={{ color: chart.tooltipText }}
                     formatter={(value: number) => [`${value}% do alvo`, 'Realizado']}
                   />
-                  <ReferenceLine y={100} stroke={chart.reference} strokeDasharray="4 4" />
+                  <ReferenceLine y={100} stroke={chart.reference} strokeDasharray="4 4" ifOverflow="extendDomain" />
                   <Line dataKey="atingimento" stroke={chart.axis} strokeWidth={2} dot={attainmentDot}>
                     <LabelList
                       dataKey="atingimento"

@@ -218,6 +218,63 @@ export default function HoldingDashboard() {
     [operating],
   )
 
+  // ------------------------------------------------- saúde geral por empresa
+  // Uma única barra por empresa, pra bater o olho e já saber como ela anda —
+  // média do atingimento de TODO KPI com meta (não só os com prazo, como o
+  // gráfico "Metas x realizado" acima, que é sobre metas, não sobre saúde
+  // geral do indicador do dia a dia).
+  const companyHealth = useMemo(() => {
+    const map = new Map<string, number | null>()
+    for (const company of operating) {
+      const ratios = kpis
+        .filter(
+          (kpi) =>
+            kpi.company_id === company.company_id && kpi.target_value !== null && Number(kpi.target_value) !== 0,
+        )
+        .map((kpi) => attainmentRatio(Number(kpi.value), kpi.target_value, kpi.direction))
+        .filter((ratio): ratio is number => ratio !== null)
+      map.set(company.company_id, ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null)
+    }
+    return map
+  }, [operating, kpis])
+
+  // Vencida pesa mais que em risco, que pesa mais que só fora da meta — é a
+  // ordem em que um dono do grupo ia querer olhar as empresas primeiro.
+  const urgencyScore = (s: CompanySnapshot) =>
+    Number(s.tasks_overdue) * 3 + Number(s.goals_at_risk) * 2 + Number(s.kpis_off_target)
+
+  const companyStatus = (s: CompanySnapshot): 'red' | 'amber' | 'green' => {
+    if (Number(s.tasks_overdue) > 0 || Number(s.goals_at_risk) > 0) return 'red'
+    if (Number(s.kpis_off_target) > 0) return 'amber'
+    return 'green'
+  }
+
+  const STATUS_DOT: Record<'red' | 'amber' | 'green', string> = {
+    red: 'bg-rose-500',
+    amber: 'bg-amber-500',
+    green: 'bg-emerald-500',
+  }
+
+  // Quem precisa de atenção aparece primeiro — com várias empresas no grupo,
+  // não dá pra depender de rolar a tela toda até achar o problema.
+  const byUrgency = useMemo(
+    () => [...operating].sort((a, b) => urgencyScore(b) - urgencyScore(a)),
+    [operating],
+  )
+
+  // Saúde do grupo inteiro — a mesma conta da saúde por empresa, só que
+  // média entre TODO KPI com meta de TODA empresa operacional.
+  const groupHealth = useMemo(() => {
+    const ratios = kpis
+      .filter((kpi) => kpi.target_value !== null && Number(kpi.target_value) !== 0)
+      .map((kpi) => attainmentRatio(Number(kpi.value), kpi.target_value, kpi.direction))
+      .filter((ratio): ratio is number => ratio !== null)
+    return {
+      ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
+      medidos: ratios.length,
+    }
+  }, [kpis])
+
   const myTasks = useMemo(
     () => tasks.filter((task) => OPEN_STATUSES.includes(task.status)),
     [tasks],
@@ -259,6 +316,16 @@ export default function HoldingDashboard() {
         />
       ) : (
         <>
+          {groupHealth.ratio !== null && (
+            <div className="card p-4">
+              <ProgressBar
+                ratio={groupHealth.ratio}
+                label="Saúde geral do grupo"
+                caption={`média de atingimento em ${groupHealth.medidos} indicador(es) com meta definida, em todas as empresas`}
+              />
+            </div>
+          )}
+
           {/* Cartões de resumo — no celular viram carrossel (arrasta com o
               dedo ou espera passar sozinho) pra caber tudo no topo sem
               ocupar a tela toda; do tablet pra cima é grid de sempre. Os
@@ -453,6 +520,7 @@ export default function HoldingDashboard() {
                       y={100}
                       stroke={chart.reference}
                       strokeDasharray="4 4"
+                      ifOverflow="extendDomain"
                       label={{ value: 'meta', position: 'right', fontSize: 10, fill: chart.tick }}
                     />
                     <Line dataKey="atingimento" stroke={chart.axis} strokeWidth={2} dot={attainmentDot}>
@@ -529,10 +597,14 @@ export default function HoldingDashboard() {
             )}
           </Card>
 
-          {/* -------------------------------------------- cartão por empresa */}
+          {/* -------------------------------------------- cartão por empresa —
+              a que precisa de mais atenção vem primeiro (mais vencida,
+              metas em risco, KPI fora), não em ordem alfabética */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {operating.map((snapshot) => {
+            {byUrgency.map((snapshot) => {
               const companyKpis = kpis.filter((kpi) => kpi.company_id === snapshot.company_id)
+              const health = companyHealth.get(snapshot.company_id) ?? null
+              const status = companyStatus(snapshot)
               return (
                 <Card key={snapshot.company_id}>
                   <div className="flex items-start justify-between gap-3">
@@ -544,8 +616,18 @@ export default function HoldingDashboard() {
                       <div>
                         <Link
                           to={`/empresa/${snapshot.company_id}`}
-                          className="text-sm font-semibold text-content hover:text-brand-text"
+                          className="flex items-center gap-1.5 text-sm font-semibold text-content hover:text-brand-text"
                         >
+                          <span
+                            className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status]}`}
+                            title={
+                              status === 'red'
+                                ? 'Precisa de atenção agora'
+                                : status === 'amber'
+                                  ? 'Algum KPI fora da meta'
+                                  : 'Tudo em dia'
+                            }
+                          />
                           {snapshot.company_name}
                         </Link>
                         <p className="text-xs text-content-soft">
@@ -559,6 +641,12 @@ export default function HoldingDashboard() {
                       </Badge>
                     )}
                   </div>
+
+                  {health !== null && (
+                    <div className="mt-3">
+                      <ProgressBar ratio={health} label="Saúde geral" />
+                    </div>
+                  )}
 
                   <div className="mt-4 grid grid-cols-3 gap-3 text-center">
                     <div className="rounded-lg bg-hover py-2">

@@ -19,6 +19,7 @@ import {
   Modal,
   NumberInput,
   PageHeader,
+  ProgressBar,
   Spinner,
   useConfirmDelete,
   useToast,
@@ -65,6 +66,13 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
   const [items, setItems] = useState<BudgetItem[]>([])
   const [itemsLoading, setItemsLoading] = useState(false)
 
+  // Versão enxuta de todo item da empresa, só pra somar previsto x realizado
+  // por orçamento — a barra de execução no card da lista precisa disso sem
+  // esperar a pessoa abrir cada orçamento um por um.
+  const [itemTotalsRaw, setItemTotalsRaw] = useState<
+    Pick<BudgetItem, 'budget_id' | 'kind' | 'planned_amount' | 'actual_amount' | 'status'>[]
+  >([])
+
   const [budgetModal, setBudgetModal] = useState<{ editing: Budget | null } | null>(null)
   const [budgetForm, setBudgetForm] = useState<BudgetForm>(blankBudgetForm)
   const [busy, setBusy] = useState(false)
@@ -79,10 +87,34 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
     setLoading(false)
   }, [company.id])
 
+  const loadItemTotals = useCallback(async () => {
+    const { data } = await supabase
+      .from('budget_items')
+      .select('budget_id, kind, planned_amount, actual_amount, status')
+      .eq('company_id', company.id)
+    setItemTotalsRaw(data ?? [])
+  }, [company.id])
+
   useEffect(() => {
     setLoading(true)
     void loadBudgets()
-  }, [loadBudgets])
+    void loadItemTotals()
+  }, [loadBudgets, loadItemTotals])
+
+  // Só a execução de despesa interessa aqui — receita é outra história (não
+  // tem "estourar"), e cancelado não conta, mesma regra dos totais do
+  // orçamento aberto.
+  const executionByBudget = useMemo(() => {
+    const map = new Map<string, { planned: number; actual: number }>()
+    for (const item of itemTotalsRaw) {
+      if (item.kind !== 'despesa' || item.status === 'cancelado') continue
+      const entry = map.get(item.budget_id) ?? { planned: 0, actual: 0 }
+      entry.planned += Number(item.planned_amount)
+      if (item.actual_amount !== null) entry.actual += Number(item.actual_amount)
+      map.set(item.budget_id, entry)
+    }
+    return map
+  }, [itemTotalsRaw])
 
   const loadItems = useCallback(async (budgetId: string) => {
     setItemsLoading(true)
@@ -201,12 +233,14 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
     }
     setItemForm({ kind: itemForm.kind, category: '', title: '', vendor: '', planned_amount: null, due_date: '' })
     await loadItems(activeBudgetId)
+    void loadItemTotals()
   }
 
   const patchItem = async (id: string, patch: Partial<BudgetItem>) => {
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))
     const { error } = await supabase.from('budget_items').update(patch).eq('id', id)
     if (error) notify(error.message, 'error')
+    else void loadItemTotals()
   }
 
   const itemDelete = useConfirmDelete<BudgetItem>(async (item) => {
@@ -216,6 +250,7 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
       return
     }
     if (activeBudgetId) await loadItems(activeBudgetId)
+    void loadItemTotals()
   })
 
   // -------------------------------------------------------------- cálculos
@@ -306,27 +341,41 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {budgets.map((budget) => (
-            <button
-              key={budget.id}
-              type="button"
-              onClick={() => setActiveBudgetId(budget.id)}
-              className="card min-w-0 p-4 text-left transition hover:border-brand-500"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <p className="min-w-0 truncate text-sm font-semibold text-content">{budget.title}</p>
-                <Badge tone={STATUS_TONE[budget.status]}>{BUDGET_STATUS_LABEL[budget.status]}</Badge>
-              </div>
-              {budget.event_date && (
-                <p className="mt-1 flex items-center gap-1 text-xs text-content-soft">
-                  <CalendarRange className="h-3.5 w-3.5" /> {formatDate(budget.event_date)}
-                </p>
-              )}
-              {budget.description && (
-                <p className="mt-2 line-clamp-2 text-xs text-content-soft">{budget.description}</p>
-              )}
-            </button>
-          ))}
+          {budgets.map((budget) => {
+            const execution = executionByBudget.get(budget.id)
+            const ratio = execution && execution.planned > 0 ? execution.actual / execution.planned : null
+            return (
+              <button
+                key={budget.id}
+                type="button"
+                onClick={() => setActiveBudgetId(budget.id)}
+                className="card min-w-0 p-4 text-left transition hover:border-brand-500"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 truncate text-sm font-semibold text-content">{budget.title}</p>
+                  <Badge tone={STATUS_TONE[budget.status]}>{BUDGET_STATUS_LABEL[budget.status]}</Badge>
+                </div>
+                {budget.event_date && (
+                  <p className="mt-1 flex items-center gap-1 text-xs text-content-soft">
+                    <CalendarRange className="h-3.5 w-3.5" /> {formatDate(budget.event_date)}
+                  </p>
+                )}
+                {budget.description && (
+                  <p className="mt-2 line-clamp-2 text-xs text-content-soft">{budget.description}</p>
+                )}
+                {ratio !== null && execution && (
+                  <div className="mt-3">
+                    <ProgressBar
+                      ratio={ratio}
+                      label="Despesa executada"
+                      variant="spend"
+                      caption={`${formatValue(execution.actual, 'currency')} de ${formatValue(execution.planned, 'currency')} previstos`}
+                    />
+                  </div>
+                )}
+              </button>
+            )
+          })}
         </div>
       )}
 

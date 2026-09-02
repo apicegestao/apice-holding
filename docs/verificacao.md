@@ -891,3 +891,75 @@ gráfico (barra vs. linha) nem a ordem exata dos cards no painel da holding,
 então a reordenação e a troca de gráfico não quebraram nada; a mudança de
 `<div>` pra `<Link>` nos cartões de KPI manteve o mesmo texto visível, então
 os testes que liam conteúdo continuam passando.
+
+---
+
+## 21. Saúde geral por empresa, linha de meta sempre visível, execução de orçamento
+
+Pedido aberto do usuário — "mapeie e me ajude" a medir e acompanhar tudo,
+deixar os painéis o mais úteis possível pro controle de múltiplas empresas
+— mais um pedido direto sobre a linha de meta nos gráficos.
+
+**1) Linha de meta sempre visível.** A `ReferenceLine` de meta/alvo, em
+todo gráfico que tem uma (dois no `KpisPage` — a tendência dentro do
+cartão do KPI e o histórico completo —, mais as duas de "meta x
+realizado" no painel da empresa e da holding), tinha um problema sutil: por
+padrão o Recharts **descarta** a linha quando o valor dela cai fora do
+intervalo calculado a partir dos dados (`ifOverflow` padrão é `"discard"`).
+Na prática, um KPI bem abaixo ou bem acima da meta fazia a linha de
+referência sumir silenciosamente — exatamente quando mais precisava ser
+vista. Todas as quatro ganharam `ifOverflow="extendDomain"`, que força o
+eixo a se esticar até incluir a meta — ela aparece sempre, constante, não
+importa onde o valor realizado esteja.
+
+**2) Saúde geral — um número por empresa, e um pro grupo inteiro.** Nova
+métrica agregada: a média do `attainmentRatio` (a mesma conta usada em
+toda barra de progresso do sistema) de **todo KPI com meta definida**, não
+só os que têm prazo — cobre também KPI recorrente sem data-limite, tipo
+faturamento mensal. Aparece em três lugares novos:
+- Painel da holding, logo abaixo do cabeçalho: "Saúde geral do grupo",
+  média entre toda empresa operacional.
+- Painel da empresa, no mesmo lugar: "Saúde geral dos indicadores" daquela
+  empresa.
+- Painel da holding, dentro de cada cartão de empresa: a mesma conta, só
+  que restrita aos KPIs daquela empresa — o número que resume o cartão
+  antes mesmo de abrir a lista de indicadores dele.
+
+**3) Bolinha de status + ordenação por urgência.** Cada cartão de empresa
+no painel da holding ganhou uma bolinha colorida ao lado do nome —
+vermelha (tarefa vencida ou meta em risco), âmbar (algum KPI fora da meta,
+mas nada vencido/em risco) ou verde (tudo em dia). E o mais importante pra
+quem cuida de várias empresas: **a ordem dos cartões deixou de ser a
+ordem de cadastro** e passou a ser por urgência — pontuação
+`vencidas × 3 + metas em risco × 2 + KPIs fora da meta`, decrescente. A
+empresa com problema aparece primeiro, sem precisar rolar a tela toda pra
+notar.
+
+**4) Execução de orçamento.** Cada card de orçamento na lista (`/orcamentos`)
+ganhou uma barra "Despesa executada" — quanto da despesa prevista já foi
+gasto — com a legenda em reais dos dois lados. Só que aqui inverte a lógica
+de cor da barra de meta: gastar mais não é "bater a meta" (que ficaria
+verde), é estourar o orçamento (que devia ficar vermelho). Por isso o
+`ProgressBar` ganhou uma prop `variant`: `'goal'` (padrão, sem mudança em
+nenhum uso existente) continua verde≥100%/vermelho<100%; o novo
+`'spend'` é neutro (azul da marca) até 100% e só fica vermelho depois de
+estourar. Os totais por orçamento vêm de uma consulta leve e separada
+(`budget_id, kind, planned_amount, actual_amount, status` de todo item da
+empresa), recarregada depois de qualquer lançamento — assim a barra na
+lista fica atualizada sem precisar abrir cada orçamento um por um pra ver
+como anda.
+
+**Decisões deixadas de fora desta rodada** (mapeadas, não esquecidas): uma
+barra de progresso no cartão de tarefa do kanban pro checklist (X/Y) foi
+descartada — o card já é compacto, e o badge de fração já comunica isso
+sem precisar de mais uma barra; a listagem administrativa de empresas
+(`/holding/empresas`, cadastro, não painel) ficou de fora porque o pedido
+foi especificamente sobre os cards do *painel*.
+
+**Verificação:** `npx tsc --noEmit` e `npm run build` limpos. `npm run
+test` (13/13) e `npm run check:contrast` (24/24) limpos — a nova cor
+`bg-brand-500` da variante `'spend'` já é usada em outros lugares do
+sistema (indicador do carrossel), então não abriu combinação nova pra
+auditar. `npm run test:e2e` sem regressão: nenhum teste fixava a ordem dos
+cards de empresa no painel da holding, então reordenar por urgência não
+quebrou nada.

@@ -89,7 +89,13 @@ src/
     types.ts           tipos do domínio — fonte única de verdade
   modules/
     companies/         cadastro das empresas e os dados de cada uma
-    dashboard/         painel da empresa e painel consolidado da holding
+    dashboard/         painel da empresa e painel consolidado da holding —
+                       "saúde geral" (atingimento médio dos KPIs com meta) em
+                       destaque nos dois; no da holding, cada cartão de
+                       empresa tem sua própria saúde geral, uma bolinha de
+                       status (verde/âmbar/vermelho) e a ordem é por
+                       urgência — quem tem tarefa vencida ou meta em risco
+                       aparece primeiro, não em ordem de cadastro
     kpis/              KPIs e metas — a mesma coisa. O "Novo KPI" abre em
                        sugestões prontas (várias de uma vez) e mantém a aba de
                        criar um indicador próprio; com prazo, o próprio KPI
@@ -111,8 +117,9 @@ src/
                        lateral fixa — o canvas fica com o espaço todo
     budgets/           orçamento por evento/projeto: linhas de receita e
                        despesa (cotação → aprovado → pago/recebido, previsto
-                       e realizado lado a lado) e projeção de caixa por mês,
-                       por empresa e consolidado na holding
+                       e realizado lado a lado), barra de execução da
+                       despesa em cada cartão da lista, e projeção de caixa
+                       por mês, por empresa e consolidado na holding
     integrations/      conectores REST e mapeamento campo → KPI
     insights/          insights gerados por IA
     users/             acessos por empresa e do grupo
