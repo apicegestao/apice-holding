@@ -107,7 +107,7 @@ export default function KpisPage() {
   const { company, canWrite } = useCompany()
   const { notify } = useToast()
   const chart = useChartTheme()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [kpis, setKpis] = useState<Kpi[]>([])
   const [values, setValues] = useState<KpiValue[]>([])
@@ -209,13 +209,36 @@ export default function KpisPage() {
     return map
   }, [values])
 
-  const openCreate = () => {
-    setKpiForm(emptyKpi)
+  const openCreate = (prefill?: Partial<typeof emptyKpi>) => {
+    setKpiForm({ ...emptyKpi, ...prefill })
     setChosen([])
-    setCreateMode('suggestions')
+    // Vindo de um atalho com produto/edição já escolhidos, pula direto pro
+    // formulário — a lista de sugestões não sabe de produto, não ajuda aqui.
+    setCreateMode(prefill ? 'custom' : 'suggestions')
     setError('')
     setCreatingKpi(true)
   }
+
+  // Atalho vindo da tela de Produtos: "+ Nova meta" leva pra cá com
+  // ?novo=1&product_id=X (e, se for de uma turma, &product_edition_id=Y) —
+  // abre o formulário já com o produto/edição certos, sem a pessoa ter que
+  // escolher nada de novo. Os parâmetros somem da URL assim que consumidos,
+  // pra um F5 não abrir o formulário de novo sozinho.
+  useEffect(() => {
+    if (loading || searchParams.get('novo') !== '1') return
+    const productId = searchParams.get('product_id') ?? ''
+    const editionId = searchParams.get('product_edition_id') ?? ''
+    openCreate({
+      product_id: products.some((item) => item.id === productId) ? productId : '',
+      product_edition_id: editions.some((item) => item.id === editionId) ? editionId : '',
+    })
+    const next = new URLSearchParams(searchParams)
+    next.delete('novo')
+    next.delete('product_id')
+    next.delete('product_edition_id')
+    setSearchParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, searchParams, products, editions])
 
   const closeCreate = () => {
     setCreatingKpi(false)
@@ -315,8 +338,9 @@ export default function KpisPage() {
         kpiForm.entry_frequency && FINER_FREQUENCIES[kpiForm.frequency].includes(kpiForm.entry_frequency)
           ? kpiForm.entry_frequency
           : null,
-      // "Contribui para" só se aplica a um KPI de sub-produto (tem edição).
-      parent_kpi_id: kpiForm.product_edition_id ? kpiForm.parent_kpi_id || null : null,
+      // "Contribui para" existe pra turma (soma no produto) e pra produto
+      // (soma numa meta da empresa) — não pra um KPI sem produto nenhum.
+      parent_kpi_id: kpiForm.product_id ? kpiForm.parent_kpi_id || null : null,
     }
 
     if (!payload.name) {
@@ -434,8 +458,38 @@ export default function KpisPage() {
     return map
   }, [kpis])
 
-  /** Soma o último valor lançado de cada sub-produto — o valor "oficial" do
-   *  pai é essa soma, não um lançamento próprio nele. */
+  /** Valor "de verdade" de um KPI: se ele tem filhos, é a soma dos valores
+   *  deles (recursivo); senão, é o último valor lançado direto nele. Existe
+   *  pra cadeia de mais de dois níveis (turma → produto → empresa): o nó do
+   *  meio ("produto") nunca lança direto — o valor que ele repassa pro avô é
+   *  sempre a própria soma dos filhos, nunca um número solto que porventura
+   *  exista nele. `seen` só existe por segurança (o banco já impede ciclo). */
+  const effectiveValue = useCallback(
+    (kpiId: string, seen: Set<string> = new Set()): number | null => {
+      if (seen.has(kpiId)) return null
+      seen.add(kpiId)
+      const children = childrenByParent.get(kpiId)
+      if (children?.length) {
+        let total = 0
+        let any = false
+        for (const child of children) {
+          const value = effectiveValue(child.id, seen)
+          if (value !== null) {
+            total += value
+            any = true
+          }
+        }
+        return any ? total : null
+      }
+      const series = seriesByKpi.get(kpiId) ?? []
+      const latest = series[series.length - 1]
+      return latest ? Number(latest.value) : null
+    },
+    [childrenByParent, seriesByKpi],
+  )
+
+  /** Soma o valor de cada sub-produto — o valor "oficial" do pai é essa
+   *  soma, não um lançamento próprio nele. */
   const rollupFor = useCallback(
     (kpiId: string) => {
       const children = childrenByParent.get(kpiId)
@@ -443,36 +497,37 @@ export default function KpisPage() {
       let value = 0
       let reported = 0
       for (const child of children) {
-        const series = seriesByKpi.get(child.id) ?? []
-        const latest = series[series.length - 1]
-        if (latest) {
-          value += Number(latest.value)
+        const childValue = effectiveValue(child.id)
+        if (childValue !== null) {
+          value += childValue
           reported += 1
         }
       }
       return { value, total: children.length, reported, children }
     },
-    [childrenByParent, seriesByKpi],
+    [childrenByParent, effectiveValue],
   )
 
-  // Lista final: cada pai visível é seguido imediatamente dos próprios
-  // filhos (quando também visíveis) — assim dá pra acompanhar o produto e
-  // suas turmas juntos, em vez de espalhados pela ordem alfabética.
+  // Lista final: cada pai visível é seguido imediatamente da própria
+  // cadeia de descendentes (filhos, netos...) — assim dá pra acompanhar o
+  // produto e suas turmas juntos, em vez de espalhados pela ordem
+  // alfabética. Recursivo de propósito: a cadeia pode ter mais de dois
+  // níveis (turma → produto → empresa).
   const groupedKpis = useMemo(() => {
     const visibleIds = new Set(visibleKpis.map((kpi) => kpi.id))
     const seen = new Set<string>()
     const ordered: Kpi[] = []
-    for (const kpi of visibleKpis) {
-      if (seen.has(kpi.id)) continue
-      if (kpi.parent_kpi_id && visibleIds.has(kpi.parent_kpi_id)) continue
+    const visit = (kpi: Kpi) => {
+      if (seen.has(kpi.id)) return
       ordered.push(kpi)
       seen.add(kpi.id)
       for (const child of childrenByParent.get(kpi.id) ?? []) {
-        if (visibleIds.has(child.id) && !seen.has(child.id)) {
-          ordered.push(child)
-          seen.add(child.id)
-        }
+        if (visibleIds.has(child.id)) visit(child)
       }
+    }
+    for (const kpi of visibleKpis) {
+      if (kpi.parent_kpi_id && visibleIds.has(kpi.parent_kpi_id)) continue
+      visit(kpi)
     }
     return ordered
   }, [visibleKpis, childrenByParent])
@@ -500,7 +555,7 @@ export default function KpisPage() {
               </select>
             )}
             {canWrite && !showArchived && (
-              <button type="button" className="btn-primary" onClick={openCreate}>
+              <button type="button" className="btn-primary" onClick={() => openCreate()}>
                 <Plus className="h-4 w-4" /> Novo KPI
               </button>
             )}
@@ -541,7 +596,7 @@ export default function KpisPage() {
           description="Comece pelos números que você olharia primeiro se pudesse ver só três."
           action={
             canWrite && (
-              <button type="button" className="btn-primary" onClick={openCreate}>
+              <button type="button" className="btn-primary" onClick={() => openCreate()}>
                 <Plus className="h-4 w-4" /> Novo KPI
               </button>
             )
@@ -705,12 +760,20 @@ export default function KpisPage() {
                 {rollup && (
                   <ul className="mt-2 space-y-1 border-t border-line pt-2">
                     {rollup.children.map((child) => {
-                      const childLatest = seriesByKpi.get(child.id)?.slice(-1)[0]
+                      // O filho pode, ele mesmo, somar os próprios filhos
+                      // (cadeia de 3+ níveis) — por isso o valor de verdade
+                      // vem de effectiveValue, não de um lançamento direto.
+                      const childValue = effectiveValue(child.id)
                       return (
                         <li key={child.id} className="flex items-center justify-between gap-2 text-xs">
-                          <span className="truncate text-content-soft">{child.name}</span>
+                          <span className="truncate text-content-soft">
+                            {child.name}
+                            {childrenByParent.has(child.id) && (
+                              <Layers className="ml-1 inline h-3 w-3 text-content-faint" />
+                            )}
+                          </span>
                           <span className="font-medium text-content">
-                            {childLatest ? formatValue(Number(childLatest.value), kpi.unit) : 'sem lançamento'}
+                            {childValue !== null ? formatValue(childValue, kpi.unit) : 'sem lançamento'}
                           </span>
                         </li>
                       )
@@ -942,38 +1005,54 @@ export default function KpisPage() {
                 )}
               </div>
 
-              {/* Só aparece pra um KPI de turma específica — é o que soma
-                  pro indicador do produto como um todo (ex. "Entre Donos"
-                  soma as turmas de setembro, outubro...). */}
-              {kpiForm.product_id && kpiForm.product_edition_id && (
-                <div className="mt-4">
-                  <Field
-                    label="Contribui para"
-                    hint="O KPI do produto (sem edição) que recebe a soma desta turma."
-                  >
-                    <select
-                      className="input"
-                      value={kpiForm.parent_kpi_id}
-                      onChange={(event) => setKpiForm((c) => ({ ...c, parent_kpi_id: event.target.value }))}
-                    >
-                      <option value="">Nenhum — não soma em nenhum outro indicador</option>
-                      {kpis
-                        .filter(
-                          (candidate) =>
-                            candidate.id !== editingKpi?.id &&
-                            candidate.product_id === kpiForm.product_id &&
-                            !candidate.product_edition_id &&
-                            !candidate.parent_kpi_id,
-                        )
-                        .map((candidate) => (
-                          <option key={candidate.id} value={candidate.id}>
-                            {candidate.name}
-                          </option>
-                        ))}
-                    </select>
-                  </Field>
-                </div>
-              )}
+              {/* A cadeia pode ter três elos: turma soma no produto, que por
+                  sua vez pode somar numa meta da empresa toda. Uma turma
+                  mira num indicador do mesmo produto (sem edição); um
+                  indicador de produto (sem edição) mira num indicador sem
+                  produto nenhum — nunca os dois ao mesmo tempo, cada tela
+                  só sobe um elo por vez. */}
+              {kpiForm.product_id &&
+                (() => {
+                  const isEdition = Boolean(kpiForm.product_edition_id)
+                  const candidates = kpis.filter((candidate) =>
+                    candidate.id !== editingKpi?.id &&
+                    (isEdition
+                      ? candidate.product_id === kpiForm.product_id && !candidate.product_edition_id
+                      : !candidate.product_id),
+                  )
+                  return (
+                    <div className="mt-4">
+                      <Field
+                        label="Contribui para"
+                        hint={
+                          isEdition
+                            ? 'Opcional — o indicador do produto (sem edição) que recebe a soma desta turma.'
+                            : 'Opcional — um indicador da empresa toda que recebe a soma deste produto.'
+                        }
+                      >
+                        <select
+                          className="input"
+                          value={kpiForm.parent_kpi_id}
+                          onChange={(event) => setKpiForm((c) => ({ ...c, parent_kpi_id: event.target.value }))}
+                        >
+                          <option value="">Nenhum — não soma em nenhum outro indicador</option>
+                          {candidates.map((candidate) => (
+                            <option key={candidate.id} value={candidate.id}>
+                              {candidate.name}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      {candidates.length === 0 && (
+                        <p className="mt-1.5 text-xs text-content-faint">
+                          {isEdition
+                            ? 'Ainda não existe um indicador deste produto sem edição — crie um primeiro (deixe "Edição" em branco nele) pra poder somar as turmas ali.'
+                            : 'Ainda não existe um indicador da empresa toda (sem produto) — crie um primeiro pra poder somar este produto ali.'}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()}
             </div>
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

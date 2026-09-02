@@ -1093,6 +1093,123 @@ declarado antes do modal "de dentro" (form de editar) — comentário deixado
 em cada um explicando a ordem, pra ninguém inverter de novo sem querer.
 Nenhuma lógica mudou, só a posição dos blocos no JSX.
 
+## 24. Meta de produto e sub-produto visível e cadastrável, cadeia de 3 níveis, e "Contribui para" explicado
+
+Três problemas relatados depois de usar a rodada anterior — e um pedido
+geral de simplificar, tratado junto porque os três eram, no fundo, a mesma
+causa: a meta existia no banco, mas não tinha nenhum caminho visível a
+partir de Produtos pra cadastrá-la ou vê-la.
+
+### 1) Dava pra cadastrar produto e edição, mas não meta nenhuma
+
+`ProductsPage` só cuidava da estrutura (produto, edições) — pra ligar uma
+meta a um deles era preciso ir em KPIs, lembrar de escolher o produto certo
+lá, sem nenhum aviso de que era assim que funcionava. Agora a própria tela
+de Produtos:
+- Mostra a meta de cada produto direto no cartão da lista (nome do
+  indicador, valor atual e alvo, barra de progresso) — não só a barra de
+  "saúde da frente" genérica de antes.
+- Ao abrir um produto, lista "Metas deste produto" (pode ter mais de um
+  indicador) e a meta de cada edição, cada uma como um link que leva pro
+  KPI na tela de KPIs (`?kpi=<id>`, o mesmo atalho que o painel já usava).
+- Tem um botão **"+ Nova meta"** no produto e **"+ Meta desta turma"** em
+  cada edição sem meta ainda — os dois levam pro formulário de criar KPI
+  já com produto (e edição, quando for o caso) preenchidos.
+
+Pra isso, `KpisPage` passou a aceitar `?novo=1&product_id=X[&product_edition_id=Y]`
+na URL: abre o formulário de criação sozinho, com os campos já certos, e
+limpa os parâmetros da URL assim que consumidos (um F5 depois não abre o
+formulário de novo). Só um pequeno atalho de navegação — o cadastro do KPI
+continua sendo feito num único lugar (`KpisPage`), sem duplicar o
+formulário complexo numa segunda tela.
+
+### 2) Card de Produtos no painel da empresa sem informação de meta
+
+O card "Produtos" do painel da empresa (`CompanyDashboard`) mostrava só uma
+barra de progresso sem dizer de qual indicador, nem o valor, nem o alvo.
+Agora mostra o nome do indicador principal do produto e o texto "R$ X de
+R$ Y" (mesmo formato que o painel já usa pras metas com prazo), com a barra
+embaixo só quando dá pra calcular um percentual.
+
+### 3) "Contribui para" aparecia vazio, sem explicação — e só ia até 2 níveis
+
+O pedido original era uma cadeia de três elos: sub-produto → produto →
+empresa (ex.: a turma de setembro soma no "Entre Donos", que por sua vez
+pode somar num indicador geral da empresa, tipo "Faturamento total"). A
+rodada anterior parou nos dois primeiros — o KPI pai não podia, ele mesmo,
+ter um pai. Duas mudanças:
+
+- **Banco:** a trigger `app.assert_kpi_parent()` trocou a regra "só dois
+  níveis" por uma checagem de ciclo de verdade — sobe a cadeia a partir do
+  pai proposto e recusa só se o próprio KPI aparecer nela (o que fecharia
+  um ciclo). Profundidade em si não tem mais limite de negócio. Testado
+  direto no banco: uma cadeia de 3 níveis (empresa ← produto ← turma) foi
+  criada e leu corretamente; uma tentativa de fechar ciclo (o avô apontando
+  pro próprio neto como pai) foi rejeitada com a mensagem certa.
+- **"Contribui para" no formulário do KPI:** agora existe em dois
+  contextos — um KPI de turma mira num indicador do mesmo produto sem
+  edição (como já era); um indicador de produto (sem edição) passa a poder
+  mirar num indicador sem produto nenhum (da empresa toda), fechando o
+  terceiro elo. Quando não existe nenhum candidato ainda, o campo explica
+  o motivo em vez de ficar mudo ("ainda não existe um indicador deste
+  produto sem edição — crie um primeiro"), em vez do dropdown vazio e sem
+  explicação que gerou a dúvida original.
+
+O cálculo da soma (`rollupFor`/`effectiveValue`, em `KpisPage`) já era
+recursivo em espírito mas só testado a dois níveis; agora garante
+explicitamente que um nó do meio da cadeia (o "produto") usa a **própria
+soma dos filhos**, nunca um lançamento direto que porventura exista nele,
+ao repassar o valor pro avô — coberto por teste unitário novo (ver abaixo).
+
+### Refatoração: uma função só para a soma em cadeia
+
+A mesma conta (formação da lista de filhos por `parent_kpi_id`, soma
+recursiva) existia dentro de `KpisPage` e precisava se repetir em
+`CompanyDashboard` e `ProductsPage` pra mostrar a meta nos cartões — em vez
+de copiar e colar pela terceira vez, virou uma função compartilhada em
+`core/lib/kpiRollup.ts` (`buildChildrenByParent` + `effectiveKpiValue`),
+com teste unitário próprio: soma sem filhos, soma com filhos, soma em
+cadeia de 3 níveis (confere que o nó do meio usa o próprio rollup, não um
+valor direto), filho sem lançamento é ignorado (não vira zero), nenhum
+filho com lançamento ainda é nulo (não zero), e não trava num ciclo
+contrived. `CompanyDashboard` foi migrado pra usar a função compartilhada
+no lugar da cópia local; `KpisPage` manteve a própria versão porque o dado
+de origem lá é outro formato (série de valores por KPI, não uma lista já
+resolvida) — juntar os dois exigiria mais indireção do que o ganho
+justificaria agora.
+
+**Verificação:** migração `kpi_parent_chain` aplicada em produção via
+Supabase MCP; `get_advisors` (security) conferido depois — mesmos dois
+avisos pré-existentes, nenhum novo. `npx tsc --noEmit` e `npm run build`
+limpos. `npm run test` subiu de 19 pra **26 testes** (7 novos em
+`kpiRollup.test.ts`). Fixtures de e2e (`e2e/fixtures.ts`) ganharam produto,
+duas edições e dois KPIs novos — um de produto sem lançamento direto (só
+soma da turma) e um de turma com lançamento — pra exercitar a cadeia de
+verdade em teste automatizado, não só manualmente. `npm run test:e2e`
+subiu de 147 pra **159 testes**, todos passando (12 novos, cobrindo: a
+soma aparecendo no cartão mesmo sem lançamento direto no produto, a lista
+de metas do produto e de cada edição — incluindo o estado vazio de quem
+ainda não tem —, os dois atalhos "+ Nova meta"/"+ Meta desta turma" abrindo
+o formulário certo já preenchido, e o clique numa meta levando pro KPI
+certo). Um teste já existente (`KPI sem lançamento aparece no painel`)
+precisou ser reescrito pra apontar por nome exato — o mock de REST usado
+nos testes não filtra por `company_id` (devolve a tabela inteira pra
+qualquer consulta), então o novo KPI de teste sem lançamento direto passou
+a colidir, na mesma página, com o texto do KPI antigo que o teste já
+verificava; não é um bug de produção (lá o filtro é de verdade, via RLS +
+`.eq()`), só um ponto cego do próprio mock que o teste precisou contornar.
+`npm run check:contrast` (24/24) limpo — nenhuma cor nova.
+
+**Fora do escopo desta rodada, por decisão consciente:** o painel da
+holding (`HoldingDashboard`) continua lendo só `kpi_latest_values`, que não
+traz um KPI sem nenhum lançamento direto — um indicador de empresa que só
+existe pra receber soma de produtos (o topo da cadeia de 3 níveis) não
+apareceria lá. O pedido desta rodada foi especificamente sobre Produtos e
+o card da empresa; se a holding também precisar mostrar esse tipo de
+indicador, é um ajuste pequeno e localizado (mesmo padrão de
+`CompanyDashboard`: buscar `kpis` além de `kpi_latest_values` e mesclar) —
+fica pra quando for pedido.
+
 ## 23. Insight diário automático, arquivamento de KPI, lançamento em cadência mais fina e hierarquia de produto pai/sub-produto
 
 Cinco pedidos do usuário, o último deles explícito: "o sistema está

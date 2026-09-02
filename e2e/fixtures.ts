@@ -101,6 +101,15 @@ const COMPANIES = [
 const KPI_NOVALUE = '44444444-4444-4444-4444-444444444441'
 const KPI_WITH = '44444444-4444-4444-4444-444444444442'
 const KPI_EXTRA = ['3', '4', '5'].map((n) => `44444444-4444-4444-4444-44444444444${n}`)
+// Cadeia produto → sub-produto: "Entre Donos" (produto, sem edição) nunca
+// lança direto — o valor dele é a soma das turmas. "Imersão Set/2026" é a
+// turma, com lançamento próprio e parent_kpi_id apontando pro produto.
+export const KPI_PRODUCT = '44444444-4444-4444-4444-444444444446'
+const KPI_EDITION = '44444444-4444-4444-4444-444444444447'
+export const PRODUCT_ID = '55555555-5555-5555-5555-555555555551'
+export const EDITION_ID = '55555555-5555-5555-5555-555555555561'
+// Turma sem meta própria ainda — cobre o estado vazio ("+ Meta desta turma").
+export const EDITION_ID_2 = '55555555-5555-5555-5555-555555555562'
 
 const KPIS = [
   {
@@ -167,6 +176,100 @@ const KPIS = [
     owner_id: null,
     status: 'active',
   })),
+  {
+    id: KPI_PRODUCT,
+    company_id: COMPANY_ID_2,
+    name: 'Faturamento Entre Donos',
+    description: 'Soma das turmas',
+    category: 'Financeiro',
+    unit: 'currency',
+    direction: 'up',
+    frequency: 'yearly',
+    target_value: 100000,
+    source: 'manual',
+    integration_id: null,
+    display_order: 4,
+    is_active: true,
+    created_by: USER_ID,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    due_date: null,
+    owner_id: null,
+    status: 'active',
+    product_id: PRODUCT_ID,
+    product_edition_id: null,
+    parent_kpi_id: null,
+    archived_at: null,
+    entry_frequency: null,
+  },
+  {
+    id: KPI_EDITION,
+    company_id: COMPANY_ID_2,
+    name: 'Faturamento Imersão Set/2026',
+    description: '',
+    category: 'Financeiro',
+    unit: 'currency',
+    direction: 'up',
+    frequency: 'monthly',
+    target_value: 50000,
+    source: 'manual',
+    integration_id: null,
+    display_order: 5,
+    is_active: true,
+    created_by: USER_ID,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    due_date: null,
+    owner_id: null,
+    status: 'active',
+    product_id: PRODUCT_ID,
+    product_edition_id: EDITION_ID,
+    parent_kpi_id: KPI_PRODUCT,
+    archived_at: null,
+    entry_frequency: null,
+  },
+]
+
+const PRODUCTS = [
+  {
+    id: PRODUCT_ID,
+    company_id: COMPANY_ID_2,
+    name: 'Entre Donos',
+    description: 'Imersão presencial em turmas',
+    color: '#8B5CF6',
+    display_order: 0,
+    is_active: true,
+    created_by: USER_ID,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+]
+
+const PRODUCT_EDITIONS = [
+  {
+    id: EDITION_ID,
+    product_id: PRODUCT_ID,
+    company_id: COMPANY_ID_2,
+    name: 'Imersão Setembro 2026',
+    start_date: '2026-09-15',
+    end_date: '2026-09-17',
+    status: 'em_andamento',
+    created_by: USER_ID,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: EDITION_ID_2,
+    product_id: PRODUCT_ID,
+    company_id: COMPANY_ID_2,
+    name: 'Imersão Outubro 2026',
+    start_date: '2026-10-15',
+    end_date: '2026-10-17',
+    status: 'planejamento',
+    created_by: USER_ID,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
 ]
 const LATEST = [
   {
@@ -201,6 +304,25 @@ const LATEST = [
     owner_id: null as string | null,
     status: 'active',
   })),
+  // Só a turma tem lançamento — o produto ("Faturamento Entre Donos") não
+  // aparece aqui de propósito: o valor dele vem só da soma desta linha,
+  // calculada no cliente, não de um lançamento próprio.
+  {
+    kpi_id: KPI_EDITION,
+    company_id: COMPANY_ID_2,
+    period_start: '2026-08-01',
+    period_end: '2026-08-31',
+    value: 32000,
+    target_value: 50000,
+    name: 'Faturamento Imersão Set/2026',
+    unit: 'currency',
+    direction: 'up',
+    frequency: 'monthly',
+    category: 'Financeiro',
+    due_date: null as string | null,
+    owner_id: null as string | null,
+    status: 'active',
+  },
 ]
 const KPI_VALUES = LATEST.map((l) => ({
   id: l.kpi_id + '-v',
@@ -467,6 +589,8 @@ const TABLES: Record<string, unknown[]> = {
   kpis: KPIS,
   kpi_values: KPI_VALUES,
   kpi_latest_values: LATEST,
+  products: PRODUCTS,
+  product_editions: PRODUCT_EDITIONS,
   tasks: TASKS,
   task_shares: [],
   kpi_checkpoints: [],

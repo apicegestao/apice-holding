@@ -3,13 +3,21 @@
 // "Imersão", "Mentoria" e "Club" ao mesmo tempo, cada uma com sua própria
 // saúde. Frente recorrente (Entre Donos, Imersão) cadastra uma edição por
 // turma/encontro; frente contínua (Mentoria, Club) pode não ter edição
-// nenhuma — funciona sozinha. KPI, tarefa e orçamento se ligam a um produto
-// (e, quando existe, a uma edição) lá nas próprias telas deles; aqui só se
-// cadastra a estrutura e se acompanha a saúde de cada frente.
+// nenhuma — funciona sozinha.
+//
+// A meta é o que mais gerava confusão aqui: cadastrar produto e edição não
+// bastava, porque não existia nenhum jeito de definir (nem de ver) uma
+// meta a partir desta tela — era preciso ir pra KPIs, lembrar de escolher o
+// produto certo lá, e só então a meta "aparecia" de volta aqui. Agora o
+// produto e cada edição mostram a própria meta direto aqui, com um atalho
+// "+ Meta" que já leva pro formulário de KPI com produto/edição
+// preenchidos — cadastro e acompanhamento na mesma tela.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { CalendarRange, ClipboardList, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { CalendarRange, ClipboardList, Pencil, Plus, Target, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
-import { attainmentRatio, formatDate } from '../../core/lib/format'
+import { attainmentRatio, formatDate, formatValue } from '../../core/lib/format'
+import { buildChildrenByParent, effectiveKpiValue } from '../../core/lib/kpiRollup'
 import { useCompany } from '../../core/company/CompanyProvider'
 import {
   Badge,
@@ -28,7 +36,10 @@ import {
 import { COMPANY_PALETTE } from '../companies/CompanyFields'
 import {
   PRODUCT_EDITION_STATUS_LABEL,
+  type Kpi,
+  type KpiDirection,
   type KpiLatestValue,
+  type KpiUnit,
   type Product,
   type ProductEdition,
   type ProductEditionStatus,
@@ -51,13 +62,29 @@ const blankEditionForm: EditionForm = { name: '', start_date: '', end_date: '' }
 // título/descrição de toda tarefa da empresa à toa.
 type TaskCount = { id: string; product_id: string | null; status: string }
 
+// Um KPI ativo entra aqui com lançamento ou não — um indicador que só soma
+// os filhos (ex. o do produto, que nunca lança direto) não pode sumir da
+// tela por nunca ter uma linha própria em kpi_values.
+type ProductKpiRow = {
+  kpi_id: string
+  name: string
+  unit: KpiUnit
+  direction: KpiDirection
+  target_value: number | null
+  value: number | null
+  product_id: string | null
+  product_edition_id: string | null
+  parent_kpi_id: string | null
+}
+
 export default function ProductsPage() {
   const { company, canWrite } = useCompany()
   const { notify } = useToast()
 
   const [products, setProducts] = useState<Product[]>([])
   const [editions, setEditions] = useState<ProductEdition[]>([])
-  const [kpis, setKpis] = useState<KpiLatestValue[]>([])
+  const [kpiDefs, setKpiDefs] = useState<Kpi[]>([])
+  const [kpiValues, setKpiValues] = useState<KpiLatestValue[]>([])
   const [tasks, setTasks] = useState<TaskCount[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -70,7 +97,7 @@ export default function ProductsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: productRows }, { data: editionRows }, { data: kpiRows }, { data: taskRows }] =
+    const [{ data: productRows }, { data: editionRows }, { data: kpiDefRows }, { data: kpiValueRows }, { data: taskRows }] =
       await Promise.all([
         supabase.from('products').select('*').eq('company_id', company.id).order('display_order'),
         supabase
@@ -78,12 +105,14 @@ export default function ProductsPage() {
           .select('*')
           .eq('company_id', company.id)
           .order('start_date', { ascending: false, nullsFirst: false }),
+        supabase.from('kpis').select('*').eq('company_id', company.id).eq('is_active', true).is('archived_at', null),
         supabase.from('kpi_latest_values').select('*').eq('company_id', company.id).is('archived_at', null),
         supabase.from('tasks').select('id, product_id, status').eq('company_id', company.id),
       ])
     setProducts((productRows as Product[]) ?? [])
     setEditions((editionRows as ProductEdition[]) ?? [])
-    setKpis((kpiRows as KpiLatestValue[]) ?? [])
+    setKpiDefs((kpiDefRows as Kpi[]) ?? [])
+    setKpiValues((kpiValueRows as KpiLatestValue[]) ?? [])
     setTasks((taskRows as TaskCount[]) ?? [])
     setLoading(false)
   }, [company.id])
@@ -92,26 +121,89 @@ export default function ProductsPage() {
     void load()
   }, [load])
 
+  const kpiRows = useMemo<ProductKpiRow[]>(
+    () =>
+      kpiDefs.map((def) => {
+        const latest = kpiValues.find((v) => v.kpi_id === def.id)
+        return {
+          kpi_id: def.id,
+          name: def.name,
+          unit: def.unit,
+          direction: def.direction,
+          target_value: latest?.target_value ?? def.target_value,
+          value: latest ? Number(latest.value) : null,
+          product_id: def.product_id,
+          product_edition_id: def.product_edition_id,
+          parent_kpi_id: def.parent_kpi_id,
+        }
+      }),
+    [kpiDefs, kpiValues],
+  )
+
+  // Soma em cadeia (turma → produto → empresa): um KPI com filhos nunca
+  // lança direto, o valor dele é sempre a soma deles.
+  const childrenByParent = useMemo(() => buildChildrenByParent(kpiRows), [kpiRows])
+  const kpiRowById = useMemo(() => new Map(kpiRows.map((row) => [row.kpi_id, row])), [kpiRows])
+  const effectiveValue = useCallback(
+    (kpiId: string) => effectiveKpiValue(kpiId, childrenByParent, kpiRowById),
+    [childrenByParent, kpiRowById],
+  )
+
+  // Indicadores "do produto como um todo" (sem edição) e os "de cada
+  // turma" — separados porque aparecem em lugares diferentes da tela.
+  const kpisByProduct = useMemo(() => {
+    const map = new Map<string, ProductKpiRow[]>()
+    for (const row of kpiRows) {
+      if (!row.product_id || row.product_edition_id) continue
+      const list = map.get(row.product_id) ?? []
+      list.push(row)
+      map.set(row.product_id, list)
+    }
+    return map
+  }, [kpiRows])
+
+  const kpisByEdition = useMemo(() => {
+    const map = new Map<string, ProductKpiRow[]>()
+    for (const row of kpiRows) {
+      if (!row.product_edition_id) continue
+      const list = map.get(row.product_edition_id) ?? []
+      list.push(row)
+      map.set(row.product_edition_id, list)
+    }
+    return map
+  }, [kpiRows])
+
   // Saúde de cada produto: mesma conta da saúde geral da empresa (média do
-  // attainmentRatio dos KPIs com meta), só que restrita aos KPIs daquele
-  // produto — e tarefas abertas/vencidas da mesma frente.
+  // attainmentRatio dos KPIs com meta, usando o valor de verdade — soma
+  // incluída), restrita aos KPIs daquele produto — e tarefas abertas dele.
+  // primaryMeta é o indicador "de capa" do cartão: o do produto como um
+  // todo que já tem meta definida (senão, o primeiro que existir).
   const statsByProduct = useMemo(() => {
-    const map = new Map<string, { ratio: number | null; open: number }>()
+    const map = new Map<
+      string,
+      { ratio: number | null; open: number; primaryMeta: ProductKpiRow | null; primaryValue: number | null }
+    >()
     for (const product of products) {
-      const ratios = kpis
-        .filter((kpi) => kpi.product_id === product.id && kpi.target_value !== null && Number(kpi.target_value) !== 0)
-        .map((kpi) => attainmentRatio(Number(kpi.value), kpi.target_value, kpi.direction))
+      const productLevel = kpisByProduct.get(product.id) ?? []
+      const withTarget = kpiRows.filter(
+        (row) => row.product_id === product.id && row.target_value !== null && Number(row.target_value) !== 0,
+      )
+      const ratios = withTarget
+        .map((row) => attainmentRatio(effectiveValue(row.kpi_id), row.target_value, row.direction))
         .filter((ratio): ratio is number => ratio !== null)
       const open = tasks.filter(
         (task) => task.product_id === product.id && ['todo', 'doing', 'blocked'].includes(task.status),
       )
+      const primaryMeta = productLevel.find((row) => row.target_value !== null) ?? productLevel[0] ?? null
       map.set(product.id, {
         ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
         open: open.length,
+        primaryMeta,
+        primaryValue: primaryMeta ? effectiveValue(primaryMeta.kpi_id) : null,
       })
     }
     return map
-  }, [products, kpis, tasks])
+  }, [products, kpisByProduct, kpiRows, tasks, effectiveValue])
 
   const activeProduct = useMemo(() => products.find((item) => item.id === activeId) ?? null, [products, activeId])
   const activeEditions = useMemo(
@@ -217,7 +309,7 @@ export default function ProductsPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title={`Produtos · ${company.name}`}
-        subtitle="As frentes de produto ou serviço desta empresa — e, pra quem roda em turmas, as edições de cada uma."
+        subtitle="As frentes de produto ou serviço desta empresa, a meta de cada uma e, pra quem roda em turmas, a meta de cada edição."
         actions={
           canWrite && (
             <button type="button" className="btn-primary" onClick={openCreate}>
@@ -230,7 +322,7 @@ export default function ProductsPage() {
       {products.length === 0 ? (
         <EmptyState
           title="Nenhum produto cadastrado"
-          description='Cadastre as frentes que a empresa toca — ex.: "Entre Donos", "Imersão", "Mentoria" — pra acompanhar a saúde de cada uma separadamente.'
+          description='Cadastre as frentes que a empresa toca — ex.: "Entre Donos", "Imersão", "Mentoria" — pra acompanhar a meta e a saúde de cada uma separadamente.'
           action={
             canWrite && (
               <button type="button" className="btn-primary" onClick={openCreate}>
@@ -266,18 +358,27 @@ export default function ProductsPage() {
                 {product.description && (
                   <p className="mt-1.5 line-clamp-2 text-xs text-content-soft">{product.description}</p>
                 )}
-                {productEditions.length > 0 && (
-                  <p className="mt-2 flex items-center gap-1 text-xs text-content-faint">
-                    <CalendarRange className="h-3.5 w-3.5" /> {productEditions.length} edição(ões)
-                  </p>
-                )}
-                <p className="mt-1 flex items-center gap-1 text-xs text-content-faint">
-                  <ClipboardList className="h-3.5 w-3.5" /> {stats?.open ?? 0} tarefa(s) aberta(s)
-                </p>
-                {stats?.ratio !== null && stats?.ratio !== undefined && (
+                <div className="mt-2 flex items-center gap-3 text-xs text-content-faint">
+                  {productEditions.length > 0 && (
+                    <span className="flex items-center gap-1">
+                      <CalendarRange className="h-3.5 w-3.5" /> {productEditions.length} edição(ões)
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1">
+                    <ClipboardList className="h-3.5 w-3.5" /> {stats?.open ?? 0} tarefa(s)
+                  </span>
+                </div>
+                {stats?.primaryMeta ? (
                   <div className="mt-3">
-                    <ProgressBar ratio={stats.ratio} label="Saúde da frente" />
+                    <MetaLine kpi={stats.primaryMeta} value={stats.primaryValue} />
                   </div>
+                ) : (
+                  stats?.ratio !== null &&
+                  stats?.ratio !== undefined && (
+                    <div className="mt-3">
+                      <ProgressBar ratio={stats.ratio} label="Saúde da frente" />
+                    </div>
+                  )
                 )}
               </button>
             )
@@ -293,7 +394,7 @@ export default function ProductsPage() {
           aparecer sobre esta tela, não o contrário. */}
       <Modal
         open={Boolean(activeProduct)}
-        title={activeProduct ? `${activeProduct.name} — edições` : ''}
+        title={activeProduct ? activeProduct.name : ''}
         onClose={() => setActiveId(null)}
         width="max-w-2xl"
       >
@@ -320,6 +421,38 @@ export default function ProductsPage() {
             </div>
 
             <div>
+              <div className="flex items-center justify-between gap-2">
+                <p className="label">Metas deste produto</p>
+                {canWrite && (
+                  <Link
+                    to={`/empresa/${company.id}/kpis?novo=1&product_id=${activeProduct.id}`}
+                    className="btn-ghost py-1 text-xs"
+                  >
+                    <Target className="h-3.5 w-3.5" /> Nova meta
+                  </Link>
+                )}
+              </div>
+              {(kpisByProduct.get(activeProduct.id) ?? []).length === 0 ? (
+                <p className="mt-1 text-sm text-content-soft">
+                  Ainda sem meta própria — o produto como um todo não tem nenhum indicador ligado a ele.
+                </p>
+              ) : (
+                <ul className="mt-2 space-y-2">
+                  {(kpisByProduct.get(activeProduct.id) ?? []).map((kpi) => (
+                    <li key={kpi.kpi_id}>
+                      <Link
+                        to={`/empresa/${company.id}/kpis?kpi=${kpi.kpi_id}`}
+                        className="block rounded-lg border border-line p-2.5 transition hover:border-line-strong hover:bg-hover"
+                      >
+                        <MetaLine kpi={kpi} value={effectiveValue(kpi.kpi_id)} />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
               <p className="label">
                 Edições — pra frentes que rodam em turma ou encontro (deixe vazio se a frente roda contínuo)
               </p>
@@ -327,53 +460,84 @@ export default function ProductsPage() {
                 <p className="mt-1 text-sm text-content-soft">Nenhuma edição cadastrada ainda.</p>
               ) : (
                 <ul className="mt-2 space-y-2">
-                  {activeEditions.map((edition) => (
-                    <li
-                      key={edition.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line p-2.5"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-content">{edition.name}</p>
-                        {(edition.start_date || edition.end_date) && (
-                          <p className="text-xs text-content-faint">
-                            {edition.start_date ? formatDate(edition.start_date) : '—'} a{' '}
-                            {edition.end_date ? formatDate(edition.end_date) : '—'}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        {canWrite ? (
-                          <select
-                            className="rounded border border-line bg-surface px-1.5 py-1 text-base sm:text-xs"
-                            value={edition.status}
-                            onChange={(event) =>
-                              void setEditionStatus(edition, event.target.value as ProductEditionStatus)
-                            }
-                          >
-                            {EDITION_STATUSES.map((status) => (
-                              <option key={status} value={status}>
-                                {PRODUCT_EDITION_STATUS_LABEL[status]}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <Badge tone={EDITION_STATUS_TONE[edition.status]}>
-                            {PRODUCT_EDITION_STATUS_LABEL[edition.status]}
-                          </Badge>
-                        )}
-                        {canWrite && (
-                          <button
-                            type="button"
-                            className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
-                            onClick={() => editionDelete.ask(edition)}
-                            aria-label="Remover edição"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
+                  {activeEditions.map((edition) => {
+                    const editionKpis = kpisByEdition.get(edition.id) ?? []
+                    return (
+                      <li key={edition.id} className="rounded-lg border border-line p-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-content">{edition.name}</p>
+                            {(edition.start_date || edition.end_date) && (
+                              <p className="text-xs text-content-faint">
+                                {edition.start_date ? formatDate(edition.start_date) : '—'} a{' '}
+                                {edition.end_date ? formatDate(edition.end_date) : '—'}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {canWrite ? (
+                              <select
+                                className="rounded border border-line bg-surface px-1.5 py-1 text-base sm:text-xs"
+                                value={edition.status}
+                                onChange={(event) =>
+                                  void setEditionStatus(edition, event.target.value as ProductEditionStatus)
+                                }
+                              >
+                                {EDITION_STATUSES.map((status) => (
+                                  <option key={status} value={status}>
+                                    {PRODUCT_EDITION_STATUS_LABEL[status]}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <Badge tone={EDITION_STATUS_TONE[edition.status]}>
+                                {PRODUCT_EDITION_STATUS_LABEL[edition.status]}
+                              </Badge>
+                            )}
+                            {canWrite && (
+                              <button
+                                type="button"
+                                className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
+                                onClick={() => editionDelete.ask(edition)}
+                                aria-label="Remover edição"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mt-2 border-t border-line pt-2">
+                          {editionKpis.length === 0 ? (
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs text-content-faint">Sem meta própria ainda.</p>
+                              {canWrite && (
+                                <Link
+                                  to={`/empresa/${company.id}/kpis?novo=1&product_id=${activeProduct.id}&product_edition_id=${edition.id}`}
+                                  className="shrink-0 text-xs text-brand-text hover:underline"
+                                >
+                                  + Meta desta turma
+                                </Link>
+                              )}
+                            </div>
+                          ) : (
+                            <ul className="space-y-2">
+                              {editionKpis.map((kpi) => (
+                                <li key={kpi.kpi_id}>
+                                  <Link
+                                    to={`/empresa/${company.id}/kpis?kpi=${kpi.kpi_id}`}
+                                    className="block rounded-md -mx-1 px-1 py-0.5 transition hover:bg-hover"
+                                  >
+                                    <MetaLine kpi={kpi} value={effectiveValue(kpi.kpi_id)} size="xs" />
+                                  </Link>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
 
@@ -488,6 +652,31 @@ export default function ProductsPage() {
         onConfirm={() => void editionDelete.confirm()}
         onCancel={editionDelete.cancel}
       />
+    </div>
+  )
+}
+
+/** Nome da meta + "valor de meta" + barrinha, quando dá pra calcular — o
+ *  mesmo formato em todo lugar que uma meta de produto/edição aparece
+ *  (cartão do produto, lista de metas do produto, linha da edição). */
+function MetaLine({ kpi, value, size = 'sm' }: { kpi: ProductKpiRow; value: number | null; size?: 'sm' | 'xs' }) {
+  const ratio = value !== null ? attainmentRatio(value, kpi.target_value, kpi.direction) : null
+  const textSize = size === 'xs' ? 'text-[11px]' : 'text-xs'
+  return (
+    <div>
+      <p className={`truncate font-medium text-content-soft ${textSize}`}>{kpi.name}</p>
+      <p className={`mt-0.5 text-content-faint ${textSize}`}>
+        {value === null
+          ? 'sem lançamento ainda'
+          : kpi.target_value !== null
+            ? `${formatValue(value, kpi.unit)} de ${formatValue(kpi.target_value, kpi.unit)}`
+            : formatValue(value, kpi.unit)}
+      </p>
+      {value !== null && kpi.target_value !== null && (
+        <div className="mt-1">
+          <ProgressBar ratio={ratio} />
+        </div>
+      )}
     </div>
   )
 }

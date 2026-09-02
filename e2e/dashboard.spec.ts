@@ -3,7 +3,19 @@
 // 390px) — assim qualquer recurso novo entra automaticamente na cobertura
 // dos dois formatos, sem depender de alguém lembrar de testar o celular.
 import { expect, test } from '@playwright/test'
-import { COMPANY_ID, COMPANY_ID_2, HOLDING_ID, login, mockSupabase, ROUTES, USER_ID } from './fixtures'
+import {
+  COMPANY_ID,
+  COMPANY_ID_2,
+  EDITION_ID,
+  EDITION_ID_2,
+  HOLDING_ID,
+  KPI_PRODUCT,
+  login,
+  mockSupabase,
+  PRODUCT_ID,
+  ROUTES,
+  USER_ID,
+} from './fixtures'
 
 // Todo input/select/textarea precisa ter pelo menos 16px no celular — abaixo
 // disso o Safari do iOS dá zoom sozinho ao focar o campo, e como as trocas de
@@ -66,8 +78,10 @@ test.describe('painel', () => {
   test('KPI sem lançamento aparece no painel (não some)', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID}`)
     await page.waitForLoadState('networkidle')
-    await expect(page.getByText('Faturamento', { exact: true })).toBeVisible()
-    await expect(page.getByText('sem lançamento', { exact: true })).toBeVisible()
+    // Âncora no início ("^") pra não colidir com "Faturamento Entre Donos"
+    // (produto da Vibra, também sem lançamento direto — o mock de REST não
+    // filtra por empresa, então as duas aparecem na mesma consulta).
+    await expect(page.getByRole('link', { name: /^Faturamento —/ })).toBeVisible()
   })
 
   // Itens 4 e 5: gráficos comparativos aparecem quando há o que comparar.
@@ -390,6 +404,109 @@ test.describe('orçamentos', () => {
     await page.getByText('Imersão 2027', { exact: true }).click()
     await page.getByRole('button', { name: 'Excluir' }).click()
     await expect(page.getByText('Excluir orçamento?')).toBeVisible()
+  })
+})
+
+// Cadeia de meta turma → produto: "Entre Donos" (produto) nunca lança
+// direto — o valor dele é a soma das turmas, calculada no cliente. Cobre a
+// reclamação de que não dava pra ver nem cadastrar meta a partir de Produtos.
+test.describe('metas de produto e sub-produto', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+  })
+
+  test('cartão do produto mostra a meta somada das turmas, mesmo sem lançamento próprio', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
+    await page.waitForLoadState('networkidle')
+    // KPI_PRODUCT não tem lançamento nenhum — o valor exibido (32.000) só
+    // pode vir da soma de KPI_EDITION (a turma de setembro).
+    await expect(page.getByText('Faturamento Entre Donos')).toBeVisible()
+    await expect(page.getByText(/R\$\s?32\.000,00 de R\$\s?100\.000,00/)).toBeVisible()
+  })
+
+  test('abrir o produto mostra a meta dele e a de cada turma, com o estado vazio de quem ainda não tem', async ({
+    page,
+  }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByText('Entre Donos', { exact: true }).click()
+
+    // O cartão do produto (atrás do modal) também mostra o nome do mesmo
+    // indicador — por isso o link (role) em vez de texto solto, que pegaria
+    // os dois.
+    await expect(page.getByText('Metas deste produto')).toBeVisible()
+    const productMetaLink = page.getByRole('link', { name: /Faturamento Entre Donos/ })
+    await expect(productMetaLink).toContainText('R$ 32.000,00 de R$ 100.000,00')
+
+    // Turma de setembro já tem meta própria (32.000 de 50.000).
+    const editionMetaLink = page.getByRole('link', { name: /Faturamento Imersão Set\/2026/ })
+    await expect(editionMetaLink).toContainText('R$ 32.000,00 de R$ 50.000,00')
+    await expect(page.getByText('Imersão Setembro 2026')).toBeVisible()
+
+    // Turma de outubro não tem meta ainda — mostra o estado vazio com o
+    // atalho pra cadastrar, em vez de simplesmente não aparecer nada.
+    await expect(page.getByText('Imersão Outubro 2026')).toBeVisible()
+    await expect(page.getByText('Sem meta própria ainda.')).toBeVisible()
+    await expect(page.getByRole('link', { name: '+ Meta desta turma' })).toBeVisible()
+  })
+
+  test('+ Nova meta do produto leva pro formulário de KPI já com o produto preenchido', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByText('Entre Donos', { exact: true }).click()
+    await page.getByRole('link', { name: 'Nova meta' }).click()
+
+    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis$`))
+    await expect(page.getByRole('heading', { name: 'Novo KPI' })).toBeVisible()
+    // A tela de KPIs também tem um seletor "Filtrar por produto" com as
+    // mesmas opções — por isso escopado à caixa "Produto e sub-produto" do
+    // formulário, não ao <select> solto.
+    const productBox = page.getByText('Produto e sub-produto — opcional', { exact: true }).locator('..')
+    await expect(productBox.locator('select').first()).toHaveValue(PRODUCT_ID)
+  })
+
+  test('+ Meta desta turma leva pro formulário já com produto e edição preenchidos', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByText('Entre Donos', { exact: true }).click()
+    await page.getByRole('link', { name: '+ Meta desta turma' }).click()
+
+    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis$`))
+    await expect(page.getByRole('heading', { name: 'Novo KPI' })).toBeVisible()
+    const productBox = page.getByText('Produto e sub-produto — opcional', { exact: true }).locator('..')
+    await expect(productBox.locator('select').nth(0)).toHaveValue(PRODUCT_ID)
+    await expect(productBox.locator('select').nth(1)).toHaveValue(EDITION_ID_2)
+  })
+
+  test('clicar numa meta do produto abre KPIs e destaca o indicador certo', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByText('Entre Donos', { exact: true }).click()
+    await page.getByRole('link', { name: /Faturamento Entre Donos/ }).click()
+
+    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis\\?kpi=${KPI_PRODUCT}`))
+    // O mesmo indicador some do card de destaque pra virar um cartão cheio
+    // na lista — confirma que o KPI de verdade existe (e a soma bate lá).
+    await expect(page.getByText(/R\$\s?32\.000,00/).first()).toBeVisible()
+  })
+})
+
+// Confirma que o formulário lê o atalho vindo de Produtos mesmo quando o
+// KPI de edição já existe (EDITION_ID) — cobre a turma que estiver sendo
+// editada não afeta que outra turma diferente esteja com o atalho.
+test.describe('atalho de KPI a partir de Produtos', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+  })
+
+  test('URL com ?novo=1 abre o formulário direto, sem precisar clicar em nada', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis?novo=1&product_id=${PRODUCT_ID}&product_edition_id=${EDITION_ID}`)
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByRole('heading', { name: 'Novo KPI' })).toBeVisible()
+    await expect(page.locator('select:has(option:text-is("Imersão Setembro 2026"))')).toHaveValue(EDITION_ID)
+    // Os parâmetros somem da URL depois de consumidos, pra um F5 não abrir
+    // o formulário de novo sozinho.
+    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis$`))
   })
 })
 

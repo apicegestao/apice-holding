@@ -33,6 +33,7 @@ import {
   labelPeriod,
   relativeDays,
 } from '../../core/lib/format'
+import { buildChildrenByParent, effectiveKpiValue } from '../../core/lib/kpiRollup'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
 import { Badge, Card, EmptyState, Loading, PageHeader, ProgressBar, useToast } from '../../core/ui'
@@ -95,6 +96,8 @@ type KpiRow = {
   owner_id: string | null
   status: GoalStatus
   product_id: string | null
+  product_edition_id: string | null
+  parent_kpi_id: string | null
 }
 
 function StatTile({
@@ -214,31 +217,55 @@ export default function CompanyDashboard() {
           owner_id: def.owner_id,
           status: def.status,
           product_id: def.product_id,
+          product_edition_id: def.product_edition_id,
+          parent_kpi_id: def.parent_kpi_id,
         }
       }),
     [kpiDefs, kpiValues],
+  )
+
+  // Produto (ou meta da empresa) que soma o valor dos filhos — ex.: "Entre
+  // Donos" soma as turmas. Um nó do meio nunca lança direto: o valor que
+  // ele mostra e repassa pro próprio pai é sempre a soma dos filhos.
+  const childrenByParent = useMemo(() => buildChildrenByParent(kpiRows), [kpiRows])
+  const kpiRowById = useMemo(() => new Map(kpiRows.map((row) => [row.kpi_id, row])), [kpiRows])
+  const effectiveValue = useCallback(
+    (kpiId: string) => effectiveKpiValue(kpiId, childrenByParent, kpiRowById),
+    [childrenByParent, kpiRowById],
   )
 
   // Saúde de cada produto: mesma conta da saúde geral da empresa (média do
   // attainmentRatio dos KPIs com meta), restrita aos KPIs daquela frente —
   // mais quantas tarefas dela estão abertas.
   const productStats = useMemo(() => {
-    const map = new Map<string, { ratio: number | null; open: number }>()
+    const map = new Map<
+      string,
+      { ratio: number | null; open: number; primaryMeta: KpiRow | null; primaryValue: number | null }
+    >()
     for (const product of products) {
-      const ratios = kpiRows
-        .filter((row) => row.product_id === product.id && row.target_value !== null && Number(row.target_value) !== 0)
-        .map((row) => attainmentRatio(row.value, row.target_value, row.direction))
+      // Indicadores "do produto como um todo" (sem edição) — são eles que
+      // aparecem em destaque no cartão; os de turma ficam só na soma.
+      const productLevel = kpiRows.filter((row) => row.product_id === product.id && !row.product_edition_id)
+      const withTarget = kpiRows.filter(
+        (row) => row.product_id === product.id && row.target_value !== null && Number(row.target_value) !== 0,
+      )
+      const ratios = withTarget
+        .map((row) => attainmentRatio(effectiveValue(row.kpi_id), row.target_value, row.direction))
         .filter((ratio): ratio is number => ratio !== null)
       const open = tasks.filter(
         (task) => task.product_id === product.id && ['todo', 'doing', 'blocked'].includes(task.status),
       )
+      // Pro valor em destaque, prioriza quem já tem meta definida.
+      const primaryMeta = productLevel.find((row) => row.target_value !== null) ?? productLevel[0] ?? null
       map.set(product.id, {
         ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
         open: open.length,
+        primaryMeta,
+        primaryValue: primaryMeta ? effectiveValue(primaryMeta.kpi_id) : null,
       })
     }
     return map
-  }, [products, kpiRows, tasks])
+  }, [products, kpiRows, tasks, effectiveValue])
 
   // Um KPI com prazo é também uma meta — mesma linha, sem cadastro à parte.
   const metas = useMemo(
@@ -421,10 +448,35 @@ export default function CompanyDashboard() {
                     <p className="min-w-0 truncate text-sm font-medium text-content">{product.name}</p>
                   </div>
                   <p className="mt-1 text-xs text-content-faint">{stats?.open ?? 0} tarefa(s) aberta(s)</p>
-                  {stats?.ratio !== null && stats?.ratio !== undefined && (
+                  {stats?.primaryMeta ? (
                     <div className="mt-2">
-                      <ProgressBar ratio={stats.ratio} />
+                      <p className="truncate text-xs font-medium text-content-soft">{stats.primaryMeta.name}</p>
+                      <p className="mt-0.5 text-xs text-content-faint">
+                        {stats.primaryValue === null
+                          ? 'sem lançamento ainda'
+                          : stats.primaryMeta.target_value !== null
+                            ? `${formatValue(stats.primaryValue, stats.primaryMeta.unit)} de ${formatValue(stats.primaryMeta.target_value, stats.primaryMeta.unit)}`
+                            : formatValue(stats.primaryValue, stats.primaryMeta.unit)}
+                      </p>
+                      {stats.primaryValue !== null && stats.primaryMeta.target_value !== null && (
+                        <div className="mt-1">
+                          <ProgressBar
+                            ratio={attainmentRatio(
+                              stats.primaryValue,
+                              stats.primaryMeta.target_value,
+                              stats.primaryMeta.direction,
+                            )}
+                          />
+                        </div>
+                      )}
                     </div>
+                  ) : (
+                    stats?.ratio !== null &&
+                    stats?.ratio !== undefined && (
+                      <div className="mt-2">
+                        <ProgressBar ratio={stats.ratio} />
+                      </div>
+                    )
                   )}
                 </Link>
               )

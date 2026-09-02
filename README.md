@@ -110,10 +110,16 @@ src/
                        lançar em cadência mais fina (ex. mês a mês) — os
                        lançamentos somam sozinhos pro total, via gatilho no
                        banco. Um KPI de sub-produto (turma/edição) pode
-                       "contribuir para" o KPI do produto como um todo — o
-                       pai mostra a soma ao vivo dos filhos, sem lançamento
-                       próprio. KPI com prazo vencido arquiva sozinho (ou
-                       manualmente, a qualquer hora); arquivado vive numa
+                       "contribuir para" o KPI do produto como um todo, que
+                       por sua vez pode contribuir pra um indicador da
+                       empresa toda — cadeia de quantos níveis fizerem
+                       sentido (só não pode formar ciclo), sempre calculada
+                       ao vivo a partir dos filhos, nunca um lançamento
+                       direto no nó do meio. Aceita `?novo=1&product_id=X`
+                       (e `&product_edition_id=Y`) na URL pra abrir o
+                       formulário já preenchido — o atalho que a tela de
+                       Produtos usa. KPI com prazo vencido arquiva sozinho
+                       (ou manualmente, a qualquer hora); arquivado vive numa
                        aba separada, fora da tela principal
     tasks/             tarefas: quem, o quê, prazo e lembrete padrão (dias
                        antes + horário) — com subtarefas e notas editáveis
@@ -126,10 +132,15 @@ src/
                        "Entre Donos", "Imersão", "Mentoria", "Club" — caso
                        real que motivou o módulo). Frente recorrente cadastra
                        uma edição por turma/encontro; frente contínua roda
-                       sem edição nenhuma. Cada produto mostra sua própria
-                       saúde (atingimento dos KPIs daquela frente) e conta de
-                       tarefas abertas — reflete no painel da empresa e, com
-                       a contagem de produtos ativos, no painel da holding
+                       sem edição nenhuma. Cada produto mostra a própria meta
+                       (nome, valor, alvo) direto no cartão e na lista de
+                       edições — com botão "+ Nova meta"/"+ Meta desta
+                       turma" que leva pro formulário de KPI já preenchido,
+                       sem precisar ir escolher o produto manualmente numa
+                       tela separada — e a saúde da frente (atingimento dos
+                       KPIs dela) e conta de tarefas abertas; reflete no
+                       painel da empresa e, com a contagem de produtos
+                       ativos, no painel da holding
     mindmap/           mapa mental arrastável, organograma, fluxo lógico ou
                        linha do tempo automático, ramifica pra qualquer
                        lado; nó vira tarefa e edita o texto nele mesmo;
