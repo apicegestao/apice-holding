@@ -98,6 +98,51 @@ function periodFor(mode: string, now = new Date()) {
   }
 }
 
+// Bloqueia SSRF óbvio: quem configura "base_url" é um admin de UMA empresa,
+// mas o fetch roda do lado do servidor com acesso que essa pessoa não tem —
+// sem essa checagem, dava pra apontar a integração pra um endereço interno
+// (localhost, metadados de nuvem, rede privada) e usar o próprio Ápice como
+// ponte pra sondar essas redes.
+const BLOCKED_HOSTNAMES = new Set(['localhost', 'metadata.google.internal'])
+
+function isPrivateIp(ip: string): boolean {
+  if (ip === '0.0.0.0' || ip === '::' || ip === '::1') return true
+  const v4 = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+  if (v4) {
+    const [a, b] = v4.slice(1).map(Number)
+    if (a === 127) return true // loopback
+    if (a === 10) return true // 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true // 172.16.0.0/12
+    if (a === 192 && b === 168) return true // 192.168.0.0/16
+    if (a === 169 && b === 254) return true // link-local, inclui metadados de nuvem
+    return false
+  }
+  const lower = ip.toLowerCase()
+  return lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd') // link-local / fc00::/7
+}
+
+async function assertPublicUrl(rawUrl: string) {
+  const url = new URL(rawUrl)
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Só endereços http:// ou https:// podem ser usados numa integração.')
+  }
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (BLOCKED_HOSTNAMES.has(hostname) || isPrivateIp(hostname)) {
+    throw new Error('Este endereço aponta para uma rede interna e não pode ser usado numa integração.')
+  }
+  // Um domínio público também pode ter sido apontado de propósito pra um IP
+  // privado — confere a resolução real quando o runtime permitir. Se a API
+  // não estiver disponível aqui, segue só com as checagens acima.
+  try {
+    const records = await Deno.resolveDns(hostname, 'A')
+    if (records.some(isPrivateIp)) {
+      throw new Error('Este endereço aponta para uma rede interna e não pode ser usado numa integração.')
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('rede interna')) throw err
+  }
+}
+
 async function runIntegration(integration: Integration, triggerSource: string) {
   const { data: run } = await admin
     .from('integration_runs')
@@ -151,6 +196,8 @@ async function runIntegration(integration: Integration, triggerSource: string) {
       headers['Content-Type'] = 'application/json'
       init.body = JSON.stringify(integration.request_body ?? {})
     }
+
+    await assertPublicUrl(integration.base_url)
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 20_000)

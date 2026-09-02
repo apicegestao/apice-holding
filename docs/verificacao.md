@@ -567,3 +567,139 @@ dentro de modais. `npm run build`, `npm run test` (9/9) e
 `npm run check:contrast` (24/24) limpos. `npm run test:e2e` subiu de 72 para
 **120 testes** (a varredura roda uma vez por rota), todos passando nos dois
 formatos.
+
+---
+
+## 17. Varredura de segurança
+
+Auditoria pedida pelo usuário: acesso indevido, "vírus" (injeção/malware) e
+brechas abertas — banco (RLS, funções, grants), as 4 Edge Functions, o
+front-end (XSS, segredos) e as dependências. Achado real e mais sério
+primeiro; o resto na ordem em que foi conferido.
+
+**1) `company_members`: um admin de UMA empresa conseguia anexar QUALQUER
+conta do sistema à própria empresa — achado mais sério da varredura.** A
+policy de escrita (`company_members_write`, migração 0001) conferia só o
+`company_id` da linha (`is_company_admin(company_id)`) e nunca o `user_id` —
+ou seja, um admin da empresa A podia inserir `{company_id: A, user_id:
+<qualquer UUID>, role: 'admin'}` direto pela API REST do Supabase (fora do
+sistema, com só o próprio token), anexando à empresa A uma conta de outra
+empresa ou até de um super admin, com o papel que quisesse. Conferido que
+**nenhuma tela do sistema escreve nesta tabela pelo cliente** — toda escrita
+de verdade sempre passou pela Edge Function `admin-users` (que roda com
+`service_role`, e `service_role` sempre ignora RLS) — então fechar a escrita
+pra `authenticated` não tira nenhuma função do sistema. Migração `0023`
+remove a policy. **Reproduzido e confirmado bloqueado**: rodei o INSERT
+exato do ataque (impersonando o único usuário real de produção, contra a
+própria empresa dele) direto no banco — antes da correção teria funcionado
+(a policy nunca olhou o `user_id`), depois: `ERROR: new row violates row-level
+security policy`. Contagem de linhas conferida antes/depois (1, sem mudança).
+
+**2) A mesma classe de bug, um passo antes: a Edge Function `admin-users`
+tinha a versão "amigável" do mesmo problema.** Em `create_user`, quando o
+e-mail informado já pertencia a uma conta existente, o código vinculava essa
+conta à empresa do admin que estava chamando **sem checar se ele tinha
+qualquer relação com essa conta** — só sabendo o e-mail de alguém (nem
+precisa ser UUID, e e-mail costuma seguir um padrão previsível,
+nome.sobrenome@empresa), um admin de uma empresa conseguia anexar a conta de
+outra pessoa (de outra empresa, ou até o super admin) ao próprio time, e de
+quebra sobrescrever nome/cargo/telefone dessa conta e reativá-la se estivesse
+inativa. Corrigido: vincular uma conta **que já existe** a uma empresa agora
+é ação só da holding (`caller.is_super_admin`) — criar uma conta nova
+continua liberado pra qualquer admin de empresa, como sempre foi. Edge
+Function redeployada (v2).
+
+**3) SSRF na integração externa.** Quem configura uma integração (admin de
+uma empresa) escolhe livremente a URL que o servidor vai chamar
+(`base_url`). Sem checagem nenhuma, dava pra apontar essa URL pra um
+endereço interno (`localhost`, `169.254.169.254` — o endereço clássico de
+metadados de nuvem, uma rede `10.x`/`172.16-31.x`/`192.168.x`) e usar o
+próprio Ápice como ponte pra sondar essas redes a partir do servidor, não do
+navegador de quem configurou. Adicionada `assertPublicUrl()` em
+`integrations-sync`: recusa IP privado/loopback/link-local escrito direto na
+URL, e também tenta resolver o DNS do domínio pra pegar o caso de um domínio
+público de propósito apontado pra dentro (com fallback silencioso se
+`Deno.resolveDns` não estiver disponível no runtime — a checagem por
+IP/hostname literal continua valendo do mesmo jeito). Edge Function
+redeployada (v2).
+
+**4) `app.system_settings` sem RLS (alerta "crítico" do advisor do
+Supabase) — investigado e confirmado sem exposição real, mas fechado mesmo
+assim.** Conferido nos grants reais da tabela: `anon` e `authenticated` não
+têm privilégio nenhum nela desde a migração 0007 (só `service_role`), e o
+schema `app` nem é exposto pela API REST (só `public` é, por padrão) — ou
+seja, ninguém de fora conseguia ler ou gravar aqui mesmo sem RLS. Ainda
+assim, RLS é o tipo de proteção que devia estar ligada por padrão em toda
+tabela, não por duas outras camadas coincidirem. `service_role` sempre
+ignora RLS (`rolbypassrls`, conferido em `pg_roles`) — ligar RLS não muda
+nada pra Edge Function que já usa esta tabela. Migração `0023`. Confirmado
+depois: `select * from app.system_settings` como `authenticated` continua
+dando `permission denied` — igual a antes, agora com mais uma camada.
+
+**5) Função sem `search_path` fixo.** `app.sync_task_reminder` (migração
+0019, criada depois da rodada que fixou `search_path` em todo o resto —
+migração 0011) ficou de fora. Não é `security definer` (roda com o
+privilégio de quem edita a própria tarefa, não elevado), então o risco
+prático era baixo, mas todo o resto do sistema já segue esse padrão.
+Alinhado na mesma migração `0023`.
+
+**6) `Content-Security-Policy` novo — e de propósito fora do `netlify.toml`.**
+O sistema não tinha CSP nenhuma. Adicionada via `<meta>` em `index.html` (não
+como cabeçalho do Netlify) exatamente para não criar mais uma dependência do
+host — a política viaja junto com os arquivos estáticos pra qualquer lugar
+que os sirva. `script-src`, `connect-src` (só a própria origem e o projeto
+Supabase), `object-src`, `base-uri` e `form-action` travados em `'self'`/
+`'none'`; `style-src` precisa de `'unsafe-inline'` porque cor dinâmica
+(empresa, KPI, nó do mapa mental) é feita por atributo `style`, não por
+classe — nunca por script. Auditoria confirmou: nenhum `dangerouslySetInnerHTML`,
+`eval` ou `innerHTML` em todo o `src/`; nenhuma fonte/imagem externa; nenhum
+`fetch()` cru fora do cliente Supabase — então a política pôde ficar
+restritiva sem gambiarra. **Verificação real, não só leitura da política**:
+nova suíte `e2e/security.spec.ts` visita toda rota do sistema (mais as
+telas com cor dinâmica de verdade — mapa mental, tarefas) escutando o
+console por violação de CSP; zero violações nos dois formatos.
+
+**7) Auditoria geral de RLS além do achado do item 1** — conferidas as
+tabelas onde uma policy mal desenhada teria mais consequência (identidade e
+permissão, não dado operacional): `profiles` (colunas de privilégio já
+protegidas por GRANT por coluna + trigger de guarda, migração 0010 — nada a
+fazer), `integration_secrets` (write-only confirmado: sem nenhuma policy de
+SELECT pra `authenticated`, só a Edge Function com `service_role` lê pra
+autenticar a chamada externa), `task_shares` (compartilhar com uma pessoa
+exige que ela já divida uma empresa com quem compartilha — `app.shares_company`
+— então não dá pra compartilhar com um estranho de fora), `companies`
+(criar/editar exige `is_super_admin()`, igual à regra da tela).
+
+**8) Dependências.** `npm audit`: duas CVEs moderadas em `react-router-dom`
+(redirecionamento aberto, injeção via hidratação SSR) — conferido que
+nenhuma se aplica de verdade aqui (o sistema nunca navega pra uma URL vinda
+de fora — `grep` em todo `useNavigate`/`<Navigate>` confirmou; e não há SSR,
+é SPA puro) — correção completa exige a v7 (mudança de API), registrada como
+pendência para uma rodada dedicada; atualizado dentro da v6 mesmo assim
+(6.26.2 → 6.30.6, sem mudança de comportamento) por higiene. As outras CVEs
+apontadas (`vite`, `vitest`, `esbuild` — uma delas crítica) são todas do
+**ambiente de desenvolvimento/teste**, exigem o servidor de dev ou a UI do
+Vitest rodando e alcançável — nenhuma delas chega no Netlify, que só serve o
+HTML/CSS/JS já compilado; a atualização (major nos dois) fica registrada
+como pendência, não feita agora para não arriscar quebrar o build às cegas
+numa varredura de segurança. Nenhum segredo commitado (`.env` fora do git,
+conferido `git log` completo por nome de arquivo).
+
+**Relatório de arquitetura entregue ao usuário** (e também no `README.md`,
+seção "Hospedagem e portabilidade"): todo o backend, banco e autenticação
+vivem no Supabase; o Netlify só serve os arquivos estáticos do build — sem
+Netlify Functions, Identity ou Forms — então trocar de hospedagem estática
+(Vercel, Cloudflare Pages, S3+CloudFront, etc.) não toca em nenhuma regra de
+negócio nem exige reescrever nada, só replicar build + variáveis de ambiente
++ 4 cabeçalhos HTTP + reescrita de rota pra SPA (checklist completo no
+README).
+
+**Verificação:** `npm run build`, `npm run test` (9/9) e
+`npm run check:contrast` (24/24) limpos. `npm run test:e2e` subiu de 120 para
+**140 testes** (nova suíte de CSP, 44 testes nos dois formatos — 22 rotas +
+1 tela com cor dinâmica, vezes 2). Migração `0023` aplicada em produção;
+`get_advisors` reconferido depois — o alerta crítico de RLS sumiu, sobrou só
+o aviso informativo esperado ("RLS ligada, sem policy" — proposital, é
+`service_role` que usa esta tabela) e o de senha vazada (ajuste de
+configuração no painel do Supabase, fora do alcance de uma migração SQL).
+Edge Functions `admin-users` e `integrations-sync` redeployadas (v2 cada).

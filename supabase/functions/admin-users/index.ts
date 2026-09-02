@@ -147,6 +147,19 @@ Deno.serve(async (req) => {
           .eq('email', email)
           .maybeSingle()
 
+        // E-mail já cadastrado: só a holding pode vincular uma conta que já
+        // existe a outra empresa (a pessoa pode já estar em outro lugar do
+        // grupo, ou ser o próprio super admin). Sem essa trava, um admin de
+        // UMA empresa poderia — só sabendo o e-mail — anexar qualquer conta
+        // existente (de outra empresa, ou até a de um super admin) ao seu
+        // próprio time com o papel que quisesse, e sobrescrever o perfil dela.
+        if (existing && !caller.is_super_admin) {
+          return json(
+            { error: 'Este e-mail já tem uma conta no sistema. Peça ao administrador da holding para vincular esta pessoa à sua empresa.' },
+            403,
+          )
+        }
+
         let userId = existing?.id as string | undefined
         let created = false
 

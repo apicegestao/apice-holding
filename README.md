@@ -284,6 +284,75 @@ Falta apenas ligar o site a este repositório, o que dá o deploy contínuo a ca
 push: **Project configuration → Build & deploy → Link repository → GitHub →
 `apicegestao/apice-holding`**, branch `main`.
 
+## Hospedagem e portabilidade — o que é Supabase, o que é Netlify
+
+**Toda a lógica e todo o dado do sistema moram no Supabase.** Banco (Postgres
+com RLS), autenticação, as 4 Edge Functions (`admin-users`, `admin-settings`,
+`ai-insights`, `integrations-sync`) e os agendamentos (pg_cron) — nada disso
+tem qualquer dependência do Netlify. **O Netlify só serve os arquivos
+estáticos** que o `npm run build` gera (`dist/`: HTML, CSS, JS) — o
+equivalente a um CDN na frente de uma pasta de arquivos. Nenhuma parte do
+sistema roda "dentro" do Netlify.
+
+Isso foi deliberado desde o início: `netlify.toml` usa só os três recursos
+mais genéricos que existem em hospedagem estática —
+
+```toml
+[build]                  # comando de build + pasta a publicar
+[[headers]]               # cabeçalhos HTTP fixos por caminho
+[[redirects]] from="/*"   # toda rota cai em index.html (o roteador é o React)
+```
+
+— e nada de específico do Netlify: sem Netlify Functions, sem Netlify
+Identity/auth, sem Netlify Forms, sem Edge Middleware. **Qualquer hospedagem
+de site estático com essas três capacidades (build a partir do Git, cabeçalho
+por caminho, reescrita de rota pra SPA) serve** — Vercel, Cloudflare Pages,
+GitHub Pages (com um pouco mais de configuração pro rewrite), S3+CloudFront,
+ou um Nginx próprio. A troca é só de onde os arquivos ficam hospedados; banco,
+login e toda a regra de negócio continuam exatamente onde estão, no Supabase.
+
+Uma camada de segurança inteira também não depende do host: o
+`Content-Security-Policy` vive como `<meta>` dentro do próprio `index.html`
+(não no `netlify.toml`) — viaja junto com os arquivos pra qualquer lugar que
+os sirva. Só três cabeçalhos (`X-Frame-Options`, `X-Content-Type-Options`,
+`Referrer-Policy`) e o `Cache-Control` de cada tipo de arquivo dependem de
+config do host, porque esses só existem como cabeçalho HTTP de verdade — não
+tem equivalente em `<meta>`. Ao trocar de host, replique este bloco (os
+valores exatos já estão em `netlify.toml`, é copiar):
+
+```toml
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-store, no-cache, must-revalidate"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+```
+
+**Checklist pra migrar de host** (o que precisa acontecer no host novo — nada
+disso toca no Supabase):
+1. Rodar `npm run build`, publicar a pasta `dist/`.
+2. Configurar `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` como variáveis de
+   ambiente do build (os mesmos valores de hoje — são públicos por natureza,
+   protegidos pelo RLS do banco, não é segredo trocar de lugar).
+3. Reescrever toda rota (`/*`) pra `index.html` — sem isso, atualizar a
+   página em qualquer tela que não seja a inicial dá 404 (o roteador é
+   client-side).
+4. Replicar o bloco de cabeçalhos HTTP acima.
+5. Apontar o domínio (`apice-holding.netlify.app` ou um domínio próprio) pro
+   host novo.
+
 ## Pendências conhecidas
 
 - **Proteção contra senha vazada** (HaveIBeenPwned) está desligada no Supabase
@@ -294,3 +363,15 @@ push: **Project configuration → Build & deploy → Link repository → GitHub 
   Holding → Configurações.
 - **Deploy contínuo**: o site do Netlify existe e está configurado, mas ainda
   não está ligado a este repositório (ver a seção de Deploy).
+- **react-router-dom em v6**: duas CVEs moderadas (redirecionamento aberto via
+  barra invertida, injeção via `deserializeErrors` em hidratação SSR) só têm
+  correção na v7 — uma major com mudanças de API. Conferido que nenhuma delas
+  se aplica aqui de verdade (o sistema nunca navega pra uma URL vinda de fora,
+  e não usa SSR), mas a migração pra v7 fica pra quando alguém puder testar
+  com calma, não numa varredura de segurança.
+- **vite/vitest em versões antigas**: `npm audit` acusa CVEs (uma crítica) nas
+  ferramentas de build e teste — todas exigem o **servidor de desenvolvimento**
+  ou a **UI do Vitest** estarem rodando e acessíveis, o que nunca acontece em
+  produção (o Netlify só serve o HTML/JS/CSS já compilado). Sem risco pro
+  sistema publicado; a atualização (major em ambos) fica pra uma rodada
+  dedicada só a isso.
