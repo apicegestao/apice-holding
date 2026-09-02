@@ -5,7 +5,7 @@ import { generateText, listModels, pickDefaultModel, type Provider } from './pro
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-sync-secret',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
@@ -309,11 +309,42 @@ async function holdingContext() {
   }
 }
 
+/**
+ * Acha o ']' que realmente fecha o '[' inicial, contando colchetes/chaves e
+ * ignorando os que aparecem dentro de strings. Antes isto pegava só o
+ * primeiro '[' e o ÚLTIMO ']' do texto inteiro — quebrava sempre que a IA
+ * devolvia um array vazio seguido de uma explicação em prosa que por acaso
+ * continha outro colchete mais adiante (bem comum quando a empresa tem
+ * pouquíssimo dado pra comentar).
+ */
+function matchingBracketEnd(text: string, start: number): number {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '[' || ch === '{') depth++
+    else if (ch === ']' || ch === '}') {
+      depth--
+      if (depth === 0) return i
+    }
+  }
+  return -1
+}
+
 function parseInsights(raw: string) {
   const cleaned = raw.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
   const start = cleaned.indexOf('[')
-  const end = cleaned.lastIndexOf(']')
-  if (start === -1 || end === -1) throw new Error('A IA não devolveu um JSON reconhecível.')
+  if (start === -1) throw new Error('A IA não devolveu um JSON reconhecível.')
+  const end = matchingBracketEnd(cleaned, start)
+  if (end === -1) throw new Error('A IA não devolveu um JSON reconhecível.')
 
   const parsed = JSON.parse(cleaned.slice(start, end + 1))
   if (!Array.isArray(parsed)) throw new Error('A IA não devolveu uma lista de insights.')
@@ -333,9 +364,6 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') return json({ error: 'Método não suportado' }, 405)
 
-  const caller = await getCaller(req)
-  if (!caller) return json({ error: 'Não autenticado' }, 401)
-
   let payload: Record<string, any>
   try {
     payload = await req.json()
@@ -343,19 +371,39 @@ Deno.serve(async (req) => {
     return json({ error: 'JSON inválido' }, 400)
   }
 
+  // Chamada agendada: pg_cron assina com o mesmo segredo que integrations-sync
+  // já usa (não tem usuário logado às 7h da manhã) — valida o segredo em vez
+  // de pedir Bearer token. Chamada manual (botão "Gerar Insights"): segue
+  // exigindo login e permissão, como sempre.
+  const providedSecret = req.headers.get('x-sync-secret')
+  const isDailyCron = Boolean(providedSecret)
+  let caller: { id: string; is_super_admin: boolean } | null = null
+
+  if (isDailyCron) {
+    const { data: expectedSecret } = await admin.rpc('get_system_setting', {
+      p_key: 'sync_shared_secret',
+    })
+    if (!expectedSecret || providedSecret !== expectedSecret) {
+      return json({ error: 'Assinatura inválida' }, 401)
+    }
+  } else {
+    caller = await getCaller(req)
+    if (!caller) return json({ error: 'Não autenticado' }, 401)
+  }
+
   const scope = payload.scope === 'holding' ? 'holding' : 'company'
   const companyId: string | null = payload.company_id ?? null
 
   if (scope === 'holding') {
-    if (!caller.is_super_admin) return json({ error: 'Apenas o admin da holding.' }, 403)
+    if (!isDailyCron && !caller!.is_super_admin) return json({ error: 'Apenas o admin da holding.' }, 403)
   } else {
     if (!companyId) return json({ error: 'company_id obrigatório' }, 400)
-    if (!caller.is_super_admin) {
+    if (!isDailyCron && !caller!.is_super_admin) {
       const { data: membership } = await admin
         .from('company_members')
         .select('role')
         .eq('company_id', companyId)
-        .eq('user_id', caller.id)
+        .eq('user_id', caller!.id)
         .maybeSingle()
       if (membership?.role !== 'admin') {
         return json({ error: 'Apenas administradores da empresa geram insights.' }, 403)
@@ -386,6 +434,16 @@ Deno.serve(async (req) => {
 
   const context = scope === 'holding' ? await holdingContext() : await companyContext(companyId!)
 
+  // No resumo automático de todo dia, além dos insights de sempre, pede pra
+  // IA nomear explicitamente o que precisa de atenção HOJE — vencimento de
+  // hoje, meta em risco — não só o padrão "3 a 6 insights do mais crítico".
+  const userMessage = isDailyCron
+    ? `Resumo automático de hoje (${new Date().toISOString().slice(0, 10)}). Além dos insights de sempre, ` +
+      `garanta que ao menos um insight liste as prioridades de HOJE especificamente — tarefa vencendo hoje ` +
+      `ou já vencida, meta em risco, KPI fora da meta que pede ação imediata.\n\n` +
+      `Retrato atual em JSON:\n\n${JSON.stringify(context, null, 2)}`
+    : `Retrato atual em JSON:\n\n${JSON.stringify(context, null, 2)}`
+
   let insights: ReturnType<typeof parseInsights>
   try {
     // Sem modelo escolhido, pergunta ao provedor o que existe hoje em vez de
@@ -397,13 +455,7 @@ Deno.serve(async (req) => {
       await admin.rpc('set_system_setting', { p_key: 'insights_model', p_value: model })
     }
 
-    const text = await generateText(
-      provider,
-      apiKey as string,
-      model,
-      SYSTEM_PROMPT,
-      `Retrato atual em JSON:\n\n${JSON.stringify(context, null, 2)}`,
-    )
+    const text = await generateText(provider, apiKey as string, model, SYSTEM_PROMPT, userMessage)
     insights = parseInsights(text)
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : 'Falha ao consultar a IA' }, 502)
@@ -419,12 +471,50 @@ Deno.serve(async (req) => {
     severity: item.severity,
     recommendation: item.recommendation,
     model,
-    generated_by: caller.id,
+    generated_by: caller?.id ?? null,
     payload: {},
   }))
 
   const { data: inserted, error } = await admin.from('insights').insert(rows).select()
   if (error) return json({ error: error.message }, 500)
+
+  // Gerado sozinho de madrugada — sem notificação ninguém saberia que
+  // chegou insight novo até abrir a tela por acaso.
+  if (isDailyCron && inserted?.length) {
+    const link = scope === 'holding' ? '/holding/insights' : `/empresa/${companyId}/insights`
+    let recipientIds: string[] = []
+    if (scope === 'holding') {
+      const { data: admins } = await admin
+        .from('profiles')
+        .select('id')
+        .eq('is_super_admin', true)
+        .eq('is_active', true)
+      recipientIds = (admins ?? []).map((row) => row.id)
+    } else {
+      const { data: members } = await admin
+        .from('company_members')
+        .select('user_id')
+        .eq('company_id', companyId!)
+        .eq('role', 'admin')
+      recipientIds = (members ?? []).map((row) => row.user_id)
+    }
+
+    if (recipientIds.length) {
+      await admin.from('notifications').insert(
+        recipientIds.map((userId) => ({
+          user_id: userId,
+          company_id: scope === 'holding' ? null : companyId,
+          kind: 'daily_insights',
+          title:
+            inserted.length === 1
+              ? 'Novo insight do dia'
+              : `${inserted.length} novos insights do dia`,
+          body: inserted[0].title,
+          link,
+        })),
+      )
+    }
+  }
 
   return json({ insights: inserted })
 })
