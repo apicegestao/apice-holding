@@ -36,7 +36,6 @@ import {
   TASK_PRIORITY_LABEL,
   TASK_STATUS_LABEL,
   type CompanySnapshot,
-  type Goal,
   type Insight,
   type KpiLatestValue,
   type Task,
@@ -50,7 +49,6 @@ export default function HoldingDashboard() {
   const chart = useChartTheme()
   const [snapshots, setSnapshots] = useState<CompanySnapshot[]>([])
   const [kpis, setKpis] = useState<KpiLatestValue[]>([])
-  const [goals, setGoals] = useState<Goal[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
   const [loading, setLoading] = useState(true)
@@ -59,10 +57,9 @@ export default function HoldingDashboard() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [snapshotResult, kpiResult, goalResult, taskResult, insightResult] = await Promise.all([
+    const [snapshotResult, kpiResult, taskResult, insightResult] = await Promise.all([
       supabase.rpc('company_snapshots'),
       supabase.from('kpi_latest_values').select('*'),
-      supabase.from('goals').select('*'),
       // A RLS já entrega só o que enxergo; aqui reduzo ao que é meu.
       supabase
         .from('tasks')
@@ -80,7 +77,6 @@ export default function HoldingDashboard() {
 
     setSnapshots((snapshotResult.data as CompanySnapshot[]) ?? [])
     setKpis((kpiResult.data as KpiLatestValue[]) ?? [])
-    setGoals((goalResult.data as Goal[]) ?? [])
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
     setLoading(false)
@@ -118,25 +114,33 @@ export default function HoldingDashboard() {
   )
 
   // ------------------------------------------------- metas x realizado
-  // Metas de empresas diferentes usam unidades diferentes, então somar reais
-  // com percentuais não diria nada. O que compara é o atingimento: quanto do
-  // alvo já foi entregue, com a linha de 100% como referência.
+  // Um KPI com prazo é a meta. Metas de empresas diferentes usam unidades
+  // diferentes, então somar reais com percentuais não diria nada — o que
+  // compara é o atingimento, com a linha de 100% como referência. Direção
+  // "menor é melhor" inverte a razão pro mesmo sentido de "acima é melhor".
   const attainment = useMemo(
     () =>
       operating
         .map((company) => {
-          const list = goals.filter(
-            (goal) =>
-              goal.company_id === company.company_id &&
-              goal.target_value !== null &&
-              Number(goal.target_value) !== 0 &&
-              !['missed'].includes(goal.status),
+          const list = kpis.filter(
+            (kpi) =>
+              kpi.company_id === company.company_id &&
+              kpi.due_date !== null &&
+              kpi.target_value !== null &&
+              Number(kpi.target_value) !== 0 &&
+              kpi.status !== 'missed',
           )
           if (!list.length) return null
 
-          const percentages = list.map((goal) =>
-            Math.max(0, (Number(goal.current_value) / Number(goal.target_value)) * 100),
-          )
+          const percentages = list.map((kpi) => {
+            const ratio =
+              kpi.direction === 'up'
+                ? Number(kpi.value) / Number(kpi.target_value)
+                : Number(kpi.value) > 0
+                  ? Number(kpi.target_value) / Number(kpi.value)
+                  : 3
+            return Math.max(0, Math.min(ratio, 3) * 100)
+          })
           const media = percentages.reduce((sum, value) => sum + value, 0) / percentages.length
 
           return {
@@ -148,7 +152,7 @@ export default function HoldingDashboard() {
           }
         })
         .filter((row): row is NonNullable<typeof row> => row !== null),
-    [operating, goals],
+    [operating, kpis],
   )
 
   // ------------------------------------------------- KPIs na meta por empresa
@@ -392,10 +396,12 @@ export default function HoldingDashboard() {
             actions={
               <button
                 type="button"
-                className="text-xs text-brand-text hover:underline"
+                className="btn-primary p-1.5"
                 onClick={() => setCreatingTask(true)}
+                aria-label="Nova tarefa"
+                title="Nova tarefa"
               >
-                nova tarefa
+                <Plus className="h-4 w-4" />
               </button>
             }
           >

@@ -1,9 +1,12 @@
 // Mapa mental: tela para tirar a ideia da cabeça. Nós arrastáveis, hierarquia
-// livre e um atalho para transformar qualquer nó em tarefa da empresa.
+// livre, organograma automático e um atalho para transformar qualquer nó em
+// tarefa da empresa.
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
   ClipboardList,
   Maximize2,
+  Network,
+  Pencil,
   Plus,
   Trash2,
   ZoomIn,
@@ -31,6 +34,52 @@ const PALETTE = ['#2E31B0', '#DE4C22', '#0EA5E9', '#10B981', '#F59E0B', '#8B5CF6
 
 type Transform = { x: number; y: number; scale: number }
 
+/** Organograma: raiz em cima, filhos embaixo, irmãos lado a lado sem
+ *  sobrepor. Largura de cada galho = soma da largura dos netos (se não tiver
+ *  filho, é a largura de um nó só) — clássico layout de árvore por camadas. */
+function layoutOrgChart(nodes: MindMapNode[]): Record<string, { x: number; y: number }> {
+  const HGAP = 32
+  const VGAP = 70
+  const SLOT = NODE_WIDTH + HGAP
+
+  const childrenOf = new Map<string | null, MindMapNode[]>()
+  for (const node of nodes) {
+    const list = childrenOf.get(node.parent_id) ?? []
+    list.push(node)
+    childrenOf.set(node.parent_id, list)
+  }
+
+  const widthCache = new Map<string, number>()
+  const subtreeWidth = (node: MindMapNode): number => {
+    const cached = widthCache.get(node.id)
+    if (cached !== undefined) return cached
+    const children = childrenOf.get(node.id) ?? []
+    const width = children.length
+      ? children.reduce((sum, child) => sum + subtreeWidth(child), 0)
+      : SLOT
+    widthCache.set(node.id, width)
+    return width
+  }
+
+  const positions: Record<string, { x: number; y: number }> = {}
+  const place = (node: MindMapNode, left: number, depth: number) => {
+    const width = subtreeWidth(node)
+    positions[node.id] = { x: left + width / 2 - NODE_WIDTH / 2, y: depth * (NODE_HEIGHT + VGAP) }
+    let cursor = left
+    for (const child of childrenOf.get(node.id) ?? []) {
+      place(child, cursor, depth + 1)
+      cursor += subtreeWidth(child)
+    }
+  }
+
+  let cursor = 0
+  for (const root of childrenOf.get(null) ?? []) {
+    place(root, cursor, 0)
+    cursor += subtreeWidth(root)
+  }
+  return positions
+}
+
 function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boolean }) {
   const { profile } = useAuth()
   const { notify } = useToast()
@@ -40,6 +89,7 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
   const [nodes, setNodes] = useState<MindMapNode[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   const [transform, setTransform] = useState<Transform>({ x: 80, y: 80, scale: 1 })
   const [creatingMap, setCreatingMap] = useState(false)
   const [newMapTitle, setNewMapTitle] = useState('')
@@ -277,6 +327,31 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
     })
   }, [nodes])
 
+  // Rearranja o mapa inteiro como organograma — raiz em cima, filhos embaixo
+  // — e salva as posições novas. Continua tudo arrastável depois.
+  const organizeAsOrgChart = async () => {
+    if (!nodes.length) return
+    const positions = layoutOrgChart(nodes)
+    const arranged = nodes.map((node) => ({ ...node, ...(positions[node.id] ?? {}) }))
+    setNodes(arranged)
+    setBusy(true)
+    const { error } = await Promise.all(
+      arranged.map((node) =>
+        supabase
+          .from('mind_map_nodes')
+          .update({ position_x: Math.round(node.position_x), position_y: Math.round(node.position_y) })
+          .eq('id', node.id),
+      ),
+    ).then((results) => results.find((r) => r.error) ?? { error: null })
+    setBusy(false)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    fitToContent(arranged)
+    notify('Mapa organizado como organograma.')
+  }
+
   // Ao abrir um mapa, enquadra o conteúdo uma vez — senão o usuário cai
   // num canto do canvas e acha que o mapa está vazio.
   useEffect(() => {
@@ -291,6 +366,8 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
     [nodes, selectedId],
   )
 
+  // Sempre da base do pai pro topo do filho — se ajusta sozinha a qualquer
+  // posição nova (arrastar, organograma, o que for), sem overlap com os nós.
   const edges = useMemo(
     () =>
       nodes
@@ -301,9 +378,9 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
           return {
             id: node.id,
             x1: parent.position_x + NODE_WIDTH / 2,
-            y1: parent.position_y + NODE_HEIGHT / 2,
+            y1: parent.position_y + NODE_HEIGHT,
             x2: node.position_x + NODE_WIDTH / 2,
-            y2: node.position_y + NODE_HEIGHT / 2,
+            y2: node.position_y,
             color: node.color,
           }
         })
@@ -390,11 +467,22 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
                   <Plus className="h-4 w-4" /> nó solto
                 </button>
               )}
+              {canWrite && nodes.length > 1 && (
+                <button
+                  type="button"
+                  className="btn-ghost px-2 py-1"
+                  disabled={busy}
+                  onClick={() => void organizeAsOrgChart()}
+                  title="Reorganiza o mapa como organograma, raiz em cima"
+                >
+                  <Network className="h-4 w-4" /> organograma
+                </button>
+              )}
             </div>
 
             {canWrite && (
               <p className="absolute bottom-3 left-3 z-10 hidden text-[11px] text-content-faint sm:block">
-                Arraste o fundo para mover · arraste um nó para reposicionar
+                Arraste o fundo para mover · toque + para ramificar · lápis edita o texto
               </p>
             )}
 
@@ -414,22 +502,32 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
                 }}
               >
                 <svg className="pointer-events-none absolute overflow-visible" width="1" height="1">
-                  {edges.map((edge) => (
-                    <path
-                      key={edge.id}
-                      d={`M ${edge.x1} ${edge.y1} C ${(edge.x1 + edge.x2) / 2} ${edge.y1}, ${(edge.x1 + edge.x2) / 2} ${edge.y2}, ${edge.x2} ${edge.y2}`}
-                      stroke={edge.color}
-                      strokeWidth={2}
-                      fill="none"
-                      opacity={0.45}
-                    />
-                  ))}
+                  {edges.map((edge) => {
+                    // Cotovelo reto (desce do pai, atravessa, desce no filho) —
+                    // se recalcula sozinho a cada posição nova, sem passar por
+                    // cima de nenhum nó no caminho.
+                    const midY = (edge.y1 + edge.y2) / 2
+                    return (
+                      <path
+                        key={edge.id}
+                        d={`M ${edge.x1} ${edge.y1} L ${edge.x1} ${midY} L ${edge.x2} ${midY} L ${edge.x2} ${edge.y2}`}
+                        stroke={edge.color}
+                        strokeWidth={2}
+                        fill="none"
+                        opacity={0.45}
+                      />
+                    )
+                  })}
                 </svg>
 
                 {nodes.map((node) => (
                   <div
                     key={node.id}
                     onPointerDown={(event) => onNodePointerDown(event, node)}
+                    onDoubleClick={(event) => {
+                      event.stopPropagation()
+                      if (canWrite) setEditingNodeId(node.id)
+                    }}
                     className={`absolute rounded-xl border-2 bg-surface px-3 py-2 shadow-card transition-shadow ${
                       selectedId === node.id ? 'ring-2 ring-offset-2' : ''
                     } ${canWrite ? 'cursor-move' : 'cursor-default'}`}
@@ -441,9 +539,64 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
                       borderColor: node.color,
                     }}
                   >
-                    <p className="text-sm font-medium leading-snug text-content">{node.label}</p>
-                    {node.notes && (
+                    {editingNodeId === node.id ? (
+                      <input
+                        autoFocus
+                        className="w-full rounded border border-line-strong bg-elevated px-1.5 py-1 text-sm text-content"
+                        value={node.label}
+                        onFocus={(event) => event.currentTarget.select()}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onChange={(event) => {
+                          const label = event.target.value
+                          setNodes((current) =>
+                            current.map((item) => (item.id === node.id ? { ...item, label } : item)),
+                          )
+                        }}
+                        onBlur={(event) => {
+                          void patchNode(node.id, { label: event.target.value.trim() || 'Sem título' })
+                          setEditingNodeId(null)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+                          if (event.key === 'Escape') setEditingNodeId(null)
+                        }}
+                      />
+                    ) : (
+                      <p className="text-sm font-medium leading-snug text-content">{node.label}</p>
+                    )}
+                    {node.notes && editingNodeId !== node.id && (
                       <p className="mt-0.5 line-clamp-2 text-[11px] text-content-soft">{node.notes}</p>
+                    )}
+
+                    {canWrite && editingNodeId !== node.id && (
+                      <>
+                        <button
+                          type="button"
+                          className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full border border-line bg-elevated text-content-soft shadow-sm hover:text-content"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setEditingNodeId(node.id)
+                          }}
+                          aria-label="Editar texto do nó"
+                          title="Editar texto"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          className="absolute -bottom-2.5 left-1/2 grid h-5 w-5 -translate-x-1/2 place-items-center rounded-full border border-line bg-elevated text-content-soft shadow-sm hover:text-content"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void addNode(node)
+                          }}
+                          aria-label="Adicionar nó a partir deste"
+                          title="Ramificar a partir daqui"
+                        >
+                          <Plus className="h-3 w-3" />
+                        </button>
+                      </>
                     )}
                   </div>
                 ))}

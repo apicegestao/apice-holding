@@ -89,12 +89,14 @@ src/
   modules/
     companies/         cadastro das empresas e os dados de cada uma
     dashboard/         painel da empresa e painel consolidado da holding
-    kpis/              KPIs, lançamento por período e histórico. O "Novo KPI"
-                       abre em sugestões prontas (várias de uma vez) e mantém
-                       a aba de criar um indicador próprio
-    goals/             metas, com ligação opcional a um KPI
+    kpis/              KPIs e metas — a mesma coisa. O "Novo KPI" abre em
+                       sugestões prontas (várias de uma vez) e mantém a aba de
+                       criar um indicador próprio; com prazo, o próprio KPI
+                       vira a meta (responsável notificado, andamento,
+                       repartição do alvo por semana)
     tasks/             tarefas: quem, o quê, prazo e lembrete
-    mindmap/           mapa mental arrastável; nó vira tarefa
+    mindmap/           mapa mental arrastável, com organograma automático;
+                       nó vira tarefa e edita o texto nele mesmo
     integrations/      conectores REST e mapeamento campo → KPI
     insights/          insights gerados por IA
     users/             acessos por empresa e do grupo
@@ -136,6 +138,14 @@ quebra quando um modelo é lançado ou aposentado.
 O código dos provedores mora em `supabase/functions/_shared/providers.ts`.
 Cada Edge Function é publicada sozinha, então rode `npm run sync:functions`
 depois de editar esse arquivo — ele copia para dentro de cada função.
+
+**O retrato que a IA recebe é o sistema inteiro, não só KPIs.** Em
+`supabase/functions/ai-insights/index.ts`, `MODULE_READERS` é a lista de
+leitores — um por módulo (KPIs/metas, tarefas, mapa mental, integrações) —
+que juntos montam o contexto de uma empresa numa chamada só, para a IA poder
+cruzar sinais entre módulos (uma integração parada, o KPI que ela alimenta
+sem lançamento, a tarefa atrasada que resolveria isso). Um módulo novo no
+sistema ganha um leitor novo nessa lista — é o único lugar que precisa mudar.
 
 ## Temas
 

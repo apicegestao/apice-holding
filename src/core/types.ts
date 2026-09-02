@@ -88,6 +88,24 @@ export type Kpi = {
   display_order: number
   is_active: boolean
   created_at: string
+  // KPI e meta são a mesma coisa agora: um indicador com prazo tem, nele
+  // mesmo, quando entregar, quem responde e como está indo. Sem prazo, é só
+  // um número acompanhado — o que a maioria dos KPIs continua sendo.
+  due_date: string | null
+  owner_id: string | null
+  status: GoalStatus
+}
+
+/** Uma parcela semanal do alvo de um KPI com prazo — "essa semana precisa
+ *  de X" em vez de só o número final. Opcional; gerada sob pedido. */
+export type KpiCheckpoint = {
+  id: string
+  kpi_id: string
+  company_id: string
+  seq: number
+  period_start: string
+  period_end: string
+  target_value: number
 }
 
 export type KpiValue = {
@@ -103,6 +121,8 @@ export type KpiValue = {
   created_at: string
 }
 
+// Status de um KPI que também é meta (tem due_date). Um KPI sem prazo não
+// usa este campo pra nada — fica em 'active' por padrão e ninguém olha.
 export type GoalStatus = 'planned' | 'active' | 'at_risk' | 'achieved' | 'missed'
 
 export const GOAL_STATUS_LABEL: Record<GoalStatus, string> = {
@@ -111,22 +131,6 @@ export const GOAL_STATUS_LABEL: Record<GoalStatus, string> = {
   at_risk: 'Em risco',
   achieved: 'Atingida',
   missed: 'Não atingida',
-}
-
-export type Goal = {
-  id: string
-  company_id: string
-  kpi_id: string | null
-  title: string
-  description: string | null
-  target_value: number | null
-  current_value: number
-  unit: KpiUnit
-  start_date: string
-  due_date: string | null
-  status: GoalStatus
-  owner_id: string | null
-  created_at: string
 }
 
 export type TaskStatus = 'todo' | 'doing' | 'blocked' | 'done' | 'canceled'
@@ -175,7 +179,7 @@ export type Task = {
   visibility: TaskVisibility
   tags: string[]
   mind_map_node_id: string | null
-  goal_id: string | null
+  kpi_id: string | null
   completed_at: string | null
   created_at: string
   updated_at: string
@@ -325,4 +329,7 @@ export type KpiLatestValue = {
   direction: KpiDirection
   frequency: KpiFrequency
   category: string | null
+  due_date: string | null
+  owner_id: string | null
+  status: GoalStatus
 }

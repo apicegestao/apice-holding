@@ -11,7 +11,6 @@ import CompanyDashboard from '../modules/dashboard/CompanyDashboard'
 import CompaniesPage from '../modules/companies/CompaniesPage'
 import CompanySettingsPage from '../modules/companies/CompanySettingsPage'
 import KpisPage from '../modules/kpis/KpisPage'
-import GoalsPage from '../modules/goals/GoalsPage'
 import TasksPage from '../modules/tasks/TasksPage'
 import MindMapPage from '../modules/mindmap/MindMapPage'
 import IntegrationsPage from '../modules/integrations/IntegrationsPage'
@@ -153,7 +152,10 @@ export default function App() {
         <Route path="/empresa/:companyId" element={<CompanyProvider />}>
           <Route index element={<CompanyDashboard />} />
           <Route path="kpis" element={<KpisPage />} />
-          <Route path="metas" element={<GoalsPage />} />
+          {/* /metas foi absorvida pelos KPIs — todo indicador com prazo já é
+              uma meta. Link antigo (favorito, notificação já entregue) ainda
+              cai num lugar de verdade em vez de dar 404. */}
+          <Route path="metas" element={<Navigate to="../kpis" replace />} />
           <Route path="tarefas" element={<TasksPage />} />
           <Route path="mapa-mental" element={<MindMapPage />} />
           <Route path="integracoes" element={<IntegrationsPage />} />

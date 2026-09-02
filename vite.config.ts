@@ -7,6 +7,12 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
+  test: {
+    // e2e/ é suíte do Playwright (roda com `npm run test:e2e`), não do
+    // Vitest — sem isso os dois disputam o mesmo *.spec.ts e o Vitest quebra
+    // com "duas versões de @playwright/test".
+    exclude: ['e2e/**', 'node_modules/**'],
+  },
   build: {
     outDir: 'dist',
     sourcemap: false,

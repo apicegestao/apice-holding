@@ -22,10 +22,11 @@ import {
   GOAL_STATUS_LABEL,
   TASK_PRIORITY_LABEL,
   TASK_STATUS_LABEL,
-  type Goal,
+  type GoalStatus,
   type Insight,
   type Kpi,
   type KpiLatestValue,
+  type Profile,
   type Task,
   type TaskStatus,
 } from '../../core/types'
@@ -41,7 +42,8 @@ const TASK_STATUS_COLOR: Record<TaskStatus, string> = {
 }
 
 /** Um KPI ativo, com o último valor lançado quando existir. Sem lançamento
- *  ainda é um KPI de verdade — ele não deve desaparecer do painel por isso. */
+ *  ainda é um KPI de verdade — ele não deve desaparecer do painel por isso.
+ *  Quando tem due_date, é também a meta: mesma linha, sem cadastro duplicado. */
 type KpiRow = {
   kpi_id: string
   name: string
@@ -51,6 +53,9 @@ type KpiRow = {
   target_value: number | null
   value: number | null
   period_start: string | null
+  due_date: string | null
+  owner_id: string | null
+  status: GoalStatus
 }
 
 function StatTile({
@@ -89,14 +94,14 @@ export default function CompanyDashboard() {
   const chart = useChartTheme()
   const [kpiDefs, setKpiDefs] = useState<Kpi[]>([])
   const [kpiValues, setKpiValues] = useState<KpiLatestValue[]>([])
-  const [goals, setGoals] = useState<Goal[]>([])
+  const [people, setPeople] = useState<Profile[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [kpiDefResult, kpiValueResult, goalResult, taskResult, insightResult] = await Promise.all([
+    const [kpiDefResult, kpiValueResult, memberResult, taskResult, insightResult] = await Promise.all([
       supabase
         .from('kpis')
         .select('*')
@@ -104,13 +109,7 @@ export default function CompanyDashboard() {
         .eq('is_active', true)
         .order('display_order'),
       supabase.from('kpi_latest_values').select('*').eq('company_id', company.id),
-      supabase
-        .from('goals')
-        .select('*')
-        .eq('company_id', company.id)
-        .in('status', ['planned', 'active', 'at_risk'])
-        .order('due_date', { ascending: true })
-        .limit(6),
+      supabase.from('company_members').select('user_id').eq('company_id', company.id),
       supabase.from('tasks').select('*').eq('company_id', company.id),
       isAdmin
         ? supabase
@@ -123,9 +122,14 @@ export default function CompanyDashboard() {
         : Promise.resolve({ data: [] as Insight[] }),
     ])
 
+    const memberIds = (memberResult.data ?? []).map((row) => row.user_id)
+    const { data: profileRows } = memberIds.length
+      ? await supabase.from('profiles').select('*').in('id', memberIds)
+      : { data: [] as Profile[] }
+
     setKpiDefs((kpiDefResult.data as Kpi[]) ?? [])
     setKpiValues((kpiValueResult.data as KpiLatestValue[]) ?? [])
-    setGoals((goalResult.data as Goal[]) ?? [])
+    setPeople((profileRows as Profile[]) ?? [])
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
     setLoading(false)
@@ -150,10 +154,25 @@ export default function CompanyDashboard() {
           target_value: latest?.target_value ?? def.target_value,
           value: latest ? Number(latest.value) : null,
           period_start: latest?.period_start ?? null,
+          due_date: def.due_date,
+          owner_id: def.owner_id,
+          status: def.status,
         }
       }),
     [kpiDefs, kpiValues],
   )
+
+  // Um KPI com prazo é também uma meta — mesma linha, sem cadastro à parte.
+  const metas = useMemo(
+    () =>
+      kpiRows
+        .filter((row) => row.due_date !== null && !['achieved', 'missed'].includes(row.status))
+        .sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1))
+        .slice(0, 6),
+    [kpiRows],
+  )
+  const ownerName = (id: string | null) =>
+    id ? (people.find((person) => person.id === id)?.full_name ?? '—') : 'Sem responsável'
 
   const stats = useMemo(() => {
     const open = tasks.filter((task) => ['todo', 'doing', 'blocked'].includes(task.status))
@@ -242,9 +261,9 @@ export default function CompanyDashboard() {
         />
         <StatTile
           label="Metas em aberto"
-          value={goals.length}
-          hint={`${goals.filter((goal) => goal.status === 'at_risk').length} em risco`}
-          tone={goals.some((goal) => goal.status === 'at_risk') ? 'amber' : 'slate'}
+          value={metas.length}
+          hint={`${metas.filter((meta) => meta.status === 'at_risk').length} em risco`}
+          tone={metas.some((meta) => meta.status === 'at_risk') ? 'amber' : 'slate'}
           icon={Target}
         />
         <StatTile
@@ -355,32 +374,36 @@ export default function CompanyDashboard() {
 
           <Card
             title="Metas"
+            description="KPIs com prazo — a meta é o próprio indicador."
             actions={
               <Link
-                to={`/empresa/${company.id}/metas`}
+                to={`/empresa/${company.id}/kpis`}
                 className="text-xs text-brand-text hover:underline"
               >
-                ver metas
+                ver KPIs
               </Link>
             }
           >
-            {goals.length === 0 ? (
+            {metas.length === 0 ? (
               <p className="text-sm text-content-soft">Nenhuma meta em aberto.</p>
             ) : (
               <ul className="space-y-3">
-                {goals.map((goal) => {
+                {metas.map((meta) => {
                   const progress =
-                    goal.target_value && Number(goal.target_value) !== 0
-                      ? Math.min(100, Math.round((Number(goal.current_value) / Number(goal.target_value)) * 100))
+                    meta.target_value && meta.value !== null && Number(meta.target_value) !== 0
+                      ? Math.min(100, Math.round((meta.value / Number(meta.target_value)) * 100))
                       : null
                   return (
-                    <li key={goal.id}>
+                    <li key={meta.kpi_id}>
                       <div className="flex items-center justify-between gap-2 text-sm">
-                        <span className="min-w-0 truncate">{goal.title}</span>
-                        <Badge tone={goal.status === 'at_risk' ? 'amber' : 'slate'}>
-                          {GOAL_STATUS_LABEL[goal.status]}
+                        <span className="min-w-0 truncate">{meta.name}</span>
+                        <Badge tone={meta.status === 'at_risk' ? 'amber' : 'slate'}>
+                          {GOAL_STATUS_LABEL[meta.status]}
                         </Badge>
                       </div>
+                      <p className="mt-0.5 text-xs text-content-faint">
+                        {ownerName(meta.owner_id)} · prazo {relativeDays(meta.due_date)}
+                      </p>
                       {progress !== null && (
                         <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-hover">
                           <div

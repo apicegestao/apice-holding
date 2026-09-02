@@ -10,7 +10,6 @@ import {
   ClipboardList,
   Gauge,
   LayoutGrid,
-  ListChecks,
   LogOut,
   Network,
   ScrollText,
@@ -96,8 +95,7 @@ export default function AppLayout() {
     const base = `/empresa/${companyId}`
     const items: NavItem[] = [
       { to: base, label: 'Painel', icon: Gauge, end: true },
-      { to: `${base}/kpis`, label: 'KPIs', icon: ListChecks },
-      { to: `${base}/metas`, label: 'Metas', icon: Target },
+      { to: `${base}/kpis`, label: 'KPIs e metas', icon: Target },
       { to: `${base}/tarefas`, label: 'Tarefas', icon: ClipboardList },
       { to: `${base}/mapa-mental`, label: 'Mapa mental', icon: Network },
       { to: `${base}/equipe`, label: 'Equipe', icon: Users },

@@ -1,8 +1,10 @@
-// KPIs da empresa: cadastro, lançamento por período e histórico.
+// KPIs e metas da empresa — a mesma coisa: cadastro, lançamento por período,
+// histórico e, quando o indicador tem prazo, quem responde e como está indo.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   ArrowDownRight,
   ArrowUpRight,
+  CalendarRange,
   History,
   Pencil,
   Plus,
@@ -20,7 +22,7 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
-import { formatValue, isOnTarget, labelPeriod, periodBounds } from '../../core/lib/format'
+import { formatDate, formatValue, isOnTarget, labelPeriod, periodBounds, relativeDays } from '../../core/lib/format'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
 import {
@@ -41,16 +43,28 @@ import { KPI_CATEGORIES, type KpiTemplate } from '../../core/catalog'
 import KpiSuggestions from './KpiSuggestions'
 import {
   FREQUENCY_LABEL,
+  GOAL_STATUS_LABEL,
   UNIT_LABEL,
+  type GoalStatus,
   type Kpi,
+  type KpiCheckpoint,
   type KpiDirection,
   type KpiFrequency,
   type KpiUnit,
   type KpiValue,
+  type Profile,
 } from '../../core/types'
 
 const UNITS: KpiUnit[] = ['currency', 'percent', 'number', 'days', 'ratio']
 const FREQUENCIES: KpiFrequency[] = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
+const STATUSES: GoalStatus[] = ['planned', 'active', 'at_risk', 'achieved', 'missed']
+
+function statusTone(status: GoalStatus) {
+  if (status === 'achieved') return 'green'
+  if (status === 'at_risk') return 'amber'
+  if (status === 'missed') return 'red'
+  return 'slate'
+}
 
 const emptyKpi = {
   name: '',
@@ -61,6 +75,9 @@ const emptyKpi = {
   frequency: 'monthly' as KpiFrequency,
   target_value: null as number | null,
   is_active: true,
+  due_date: '',
+  owner_id: '',
+  status: 'active' as GoalStatus,
 }
 
 export default function KpisPage() {
@@ -70,6 +87,8 @@ export default function KpisPage() {
 
   const [kpis, setKpis] = useState<Kpi[]>([])
   const [values, setValues] = useState<KpiValue[]>([])
+  const [people, setPeople] = useState<Profile[]>([])
+  const [checkpoints, setCheckpoints] = useState<KpiCheckpoint[]>([])
   const [loading, setLoading] = useState(true)
 
   const [kpiForm, setKpiForm] = useState(emptyKpi)
@@ -85,24 +104,35 @@ export default function KpisPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data: kpiRows } = await supabase
-      .from('kpis')
-      .select('*')
-      .eq('company_id', company.id)
-      .order('display_order')
-      .order('name')
+    const [{ data: kpiRows }, { data: memberRows }] = await Promise.all([
+      supabase
+        .from('kpis')
+        .select('*')
+        .eq('company_id', company.id)
+        .order('display_order')
+        .order('name'),
+      supabase.from('company_members').select('user_id').eq('company_id', company.id),
+    ])
 
     const ids = (kpiRows ?? []).map((row) => row.id)
-    const { data: valueRows } = ids.length
-      ? await supabase
-          .from('kpi_values')
-          .select('*')
-          .in('kpi_id', ids)
-          .order('period_start', { ascending: true })
-      : { data: [] as KpiValue[] }
+    const [{ data: valueRows }, { data: checkpointRows }] = await Promise.all([
+      ids.length
+        ? supabase.from('kpi_values').select('*').in('kpi_id', ids).order('period_start', { ascending: true })
+        : Promise.resolve({ data: [] as KpiValue[] }),
+      ids.length
+        ? supabase.from('kpi_checkpoints').select('*').in('kpi_id', ids).order('seq', { ascending: true })
+        : Promise.resolve({ data: [] as KpiCheckpoint[] }),
+    ])
+
+    const memberIds = (memberRows ?? []).map((row) => row.user_id)
+    const { data: profileRows } = memberIds.length
+      ? await supabase.from('profiles').select('*').in('id', memberIds)
+      : { data: [] as Profile[] }
 
     setKpis((kpiRows as Kpi[]) ?? [])
     setValues((valueRows as KpiValue[]) ?? [])
+    setCheckpoints((checkpointRows as KpiCheckpoint[]) ?? [])
+    setPeople((profileRows as Profile[]) ?? [])
     setLoading(false)
   }, [company.id])
 
@@ -185,6 +215,9 @@ export default function KpisPage() {
       frequency: kpi.frequency,
       target_value: kpi.target_value,
       is_active: kpi.is_active,
+      due_date: kpi.due_date ?? '',
+      owner_id: kpi.owner_id ?? '',
+      status: kpi.status,
     })
     setError('')
     setEditingKpi(kpi)
@@ -204,6 +237,9 @@ export default function KpisPage() {
       frequency: kpiForm.frequency,
       target_value: kpiForm.target_value,
       is_active: kpiForm.is_active,
+      due_date: kpiForm.due_date || null,
+      owner_id: kpiForm.owner_id || null,
+      status: kpiForm.status,
     }
 
     if (!payload.name) {
@@ -246,11 +282,24 @@ export default function KpisPage() {
     await load()
   }
 
+  const ownerName = (id: string | null) =>
+    id ? (people.find((person) => person.id === id)?.full_name ?? '—') : null
+
+  const checkpointsByKpi = useMemo(() => {
+    const map = new Map<string, KpiCheckpoint[]>()
+    for (const checkpoint of checkpoints) {
+      const list = map.get(checkpoint.kpi_id) ?? []
+      list.push(checkpoint)
+      map.set(checkpoint.kpi_id, list)
+    }
+    return map
+  }, [checkpoints])
+
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
-        title={`KPIs · ${company.name}`}
-        subtitle="Indicadores desta empresa. Todos entram no painel consolidado da holding."
+        title={`KPIs e metas · ${company.name}`}
+        subtitle="Indicadores desta empresa. Um KPI com prazo já é a meta — com responsável e andamento."
         actions={
           canWrite && (
             <button type="button" className="btn-primary" onClick={openCreate}>
@@ -403,6 +452,39 @@ export default function KpisPage() {
                         />
                       </LineChart>
                     </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* KPI com prazo é também a meta: mostra quem responde, até
+                    quando e o andamento — sem precisar de outra tela. */}
+                {kpi.due_date && (
+                  <div className="mt-4 border-t border-line pt-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-content-soft">
+                        {ownerName(kpi.owner_id) ?? 'Sem responsável'} · prazo {formatDate(kpi.due_date)}
+                        {' '}({relativeDays(kpi.due_date)})
+                      </p>
+                      <Badge tone={statusTone(kpi.status)}>{GOAL_STATUS_LABEL[kpi.status]}</Badge>
+                    </div>
+                    {kpi.target_value !== null && (
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-hover">
+                        <div
+                          className={`h-full rounded-full ${onTarget ? 'bg-emerald-500' : 'bg-brand/100'}`}
+                          style={{
+                            width: `${
+                              latest
+                                ? Math.max(0, Math.min(100, Math.round((Number(latest.value) / kpi.target_value) * 100)))
+                                : 0
+                            }%`,
+                          }}
+                        />
+                      </div>
+                    )}
+                    {(checkpointsByKpi.get(kpi.id)?.length ?? 0) > 0 && (
+                      <p className="mt-1.5 text-[11px] text-content-faint">
+                        {checkpointsByKpi.get(kpi.id)!.length} parcela(s) semanal(is) — ver em Histórico
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -570,6 +652,50 @@ export default function KpisPage() {
               />
             </Field>
           </div>
+
+          <div className="rounded-lg border border-dashed border-line-strong p-3">
+            <p className="mb-3 text-xs font-medium uppercase tracking-wide text-content-soft">
+              Vira meta quando tem prazo — opcional
+            </p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <Field label="Prazo" hint="Em branco, fica só um indicador de acompanhamento.">
+                <input
+                  className="input"
+                  type="date"
+                  value={kpiForm.due_date}
+                  onChange={(event) => setKpiForm((c) => ({ ...c, due_date: event.target.value }))}
+                />
+              </Field>
+              <Field label="Responsável" hint="Notificado quando você define ou troca.">
+                <select
+                  className="input"
+                  value={kpiForm.owner_id}
+                  onChange={(event) => setKpiForm((c) => ({ ...c, owner_id: event.target.value }))}
+                >
+                  <option value="">Sem responsável</option>
+                  {people.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.full_name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Andamento">
+                <select
+                  className="input"
+                  value={kpiForm.status}
+                  onChange={(event) => setKpiForm((c) => ({ ...c, status: event.target.value as GoalStatus }))}
+                >
+                  {STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {GOAL_STATUS_LABEL[status]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+          </div>
+
           <Field label="Descrição">
             <textarea
               className="input min-h-16"
@@ -610,6 +736,7 @@ export default function KpisPage() {
         <HistoryModal
           kpi={historyFor}
           series={seriesByKpi.get(historyFor.id) ?? []}
+          checkpoints={checkpointsByKpi.get(historyFor.id) ?? []}
           canWrite={canWrite}
           onClose={() => setHistoryFor(null)}
           onChanged={load}
@@ -760,22 +887,26 @@ function ValueEntryModal({
 function HistoryModal({
   kpi,
   series,
+  checkpoints,
   canWrite,
   onClose,
   onChanged,
 }: {
   kpi: Kpi
   series: KpiValue[]
+  checkpoints: KpiCheckpoint[]
   canWrite: boolean
   onClose: () => void
   onChanged: () => Promise<void>
 }) {
   const { notify } = useToast()
   const chart = useChartTheme()
+  const [busy, setBusy] = useState(false)
   const chartData = series.map((item) => ({
     label: labelPeriod(item.period_start, kpi.frequency),
     value: Number(item.value),
   }))
+  const latestValue = series.length ? Number(series[series.length - 1].value) : null
 
   const removeValue = async (id: string) => {
     const { error } = await supabase.from('kpi_values').delete().eq('id', id)
@@ -787,8 +918,123 @@ function HistoryModal({
     await onChanged()
   }
 
+  // Divide o alvo final numa meta acumulada por semana — semana 1 pede uma
+  // fatia do total, a última semana pede o total inteiro. Refazer substitui
+  // a divisão anterior inteira, não soma em cima.
+  const repartirPorSemana = async () => {
+    if (!kpi.due_date || kpi.target_value === null) return
+    const start = new Date()
+    const end = new Date(`${kpi.due_date}T00:00:00`)
+    const weeks = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (7 * 24 * 3600 * 1000)))
+    const rows = Array.from({ length: weeks }, (_, i) => {
+      const periodStart = new Date(start.getTime() + i * 7 * 24 * 3600 * 1000)
+      const periodEnd = new Date(Math.min(periodStart.getTime() + 6 * 24 * 3600 * 1000, end.getTime()))
+      return {
+        kpi_id: kpi.id,
+        company_id: kpi.company_id,
+        seq: i + 1,
+        period_start: periodStart.toISOString().slice(0, 10),
+        period_end: periodEnd.toISOString().slice(0, 10),
+        target_value: Math.round((kpi.target_value! * ((i + 1) / weeks)) * 100) / 100,
+      }
+    })
+
+    setBusy(true)
+    await supabase.from('kpi_checkpoints').delete().eq('kpi_id', kpi.id)
+    const { error } = await supabase.from('kpi_checkpoints').insert(rows)
+    setBusy(false)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify(`Meta repartida em ${weeks} semana(s).`)
+    await onChanged()
+  }
+
+  const limparRepartição = async () => {
+    setBusy(true)
+    const { error } = await supabase.from('kpi_checkpoints').delete().eq('kpi_id', kpi.id)
+    setBusy(false)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify('Divisão semanal removida.')
+    await onChanged()
+  }
+
+  const updateCheckpoint = async (id: string, target_value: number | null) => {
+    if (target_value === null) return
+    const { error } = await supabase.from('kpi_checkpoints').update({ target_value }).eq('id', id)
+    if (error) notify(error.message, 'error')
+    else await onChanged()
+  }
+
   return (
     <Modal open title={`Histórico · ${kpi.name}`} onClose={onClose} width="max-w-2xl">
+      {kpi.due_date && (
+        <div className="mb-5 rounded-lg border border-line p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-content">
+              <CalendarRange className="h-4 w-4 text-content-faint" /> Meta por semana
+            </p>
+            {canWrite && kpi.target_value !== null && (
+              <div className="flex gap-2">
+                <button type="button" className="btn-ghost py-1 text-xs" disabled={busy} onClick={() => void repartirPorSemana()}>
+                  {checkpoints.length ? 'Refazer divisão' : 'Repartir por semana'}
+                </button>
+                {checkpoints.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-rose-600 hover:underline dark:text-rose-400"
+                    disabled={busy}
+                    onClick={() => void limparRepartição()}
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {kpi.target_value === null ? (
+            <p className="mt-2 text-xs text-content-soft">Defina uma meta (alvo) para poder repartir por semana.</p>
+          ) : checkpoints.length === 0 ? (
+            <p className="mt-2 text-xs text-content-soft">
+              Sem divisão ainda — cada semana pede uma fatia acumulada do alvo final.
+            </p>
+          ) : (
+            <ul className="mt-3 space-y-1.5">
+              {checkpoints.map((checkpoint) => {
+                const reached =
+                  latestValue !== null &&
+                  (kpi.direction === 'up'
+                    ? latestValue >= checkpoint.target_value
+                    : latestValue <= checkpoint.target_value)
+                return (
+                  <li key={checkpoint.id} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="text-content-soft">
+                      Semana {checkpoint.seq} · {formatDate(checkpoint.period_start)}–{formatDate(checkpoint.period_end)}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      {canWrite ? (
+                        <NumberInput
+                          unit={kpi.unit}
+                          value={checkpoint.target_value}
+                          onChange={(value) => void updateCheckpoint(checkpoint.id, value)}
+                        />
+                      ) : (
+                        <span className="font-medium">{formatValue(checkpoint.target_value, kpi.unit)}</span>
+                      )}
+                      <Badge tone={reached ? 'green' : 'slate'}>{reached ? 'em dia' : 'a caminho'}</Badge>
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
       {series.length === 0 ? (
         <EmptyState title="Sem lançamentos" description="Registre o primeiro valor deste KPI." />
       ) : (

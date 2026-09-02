@@ -120,6 +120,9 @@ const KPIS = [
     created_by: USER_ID,
     created_at: '2026-09-02T00:13:52Z',
     updated_at: '2026-09-02T00:13:52Z',
+    due_date: null,
+    owner_id: null,
+    status: 'active',
   },
   {
     id: KPI_WITH,
@@ -138,6 +141,10 @@ const KPIS = [
     created_by: USER_ID,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    // KPI com prazo = também é a meta (KPIs e Metas foram unificados).
+    due_date: '2026-12-31',
+    owner_id: USER_ID,
+    status: 'active',
   },
   ...KPI_EXTRA.map((id, i) => ({
     id,
@@ -156,6 +163,9 @@ const KPIS = [
     created_by: USER_ID,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    due_date: null,
+    owner_id: null,
+    status: 'active',
   })),
 ]
 const LATEST = [
@@ -171,6 +181,9 @@ const LATEST = [
     direction: 'up',
     frequency: 'monthly',
     category: 'Financeiro',
+    due_date: '2026-12-31',
+    owner_id: USER_ID,
+    status: 'active',
   },
   ...KPI_EXTRA.map((id, i) => ({
     kpi_id: id,
@@ -184,6 +197,9 @@ const LATEST = [
     direction: i === 1 ? 'down' : 'up',
     frequency: 'monthly',
     category: 'Comercial',
+    due_date: null as string | null,
+    owner_id: null as string | null,
+    status: 'active',
   })),
 ]
 const KPI_VALUES = LATEST.map((l) => ({
@@ -212,7 +228,7 @@ const TASKS = [
     visibility: 'company',
     tags: ['financeiro', 'urgente'],
     mind_map_node_id: null,
-    goal_id: null,
+    kpi_id: null,
     completed_at: null,
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
@@ -232,7 +248,7 @@ const TASKS = [
     visibility: 'private',
     tags: [],
     mind_map_node_id: null,
-    goal_id: null,
+    kpi_id: null,
     completed_at: null,
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
@@ -252,30 +268,10 @@ const TASKS = [
     visibility: 'company',
     tags: [],
     mind_map_node_id: null,
-    goal_id: null,
+    kpi_id: null,
     completed_at: '2026-08-15T00:00:00Z',
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-15T00:00:00Z',
-  },
-]
-
-const GOALS = [
-  {
-    id: 'g1',
-    company_id: COMPANY_ID_2,
-    kpi_id: KPI_WITH,
-    title: 'Faturar R$ 500 mil por mês',
-    description: null,
-    target_value: 500000,
-    current_value: 460000,
-    unit: 'currency',
-    start_date: '2026-01-01',
-    due_date: '2026-12-31',
-    status: 'active',
-    owner_id: USER_ID,
-    created_by: USER_ID,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
   },
 ]
 
@@ -388,7 +384,7 @@ const TABLES: Record<string, unknown[]> = {
   kpi_latest_values: LATEST,
   tasks: TASKS,
   task_shares: [],
-  goals: GOALS,
+  kpi_checkpoints: [],
   mind_maps: MAPS,
   mind_map_nodes: NODES,
   integrations: [],
@@ -448,8 +444,10 @@ export const ROUTES: [string, string][] = [
   ['/holding/configuracoes', 'Configurações'],
   [`/empresa/${COMPANY_ID}`, 'Painel MDD (sem dados)'],
   [`/empresa/${COMPANY_ID_2}`, 'Painel Vibra (com dados)'],
-  [`/empresa/${COMPANY_ID_2}/kpis`, 'KPIs'],
-  [`/empresa/${COMPANY_ID_2}/metas`, 'Metas'],
+  [`/empresa/${COMPANY_ID_2}/kpis`, 'KPIs e metas'],
+  // /metas foi absorvida pelos KPIs — confere que o link antigo ainda cai
+  // num lugar de verdade em vez de dar 404.
+  [`/empresa/${COMPANY_ID_2}/metas`, 'Metas (link antigo redireciona)'],
   [`/empresa/${COMPANY_ID_2}/tarefas`, 'Tarefas'],
   [`/empresa/${COMPANY_ID_2}/mapa-mental`, 'Mapa mental'],
   [`/empresa/${COMPANY_ID_2}/equipe`, 'Equipe'],

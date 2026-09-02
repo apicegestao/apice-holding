@@ -24,13 +24,18 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSess
 const SEVERITIES = ['info', 'opportunity', 'warning', 'critical']
 
 const SYSTEM_PROMPT = `Você é o analista de gestão da Ápice Holding, uma holding que controla várias empresas.
-Recebe um retrato em JSON com KPIs, metas e tarefas e devolve insights acionáveis para o administrador.
+Recebe um retrato em JSON com o estado inteiro da empresa (ou do grupo): KPIs — que já são as metas quando
+têm prazo, com responsável e andamento —, tarefas, mapas mentais e integrações. Devolve insights acionáveis
+para o administrador.
 
 Regras:
 - Responda SEMPRE em português do Brasil.
 - Trabalhe apenas com os números fornecidos. Nunca invente dados que não estão no retrato.
 - Se os dados forem insuficientes para uma conclusão, diga isso explicitamente em vez de especular.
-- Priorize o que muda decisão: KPI fora da meta, meta em risco, tarefa vencida, tendência de queda.
+- Cruze módulos quando fizer sentido: uma ideia parada há semanas no mapa mental, uma integração que parou
+  de sincronizar e o KPI dela sem lançamento recente, uma meta sem tarefa nenhuma andando por trás dela.
+- Priorize o que muda decisão: KPI fora da meta, meta em risco ou sem responsável, tarefa vencida, tendência
+  de queda, integração falhando.
 - Entre 3 e 6 insights, do mais crítico para o menos crítico.
 
 Responda APENAS com um array JSON válido, sem texto antes ou depois, sem blocos de código.
@@ -56,73 +61,168 @@ async function getCaller(req: Request) {
   return profile as { id: string; is_super_admin: boolean }
 }
 
-async function companyContext(companyId: string) {
-  const [company, kpis, goals, tasks] = await Promise.all([
-    admin.from('companies').select('name, sector, description').eq('id', companyId).maybeSingle(),
-    admin
+// ----------------------------------------------------------------------------
+// Cada módulo do sistema lê os próprios dados aqui e devolve um pedaço do
+// retrato. Isso é de propósito: um insight raso ("faturamento caiu") é fácil;
+// um insight profundo cruza módulos ("faturamento caiu, a integração que
+// alimenta esse KPI parou de sincronizar há 9 dias, e a tarefa que resolveria
+// isso está atrasada"). Pra IA enxergar essa ligação, ela precisa ver os
+// módulos todos de uma vez — não um de cada vez.
+//
+// Ao adicionar um módulo novo ao sistema, adicione um leitor aqui. Não é
+// automático de propósito (cada tabela nova tem sua própria forma de virar
+// contexto útil) — é UM lugar só pra lembrar, em vez de espalhado.
+type ModuleReader = (companyId: string) => Promise<Record<string, unknown>>
+
+const MODULE_READERS: Record<string, ModuleReader> = {
+  async kpis(companyId) {
+    const { data: kpis } = await admin
       .from('kpis')
-      .select('id, name, unit, direction, frequency, target_value, category')
+      .select('id, name, unit, direction, frequency, target_value, category, due_date, status, owner_id')
       .eq('company_id', companyId)
-      .eq('is_active', true),
-    admin
-      .from('goals')
-      .select('title, status, target_value, current_value, due_date')
-      .eq('company_id', companyId)
-      .order('due_date', { ascending: true })
-      .limit(30),
-    admin
+      .eq('is_active', true)
+
+    const kpiIds = (kpis ?? []).map((k) => k.id)
+    const history: Record<string, { period: string; value: number }[]> = {}
+    const checkpointsByKpi: Record<string, { periodo: string; alvo: number }[]> = {}
+
+    if (kpiIds.length) {
+      const [{ data: values }, { data: checkpoints }, { data: owners }] = await Promise.all([
+        admin
+          .from('kpi_values')
+          .select('kpi_id, period_start, value')
+          .in('kpi_id', kpiIds)
+          .order('period_start', { ascending: false })
+          .limit(400),
+        admin
+          .from('kpi_checkpoints')
+          .select('kpi_id, period_start, period_end, target_value')
+          .in('kpi_id', kpiIds)
+          .order('seq', { ascending: true }),
+        admin.from('profiles').select('id, full_name').in(
+          'id',
+          [...new Set((kpis ?? []).map((k) => k.owner_id).filter((id): id is string => Boolean(id)))],
+        ),
+      ])
+
+      for (const row of values ?? []) {
+        const bucket = (history[row.kpi_id] ??= [])
+        if (bucket.length < 8) bucket.push({ period: row.period_start, value: Number(row.value) })
+      }
+      for (const row of checkpoints ?? []) {
+        const bucket = (checkpointsByKpi[row.kpi_id] ??= [])
+        bucket.push({ periodo: `${row.period_start}..${row.period_end}`, alvo: Number(row.target_value) })
+      }
+      const ownerName = new Map((owners ?? []).map((o) => [o.id, o.full_name]))
+
+      return {
+        // Um KPI com prazo é a meta — está tudo na mesma linha, não há mais
+        // um módulo "metas" separado.
+        kpis: (kpis ?? []).map((k) => ({
+          nome: k.name,
+          categoria: k.category,
+          unidade: k.unit,
+          direcao: k.direction, // "up" = quanto maior melhor
+          frequencia: k.frequency,
+          meta: k.target_value === null ? null : Number(k.target_value),
+          eh_meta_com_prazo: k.due_date !== null,
+          prazo: k.due_date,
+          andamento: k.due_date !== null ? k.status : null,
+          responsavel: k.owner_id ? (ownerName.get(k.owner_id) ?? null) : null,
+          parcelas_semanais: checkpointsByKpi[k.id] ?? [],
+          ultimos_valores: (history[k.id] ?? []).slice().reverse(),
+        })),
+      }
+    }
+    return { kpis: [] }
+  },
+
+  async tarefas(companyId) {
+    const { data: tasks } = await admin
       .from('tasks')
-      .select('title, status, priority, due_date')
+      .select('title, status, priority, due_date, visibility, tags')
       .eq('company_id', companyId)
       .in('status', ['todo', 'doing', 'blocked'])
       .order('due_date', { ascending: true })
-      .limit(50),
-  ])
+      .limit(50)
+    return { tarefas_abertas: tasks ?? [] }
+  },
 
-  const kpiIds = (kpis.data ?? []).map((k) => k.id)
-  let history: Record<string, { period: string; value: number }[]> = {}
+  async mapaMental(companyId) {
+    const { data: maps } = await admin
+      .from('mind_maps')
+      .select('id, title')
+      .eq('company_id', companyId)
+      .limit(5)
+    if (!maps?.length) return { mapas_mentais: [] }
 
-  if (kpiIds.length) {
-    const { data: values } = await admin
-      .from('kpi_values')
-      .select('kpi_id, period_start, value')
-      .in('kpi_id', kpiIds)
-      .order('period_start', { ascending: false })
-      .limit(400)
+    const { data: nodes } = await admin
+      .from('mind_map_nodes')
+      .select('map_id, label, notes')
+      .in('map_id', maps.map((m) => m.id))
+      .limit(120)
 
-    for (const row of values ?? []) {
-      const bucket = (history[row.kpi_id] ??= [])
-      if (bucket.length < 8) bucket.push({ period: row.period_start, value: Number(row.value) })
+    return {
+      // O mapa mental é onde uma decisão nasce antes de virar meta ou
+      // tarefa — uma ideia parada ali por muito tempo também é um sinal.
+      mapas_mentais: maps.map((map) => ({
+        titulo: map.title,
+        ideias: (nodes ?? [])
+          .filter((n) => n.map_id === map.id)
+          .slice(0, 25)
+          .map((n) => (n.notes ? `${n.label}: ${n.notes}` : n.label)),
+      })),
     }
-  }
+  },
+
+  async integracoes(companyId) {
+    const { data: integrations } = await admin
+      .from('integrations')
+      .select('name, provider, is_active, last_run_at, last_status, last_error')
+      .eq('company_id', companyId)
+    return {
+      integracoes: (integrations ?? []).map((i) => ({
+        nome: i.name,
+        provedor: i.provider,
+        ativa: i.is_active,
+        ultima_execucao: i.last_run_at,
+        status: i.last_status,
+        erro: i.last_status === 'error' ? i.last_error : null,
+      })),
+    }
+  },
+}
+
+async function companyContext(companyId: string) {
+  const { data: company } = await admin
+    .from('companies')
+    .select('name, sector, description')
+    .eq('id', companyId)
+    .maybeSingle()
+
+  const modules = await Promise.all(Object.values(MODULE_READERS).map((read) => read(companyId)))
 
   return {
     escopo: 'empresa',
-    empresa: company.data,
-    kpis: (kpis.data ?? []).map((k) => ({
-      nome: k.name,
-      categoria: k.category,
-      unidade: k.unit,
-      // "up" = quanto maior melhor
-      direcao: k.direction,
-      frequencia: k.frequency,
-      meta: k.target_value === null ? null : Number(k.target_value),
-      ultimos_valores: (history[k.id] ?? []).slice().reverse(),
-    })),
-    metas: goals.data ?? [],
-    tarefas_abertas: tasks.data ?? [],
+    empresa: company,
+    ...Object.assign({}, ...modules),
     hoje: new Date().toISOString().slice(0, 10),
   }
 }
 
 async function holdingContext() {
-  const { data: snapshots } = await admin.rpc('company_snapshots')
-  const { data: kpis } = await admin
-    .from('kpi_latest_values')
-    .select('company_id, name, value, target_value, unit, direction, period_start')
-    .limit(300)
+  const [{ data: snapshots }, { data: kpis }, { data: companies }, { data: integrations }] = await Promise.all([
+    admin.rpc('company_snapshots'),
+    admin
+      .from('kpi_latest_values')
+      .select('company_id, name, value, target_value, unit, direction, period_start, due_date, status')
+      .limit(300),
+    admin.from('companies').select('id, name, sector'),
+    // Uma integração parada numa empresa explica um KPI congelado nela —
+    // sinal de holding, não só de empresa.
+    admin.from('integrations').select('company_id, name, is_active, last_status, last_run_at'),
+  ])
 
-  const { data: companies } = await admin.from('companies').select('id, name, sector')
   const byId = new Map((companies ?? []).map((c) => [c.id, c.name]))
 
   return {
@@ -136,7 +236,13 @@ async function holdingContext() {
       unidade: k.unit,
       direcao: k.direction,
       periodo: k.period_start,
+      eh_meta_com_prazo: k.due_date !== null,
+      prazo: k.due_date,
+      andamento: k.due_date !== null ? k.status : null,
     })),
+    integracoes_com_problema: (integrations ?? [])
+      .filter((i) => i.is_active && i.last_status === 'error')
+      .map((i) => ({ empresa: byId.get(i.company_id) ?? i.company_id, nome: i.name, ultima_execucao: i.last_run_at })),
     hoje: new Date().toISOString().slice(0, 10),
   }
 }

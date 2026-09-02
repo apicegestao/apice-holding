@@ -241,3 +241,69 @@ rede de verdade. `npm run test:e2e` roda local; `.github/workflows/ci.yml`
 roda a mesma suíte (mais build, testes unitários e contraste) em todo push e
 pull request, então uma quebra em qualquer um dos dois formatos aparece
 sozinha, sem precisar ser pedida. 44/44 testes passando (22 por formato).
+
+---
+
+## 12. IA com o sistema inteiro, KPIs e metas unificados, mapa mental como organograma
+
+**1) A IA passa a ler o sistema inteiro.** A função `ai-insights` só via KPIs,
+metas e tarefas abertas — nada de mapa mental ou integrações, então não
+cruzava "essa integração parou de sincronizar" com "esse KPI está sem
+lançamento" ou "essa ideia no mapa está parada há semanas". Reestruturado em
+torno de um registro só (`MODULE_READERS`, em
+`supabase/functions/ai-insights/index.ts`): cada módulo lê os próprios dados
+e devolve seu pedaço do retrato, tudo enviado numa chamada só à IA. Hoje lê
+KPIs/metas (com parcelas semanais e responsável), tarefas (com tags e
+visibilidade), mapas mentais (títulos e ideias) e integrações (status e
+último erro); um módulo novo no futuro entra como mais um leitor nessa
+mesma lista — um lugar só para lembrar, em vez de espalhado pelo código.
+
+**2) Botão "+" no lugar do link "nova tarefa".** No card "Minhas tarefas" do
+painel da holding, o link de texto virou um botão no padrão do sistema
+(`btn-primary`, ícone `+`), igual ao "+ Nova tarefa" do topo — mesmo
+componente, mesmo resultado em desktop e celular.
+
+**3) KPIs e Metas viraram uma coisa só.** A tabela `goals` tinha 0 linhas em
+produção (conferido antes de mexer) — sem dado pra migrar. `kpis` ganhou
+`due_date`, `owner_id` e `status` (migração
+`0016_merge_kpis_goals.sql`); um KPI com prazo já É a meta, com responsável
+notificado automaticamente (trigger `app.notify_kpi_ownership`, mesmo padrão
+da notificação de tarefa) e andamento. O "valor atual" digitado à mão da
+meta antiga saiu de cena — o andamento agora sempre vem do último
+lançamento em `kpi_values`, que já existia e não fica defasado. A tela de
+Metas foi removida; `/empresa/:id/metas` redireciona para `/kpis` (link
+antigo não quebra). `company_snapshots()` e o painel da holding leem a
+mesma contagem de antes, só que a partir de `kpis.due_date` em vez da
+tabela removida.
+
+Dentro da meta, uma opção nova: **repartir o alvo por semana**
+(`kpi_checkpoints`, gerenciado na tela de Histórico do KPI) — divide o alvo
+final numa meta acumulada por semana, editável linha a linha, com um selo
+"em dia"/"a caminho" comparando o último valor lançado contra o alvo daquela
+semana.
+
+De quebra, um bug de conta: um KPI "quanto menor, melhor" (ex. churn) usava
+a mesma fórmula de atingimento de um "quanto maior, melhor" e dava um
+número sem sentido — corrigido pra inverter a razão (meta ÷ valor) nesse
+caso, tanto no painel da empresa quanto no da holding.
+
+**4) Mapa mental: organograma, ligação automática, ramificar e editar no
+próprio nó.** Um botão "organograma" (visível com 2+ nós) recalcula a
+posição de todo mundo — raiz em cima, filhos embaixo, irmãos lado a lado sem
+sobrepor — e salva; continua tudo arrastável depois. As ligações trocaram de
+curva livre para cotovelo reto (base do pai → topo do filho), que se ajusta
+sozinho a qualquer posição nova sem cruzar por cima de nó nenhum. Cada nó
+ganhou dois botões próprios: um lápis (edita o texto ali mesmo, sem abrir o
+painel lateral — funciona a duplo clique também) e um "+" (ramifica direto
+daquele nó). O painel lateral ("Ramificar", cor, anotações) continua do jeito
+que estava.
+
+**Verificação:** `npm run build`, `npm run test` (9/9),
+`npm run check:contrast` (24/24) e `npm run test:e2e` (44/44, incluindo o
+redirecionamento de `/metas`) limpos. `ai-insights` reimplantada
+(`mcp__Supabase__deploy_edge_function`, versão 4) e as três migrações
+(`0015`, `0016`) aplicadas no banco de produção — conferido por SQL direto
+que a MDD mantém `kpis_total: 1` depois da reestruturação. Organograma,
+edição inline e "ramificar a partir do nó" testados num mapa de 3 nós via
+Playwright: os três funcionam e o layout final foi conferido visualmente
+por screenshot.
