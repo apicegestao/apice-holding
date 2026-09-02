@@ -46,6 +46,7 @@ import {
   type Kpi,
   type KpiLatestValue,
   type Product,
+  type ProductEdition,
   type Profile,
   type Task,
   type TaskStatus,
@@ -131,6 +132,35 @@ function StatTile({
   )
 }
 
+/** Nome da meta + "valor de meta" + barrinha — uma frente pode ter várias
+ *  metas ao mesmo tempo (dela mesma e de cada edição/turma), então o
+ *  cartão de produto lista mais de uma em vez de escolher só uma "de
+ *  capa". `editionName` distingue metas de mesmo nome em turmas diferentes
+ *  (ex. "Faturamento" da Turma 12 e da Turma 13). */
+function ProductMetaLine({ kpi, value, editionName }: { kpi: KpiRow; value: number | null; editionName?: string }) {
+  const ratio = value !== null ? attainmentRatio(value, kpi.target_value, kpi.direction) : null
+  return (
+    <div>
+      <p className="truncate text-xs font-medium text-content-soft">
+        {kpi.name}
+        {editionName && <span className="font-normal text-content-faint"> · {editionName}</span>}
+      </p>
+      <p className="mt-0.5 text-xs text-content-faint">
+        {value === null
+          ? 'sem lançamento ainda'
+          : kpi.target_value !== null
+            ? `${formatValue(value, kpi.unit)} de ${formatValue(kpi.target_value, kpi.unit)}`
+            : formatValue(value, kpi.unit)}
+      </p>
+      {value !== null && kpi.target_value !== null && (
+        <div className="mt-1">
+          <ProgressBar ratio={ratio} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function CompanyDashboard() {
   const { company, isAdmin } = useCompany()
   const chart = useChartTheme()
@@ -141,11 +171,12 @@ export default function CompanyDashboard() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [editions, setEditions] = useState<ProductEdition[]>([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [kpiDefResult, kpiValueResult, memberResult, taskResult, insightResult, productResult] =
+    const [kpiDefResult, kpiValueResult, memberResult, taskResult, insightResult, productResult, editionResult] =
       await Promise.all([
         supabase
           .from('kpis')
@@ -167,6 +198,7 @@ export default function CompanyDashboard() {
               .limit(3)
           : Promise.resolve({ data: [] as Insight[] }),
         supabase.from('products').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
+        supabase.from('product_editions').select('*').eq('company_id', company.id),
       ])
 
     const memberIds = (memberResult.data ?? []).map((row) => row.user_id)
@@ -180,6 +212,7 @@ export default function CompanyDashboard() {
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
     setProducts((productResult.data as Product[]) ?? [])
+    setEditions((editionResult.data as ProductEdition[]) ?? [])
     setLoading(false)
   }, [company.id, isAdmin])
 
@@ -236,16 +269,20 @@ export default function CompanyDashboard() {
 
   // Saúde de cada produto: mesma conta da saúde geral da empresa (média do
   // attainmentRatio dos KPIs com meta), restrita aos KPIs daquela frente —
-  // mais quantas tarefas dela estão abertas.
+  // mais quantas tarefas dela estão abertas. `metas` é TODA meta do produto
+  // — a dele mesmo e a de cada edição —, não só uma "de capa" escolhida a
+  // dedo: uma turma pode ter várias metas ao mesmo tempo (vendas de
+  // ingresso, faturamento, cancelamentos…) e todas precisam aparecer.
   const productStats = useMemo(() => {
     const map = new Map<
       string,
-      { ratio: number | null; open: number; primaryMeta: KpiRow | null; primaryValue: number | null }
+      { ratio: number | null; open: number; metas: { kpi: KpiRow; value: number | null; editionName?: string }[] }
     >()
     for (const product of products) {
-      // Indicadores "do produto como um todo" (sem edição) — são eles que
-      // aparecem em destaque no cartão; os de turma ficam só na soma.
+      // Indicadores "do produto como um todo" (sem edição) e os de cada
+      // turma dele — juntos formam a lista completa de metas do cartão.
       const productLevel = kpiRows.filter((row) => row.product_id === product.id && !row.product_edition_id)
+      const productEditions = editions.filter((edition) => edition.product_id === product.id)
       const withTarget = kpiRows.filter(
         (row) => row.product_id === product.id && row.target_value !== null && Number(row.target_value) !== 0,
       )
@@ -255,17 +292,22 @@ export default function CompanyDashboard() {
       const open = tasks.filter(
         (task) => task.product_id === product.id && ['todo', 'doing', 'blocked'].includes(task.status),
       )
-      // Pro valor em destaque, prioriza quem já tem meta definida.
-      const primaryMeta = productLevel.find((row) => row.target_value !== null) ?? productLevel[0] ?? null
+      const metas = [
+        ...productLevel.map((kpi) => ({ kpi, value: effectiveValue(kpi.kpi_id) })),
+        ...productEditions.flatMap((edition) =>
+          kpiRows
+            .filter((row) => row.product_edition_id === edition.id)
+            .map((kpi) => ({ kpi, value: effectiveValue(kpi.kpi_id), editionName: edition.name })),
+        ),
+      ]
       map.set(product.id, {
         ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
         open: open.length,
-        primaryMeta,
-        primaryValue: primaryMeta ? effectiveValue(primaryMeta.kpi_id) : null,
+        metas,
       })
     }
     return map
-  }, [products, kpiRows, tasks, effectiveValue])
+  }, [products, editions, kpiRows, tasks, effectiveValue])
 
   // Um KPI com prazo é também uma meta — mesma linha, sem cadastro à parte.
   const metas = useMemo(
@@ -467,26 +509,15 @@ export default function CompanyDashboard() {
                     <p className="min-w-0 truncate text-sm font-medium text-content">{product.name}</p>
                   </div>
                   <p className="mt-1 text-xs text-content-faint">{stats?.open ?? 0} tarefa(s) aberta(s)</p>
-                  {stats?.primaryMeta ? (
-                    <div className="mt-2">
-                      <p className="truncate text-xs font-medium text-content-soft">{stats.primaryMeta.name}</p>
-                      <p className="mt-0.5 text-xs text-content-faint">
-                        {stats.primaryValue === null
-                          ? 'sem lançamento ainda'
-                          : stats.primaryMeta.target_value !== null
-                            ? `${formatValue(stats.primaryValue, stats.primaryMeta.unit)} de ${formatValue(stats.primaryMeta.target_value, stats.primaryMeta.unit)}`
-                            : formatValue(stats.primaryValue, stats.primaryMeta.unit)}
-                      </p>
-                      {stats.primaryValue !== null && stats.primaryMeta.target_value !== null && (
-                        <div className="mt-1">
-                          <ProgressBar
-                            ratio={attainmentRatio(
-                              stats.primaryValue,
-                              stats.primaryMeta.target_value,
-                              stats.primaryMeta.direction,
-                            )}
-                          />
-                        </div>
+                  {stats && stats.metas.length > 0 ? (
+                    <div className="mt-2 space-y-2">
+                      {stats.metas.slice(0, 2).map(({ kpi, value, editionName }) => (
+                        <ProductMetaLine key={kpi.kpi_id} kpi={kpi} value={value} editionName={editionName} />
+                      ))}
+                      {stats.metas.length > 2 && (
+                        <p className="text-[11px] text-content-faint">
+                          + {stats.metas.length - 2} meta{stats.metas.length - 2 > 1 ? 's' : ''}
+                        </p>
                       )}
                     </div>
                   ) : (

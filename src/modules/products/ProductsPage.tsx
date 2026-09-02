@@ -176,15 +176,18 @@ export default function ProductsPage() {
   // Saúde de cada produto: mesma conta da saúde geral da empresa (média do
   // attainmentRatio dos KPIs com meta, usando o valor de verdade — soma
   // incluída), restrita aos KPIs daquele produto — e tarefas abertas dele.
-  // primaryMeta é o indicador "de capa" do cartão: o do produto como um
-  // todo que já tem meta definida (senão, o primeiro que existir).
+  // `metas` é TODA meta do produto — a dele mesmo e a de cada edição —, não
+  // só uma "de capa" escolhida a dedo: uma turma pode ter várias metas ao
+  // mesmo tempo (vendas de ingresso, faturamento, cancelamentos…) e todas
+  // precisam aparecer, não só a primeira que existir.
   const statsByProduct = useMemo(() => {
     const map = new Map<
       string,
-      { ratio: number | null; open: number; primaryMeta: ProductKpiRow | null; primaryValue: number | null }
+      { ratio: number | null; open: number; metas: { kpi: ProductKpiRow; value: number | null; editionName?: string }[] }
     >()
     for (const product of products) {
       const productLevel = kpisByProduct.get(product.id) ?? []
+      const productEditions = editions.filter((edition) => edition.product_id === product.id)
       const withTarget = kpiRows.filter(
         (row) => row.product_id === product.id && row.target_value !== null && Number(row.target_value) !== 0,
       )
@@ -194,16 +197,24 @@ export default function ProductsPage() {
       const open = tasks.filter(
         (task) => task.product_id === product.id && ['todo', 'doing', 'blocked'].includes(task.status),
       )
-      const primaryMeta = productLevel.find((row) => row.target_value !== null) ?? productLevel[0] ?? null
+      const metas = [
+        ...productLevel.map((kpi) => ({ kpi, value: effectiveValue(kpi.kpi_id) })),
+        ...productEditions.flatMap((edition) =>
+          (kpisByEdition.get(edition.id) ?? []).map((kpi) => ({
+            kpi,
+            value: effectiveValue(kpi.kpi_id),
+            editionName: edition.name,
+          })),
+        ),
+      ]
       map.set(product.id, {
         ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
         open: open.length,
-        primaryMeta,
-        primaryValue: primaryMeta ? effectiveValue(primaryMeta.kpi_id) : null,
+        metas,
       })
     }
     return map
-  }, [products, kpisByProduct, kpiRows, tasks, effectiveValue])
+  }, [products, kpisByProduct, kpisByEdition, editions, kpiRows, tasks, effectiveValue])
 
   const activeProduct = useMemo(() => products.find((item) => item.id === activeId) ?? null, [products, activeId])
   const activeEditions = useMemo(
@@ -368,9 +379,16 @@ export default function ProductsPage() {
                     <ClipboardList className="h-3.5 w-3.5" /> {stats?.open ?? 0} tarefa(s)
                   </span>
                 </div>
-                {stats?.primaryMeta ? (
-                  <div className="mt-3">
-                    <MetaLine kpi={stats.primaryMeta} value={stats.primaryValue} />
+                {stats && stats.metas.length > 0 ? (
+                  <div className="mt-3 space-y-2.5">
+                    {stats.metas.slice(0, 2).map(({ kpi, value, editionName }) => (
+                      <MetaLine key={kpi.kpi_id} kpi={kpi} value={value} editionName={editionName} size="xs" />
+                    ))}
+                    {stats.metas.length > 2 && (
+                      <p className="text-[11px] text-content-faint">
+                        + {stats.metas.length - 2} meta{stats.metas.length - 2 > 1 ? 's' : ''}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   stats?.ratio !== null &&
@@ -658,13 +676,29 @@ export default function ProductsPage() {
 
 /** Nome da meta + "valor de meta" + barrinha, quando dá pra calcular — o
  *  mesmo formato em todo lugar que uma meta de produto/edição aparece
- *  (cartão do produto, lista de metas do produto, linha da edição). */
-function MetaLine({ kpi, value, size = 'sm' }: { kpi: ProductKpiRow; value: number | null; size?: 'sm' | 'xs' }) {
+ *  (cartão do produto, lista de metas do produto, linha da edição).
+ *  `editionName` só entra quando o cartão do produto mistura metas de
+ *  mais de uma turma na mesma lista — sem isso, "Faturamento" repetido
+ *  duas vezes não diz de qual edição é cada um. */
+function MetaLine({
+  kpi,
+  value,
+  editionName,
+  size = 'sm',
+}: {
+  kpi: ProductKpiRow
+  value: number | null
+  editionName?: string
+  size?: 'sm' | 'xs'
+}) {
   const ratio = value !== null ? attainmentRatio(value, kpi.target_value, kpi.direction) : null
   const textSize = size === 'xs' ? 'text-[11px]' : 'text-xs'
   return (
     <div>
-      <p className={`truncate font-medium text-content-soft ${textSize}`}>{kpi.name}</p>
+      <p className={`truncate font-medium text-content-soft ${textSize}`}>
+        {kpi.name}
+        {editionName && <span className="font-normal text-content-faint"> · {editionName}</span>}
+      </p>
       <p className={`mt-0.5 text-content-faint ${textSize}`}>
         {value === null
           ? 'sem lançamento ainda'

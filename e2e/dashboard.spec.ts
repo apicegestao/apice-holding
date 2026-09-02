@@ -470,13 +470,17 @@ test.describe('metas de produto e sub-produto', () => {
     // Turma de setembro já tem meta própria (32.000 de 50.000).
     const editionMetaLink = page.getByRole('link', { name: /Faturamento Imersão Set\/2026/ })
     await expect(editionMetaLink).toContainText('R$ 32.000,00 de R$ 50.000,00')
-    await expect(page.getByText('Imersão Setembro 2026')).toBeVisible()
+    // O cartão do produto (atrás do modal) agora também lista a meta desta
+    // turma, com "· Imersão Setembro 2026" ao lado — por isso escopar no
+    // modal, senão pega os dois de novo (mesmo motivo do link acima).
+    const modal = page.getByRole('dialog')
+    await expect(modal.getByText('Imersão Setembro 2026')).toBeVisible()
 
     // Turma de outubro não tem meta ainda — mostra o estado vazio com o
     // atalho pra cadastrar, em vez de simplesmente não aparecer nada.
-    await expect(page.getByText('Imersão Outubro 2026')).toBeVisible()
-    await expect(page.getByText('Sem meta própria ainda.')).toBeVisible()
-    await expect(page.getByRole('link', { name: '+ Meta desta turma' })).toBeVisible()
+    await expect(modal.getByText('Imersão Outubro 2026')).toBeVisible()
+    await expect(modal.getByText('Sem meta própria ainda.')).toBeVisible()
+    await expect(modal.getByRole('link', { name: '+ Meta desta turma' })).toBeVisible()
   })
 
   test('+ Nova meta do produto leva pro formulário de KPI já com o produto preenchido', async ({ page }) => {

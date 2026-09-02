@@ -1572,3 +1572,60 @@ mesmos fundos, nenhum par novo. `npm run test:e2e`: 190 testes, mesmo total,
 incluindo o teste geral de "sem rolagem lateral" no celular (que cobre o
 carrossel novo) e o de CSP — nenhum teste prende no texto ou na estrutura
 interna dos cartões/barra, só no conteúdo visível, que não mudou.
+
+## 28. Sidebar renomeada pra "Metas" + múltiplas metas por produto/edição nos cartões
+
+**Sidebar:** "KPIs e metas" virou só "Metas" — no menu da empresa e no
+título da própria página (`PageHeader`). A rota continua `/kpis` (nada
+migra, nenhum link quebra) — só o nome visível muda; o módulo interno
+continua se chamando `kpis/` (é código, não é o que a pessoa vê).
+
+**Múltiplas metas por produto/edição:** o pedido veio com um exemplo
+concreto — "controlar uma turma da imersão" com "vendas de ingressos,
+faturamento, cancelamentos, entre outros" ao mesmo tempo. Conferido antes
+de mexer: o banco e o formulário de criar meta **já suportavam isso** —
+`kpis.product_id`/`product_edition_id` não têm nenhuma restrição de
+unicidade, e o modal de detalhe de um produto (`ProductsPage`, item já
+existente) já listava TODAS as metas de cada edição, uma a uma, sem
+escolher só uma. O que faltava era só nos dois lugares que fazem um
+resumo rápido — o cartão do produto (no próprio Produtos, antes de abrir o
+modal) e o cartão "Produtos" do painel da empresa — os dois calculavam um
+único `primaryMeta` (a que tinha meta definida, senão a primeira que
+existisse) e escondiam qualquer outra atrás dele; se as metas viviam só
+nas edições (sem nenhuma meta no nível do próprio produto), o cartão nem
+mostrava nome nenhum, só uma barra de "saúde da frente" genérica.
+
+Trocado `primaryMeta`/`primaryValue` (um só) por `metas` (lista) nos dois
+lugares — a lista junta as metas do produto em si com as de cada edição
+dele, e o cartão mostra até 2 delas, com "+ N meta(s)" quando sobra mais
+(a lista completa, sempre, já vivia no modal — o cartão é só o resumo).
+Como o nome de uma meta de edição pode se repetir entre turmas (ex.
+"Faturamento" em toda turma), a linha ganhou um sufixo com o nome da
+edição (`· Imersão Setembro 2026`) só quando ela pertence a uma — sem
+isso, duas metas de turmas diferentes ficariam com o mesmo texto no
+cartão. `CompanyDashboard` precisou passar a buscar `product_editions`
+também (só tinha produtos, sem as edições, então não tinha como nomear a
+edição de uma meta).
+
+**Efeito colateral pego pelo e2e, não por revisão manual:** um teste que
+já existia (`abrir o produto mostra a meta dele e a de cada turma`) parou
+de passar — o cartão atrás do modal (mesmo por trás, ele continua no DOM)
+passou a repetir o nome da edição que o modal também mostra, e o teste
+usava texto solto pra achar o nome da edição, que agora resolve pra dois
+elementos. Corrigido escopando pro modal (`getByRole('dialog')`) em vez de
+`page` inteira — mesmo motivo por que o link da própria meta já usava
+`getByRole('link', ...)` em vez de texto solto, comentado no próprio
+teste. Aproveitado pra dar ao `Modal` (`core/ui`) o `role="dialog"` e
+`aria-modal="true"` que faltavam — nenhum dos 15 lugares do sistema que
+abrem um `Modal` tinha isso, e não é só pro teste: leitor de tela também
+passa a anunciar "caixa de diálogo" ao abrir qualquer uma.
+
+**Verificação:** `npx tsc --noEmit` e `npm run build` limpos. `npm run
+test`: 28, sem mudança (mudança é de dado exibido, não de lógica pura
+nova). `npm run check:contrast`: sem mudança. `npm run test:e2e`: 190,
+mesmo total, incluindo o teste corrigido e o de CSP (que já reflete o
+label novo, "Metas", sem precisar editar nada além do fixture). Conferido
+com screenshot real (empresa Vibra): cartão de "Entre Donos" no painel e
+em Produtos mostrando as duas metas (a do produto, 32%, e a da turma de
+setembro, 64%) lado a lado, cada uma com sua própria barra — antes só a
+primeira aparecia.

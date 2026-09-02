@@ -346,7 +346,12 @@ export function Modal({
           futuro esqueça o min-w-0 num flex item (a causa mais comum de
           rolagem lateral), o modal nunca mais vaza para o lado — na pior
           das hipóteses o texto é cortado, nunca a tela rola. */}
-      <div className={`card w-full ${width} my-auto overflow-x-hidden bg-elevated`}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={`card w-full ${width} my-auto overflow-x-hidden bg-elevated`}
+      >
         <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div>
             <h2 className="text-sm font-semibold text-content">{title}</h2>

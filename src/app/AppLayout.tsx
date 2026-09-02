@@ -105,7 +105,7 @@ export default function AppLayout() {
     const base = `/empresa/${companyId}`
     const items: NavItem[] = [
       { to: base, label: 'Painel', icon: Gauge, end: true },
-      { to: `${base}/kpis`, label: 'KPIs e metas', icon: Target },
+      { to: `${base}/kpis`, label: 'Metas', icon: Target },
       { to: `${base}/tarefas`, label: 'Tarefas', icon: ClipboardList },
       { to: `${base}/produtos`, label: 'Produtos', icon: Layers },
       { to: `${base}/notas`, label: 'Notas', icon: StickyNote },

@@ -631,7 +631,7 @@ export const ROUTES: [string, string][] = [
   ['/holding/configuracoes', 'Configurações'],
   [`/empresa/${COMPANY_ID}`, 'Painel MDD (sem dados)'],
   [`/empresa/${COMPANY_ID_2}`, 'Painel Vibra (com dados)'],
-  [`/empresa/${COMPANY_ID_2}/kpis`, 'KPIs e metas'],
+  [`/empresa/${COMPANY_ID_2}/kpis`, 'Metas'],
   // /metas foi absorvida pelos KPIs — confere que o link antigo ainda cai
   // num lugar de verdade em vez de dar 404.
   [`/empresa/${COMPANY_ID_2}/metas`, 'Metas (link antigo redireciona)'],

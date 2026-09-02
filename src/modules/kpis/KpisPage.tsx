@@ -535,7 +535,7 @@ export default function KpisPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
-        title={`KPIs e metas · ${company.name}`}
+        title={`Metas · ${company.name}`}
         subtitle="Indicadores desta empresa. Um KPI com prazo já é a meta — com responsável e andamento."
         actions={
           <>
