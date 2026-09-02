@@ -2,7 +2,19 @@
 // empresas compartilharam com ela — sempre filtradas pela RLS.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Bell, CalendarClock, ListChecks, Lock, Pencil, Plus, Share2, Trash2, User } from 'lucide-react'
+import {
+  Bell,
+  CalendarClock,
+  ChevronLeft,
+  ChevronRight,
+  ListChecks,
+  Lock,
+  Pencil,
+  Plus,
+  Share2,
+  Trash2,
+  User,
+} from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { initials, relativeDays } from '../../core/lib/format'
 import { useAuth } from '../../core/auth/AuthProvider'
@@ -115,6 +127,13 @@ export default function TasksPage() {
       return
     }
     await load()
+  }
+
+  // Um toque pra mudar de coluna, sem abrir o select — o mesmo destino do
+  // select, só que mais rápido pro caso comum de avançar/voltar uma coluna.
+  const moveInBoard = (task: Task, delta: 1 | -1) => {
+    const next = BOARD[BOARD.indexOf(task.status) + delta]
+    if (next) void changeStatus(task, next)
   }
 
   const remove = async () => {
@@ -305,19 +324,41 @@ export default function TasksPage() {
                       </span>
 
                       {editable && (
-                        <select
-                          className="rounded border border-line bg-surface px-1.5 py-1 text-base sm:text-xs"
-                          value={task.status}
-                          onChange={(event) =>
-                            void changeStatus(task, event.target.value as TaskStatus)
-                          }
-                        >
-                          {(Object.keys(TASK_STATUS_LABEL) as TaskStatus[]).map((item) => (
-                            <option key={item} value={item}>
-                              {TASK_STATUS_LABEL[item]}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            className="rounded p-1 text-content-faint enabled:hover:bg-hover enabled:hover:text-content disabled:opacity-30"
+                            disabled={BOARD.indexOf(task.status) <= 0}
+                            onClick={() => moveInBoard(task, -1)}
+                            aria-label="Voltar coluna"
+                            title="Voltar coluna"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded p-1 text-content-faint enabled:hover:bg-hover enabled:hover:text-content disabled:opacity-30"
+                            disabled={BOARD.indexOf(task.status) === -1 || BOARD.indexOf(task.status) >= BOARD.length - 1}
+                            onClick={() => moveInBoard(task, 1)}
+                            aria-label="Avançar coluna"
+                            title="Avançar coluna"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                          <select
+                            className="rounded border border-line bg-surface px-1.5 py-1 text-base sm:text-xs"
+                            value={task.status}
+                            onChange={(event) =>
+                              void changeStatus(task, event.target.value as TaskStatus)
+                            }
+                          >
+                            {(Object.keys(TASK_STATUS_LABEL) as TaskStatus[]).map((item) => (
+                              <option key={item} value={item}>
+                                {TASK_STATUS_LABEL[item]}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       )}
                     </div>
                   </article>

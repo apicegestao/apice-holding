@@ -1,6 +1,7 @@
 // KPIs e metas da empresa — a mesma coisa: cadastro, lançamento por período,
 // histórico e, quando o indicador tem prazo, quem responde e como está indo.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -94,6 +95,7 @@ export default function KpisPage() {
   const { company, canWrite } = useCompany()
   const { notify } = useToast()
   const chart = useChartTheme()
+  const [searchParams] = useSearchParams()
 
   const [kpis, setKpis] = useState<Kpi[]>([])
   const [values, setValues] = useState<KpiValue[]>([])
@@ -149,6 +151,21 @@ export default function KpisPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Acesso rápido vindo do painel: ?kpi=<id> rola até o cartão certo e
+  // destaca por alguns segundos, em vez de deixar a pessoa procurar na lista.
+  const focusKpiId = searchParams.get('kpi')
+  const [highlightedKpiId, setHighlightedKpiId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!focusKpiId || loading) return
+    const el = document.getElementById(`kpi-${focusKpiId}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setHighlightedKpiId(focusKpiId)
+    const timer = setTimeout(() => setHighlightedKpiId(null), 2500)
+    return () => clearTimeout(timer)
+  }, [focusKpiId, loading])
 
   const seriesByKpi = useMemo(() => {
     const map = new Map<string, KpiValue[]>()
@@ -354,7 +371,13 @@ export default function KpisPage() {
             }))
 
             return (
-              <Card key={kpi.id} className={kpi.is_active ? '' : 'opacity-60'}>
+              <Card
+                key={kpi.id}
+                id={`kpi-${kpi.id}`}
+                className={`${kpi.is_active ? '' : 'opacity-60'} ${
+                  highlightedKpiId === kpi.id ? 'ring-2 ring-brand-500 transition-shadow' : ''
+                }`}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-content">{kpi.name}</p>

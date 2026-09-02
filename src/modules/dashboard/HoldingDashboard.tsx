@@ -9,17 +9,21 @@ import {
   CalendarClock,
   ClipboardList,
   Lock,
+  Network,
   Plus,
   Share2,
   Sparkles,
+  Square,
   Target,
+  Wallet,
 } from 'lucide-react'
 import {
   Bar,
   BarChart,
-  Cell,
   Legend,
   LabelList,
+  Line,
+  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -27,10 +31,25 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
-import { attainmentRatio, formatValue, isOnTarget, relativeDays } from '../../core/lib/format'
+import {
+  attainmentRatio,
+  formatDate,
+  formatValue,
+  isOnTarget,
+  relativeDays,
+} from '../../core/lib/format'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
-import { Badge, Card, CardCarousel, EmptyState, Loading, PageHeader, ProgressBar } from '../../core/ui'
+import {
+  Badge,
+  Card,
+  CardCarousel,
+  EmptyState,
+  Loading,
+  PageHeader,
+  ProgressBar,
+  useToast,
+} from '../../core/ui'
 import TaskFormModal from '../tasks/TaskFormModal'
 import {
   TASK_PRIORITY_LABEL,
@@ -44,8 +63,17 @@ import {
 
 const OPEN_STATUSES: TaskStatus[] = ['todo', 'doing', 'blocked']
 
+// Ponto colorido do gráfico "Metas x realizado" — mesma cor da empresa que
+// já aparece em todo canto do sistema (aba, tarja do card…), só que agora
+// ligados por uma linha em vez de barras separadas.
+function attainmentDot(props: any) {
+  const { cx, cy, payload, index } = props
+  return <circle key={`dot-${index}`} cx={cx} cy={cy} r={5} fill={payload.cor} stroke="#fff" strokeWidth={1.5} />
+}
+
 export default function HoldingDashboard() {
   const { profile, memberships } = useAuth()
+  const { notify } = useToast()
   const chart = useChartTheme()
   const [snapshots, setSnapshots] = useState<CompanySnapshot[]>([])
   const [kpis, setKpis] = useState<KpiLatestValue[]>([])
@@ -85,6 +113,17 @@ export default function HoldingDashboard() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Concluir sem sair do painel — abrir a tarefa só pra marcar "feito" era
+  // uma volta desnecessária pra ação mais comum do dia a dia.
+  const markTaskDone = async (task: Task) => {
+    const { error } = await supabase.from('tasks').update({ status: 'done' }).eq('id', task.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    await load()
+  }
 
   const operating = useMemo(() => snapshots.filter((item) => !item.is_holding), [snapshots])
 
@@ -194,9 +233,17 @@ export default function HoldingDashboard() {
         title="Painel da Holding"
         subtitle="Todas as empresas do grupo em um lugar só."
         actions={
-          <button type="button" className="btn-primary" onClick={() => setCreatingTask(true)}>
-            <Plus className="h-4 w-4" /> Nova tarefa
-          </button>
+          <>
+            <Link to="/holding/mapa-mental" className="btn-ghost py-1.5 text-xs">
+              <Network className="h-3.5 w-3.5" /> Mapa mental
+            </Link>
+            <Link to="/holding/orcamentos" className="btn-ghost py-1.5 text-xs">
+              <Wallet className="h-3.5 w-3.5" /> Orçamentos
+            </Link>
+            <button type="button" className="btn-primary" onClick={() => setCreatingTask(true)}>
+              <Plus className="h-4 w-4" /> Nova tarefa
+            </button>
+          </>
         }
       />
 
@@ -279,6 +326,85 @@ export default function HoldingDashboard() {
             )
           })()}
 
+          {/* ------------------------------------------ tarefas unificadas —
+              logo depois dos cartões-resumo, é a segunda coisa da página */}
+          <Card
+            title="Minhas tarefas"
+            description="Tudo que é meu, em todas as empresas — inclusive o que é só meu."
+            actions={
+              <button
+                type="button"
+                className="btn-primary p-1.5"
+                onClick={() => setCreatingTask(true)}
+                aria-label="Nova tarefa"
+                title="Nova tarefa"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            }
+          >
+            {myTasks.length === 0 ? (
+              <EmptyState
+                title="Nada em aberto"
+                description="Nenhuma tarefa sua pendente em nenhuma empresa do grupo."
+              />
+            ) : (
+              <ul className="divide-y divide-line">
+                {myTasks.slice(0, 12).map((task) => {
+                  const late = task.due_date && task.due_date < today
+                  return (
+                    <li key={task.id} className="flex flex-wrap items-center gap-2 py-2.5">
+                      <button
+                        type="button"
+                        className="shrink-0 text-content-faint hover:text-emerald-600 dark:hover:text-emerald-400"
+                        onClick={() => void markTaskDone(task)}
+                        aria-label="Marcar como concluída"
+                        title="Marcar como concluída"
+                      >
+                        <Square className="h-4 w-4" />
+                      </button>
+                      <span
+                        className="h-6 w-1 shrink-0 rounded-full"
+                        style={{ backgroundColor: companyColor(task.company_id) }}
+                        title={companyName(task.company_id)}
+                      />
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left"
+                        onClick={() => setEditingTask(task)}
+                      >
+                        <span className="block truncate text-sm font-medium text-content">
+                          {task.title}
+                        </span>
+                        <span className="text-xs text-content-soft">
+                          {companyName(task.company_id)} · {TASK_STATUS_LABEL[task.status]} ·{' '}
+                          {TASK_PRIORITY_LABEL[task.priority]}
+                        </span>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {task.visibility === 'private' && (
+                          <Badge tone="slate">
+                            <Lock className="h-3 w-3" /> só minha
+                          </Badge>
+                        )}
+                        {task.visibility === 'shared' && (
+                          <Badge tone="violet">
+                            <Share2 className="h-3 w-3" /> compartilhada
+                          </Badge>
+                        )}
+                        {task.due_date && (
+                          <Badge tone={late ? 'red' : 'slate'}>
+                            <CalendarClock className="h-3 w-3" /> {relativeDays(task.due_date)}
+                          </Badge>
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </Card>
+
           {/* ------------------------------------------- metas x realizado */}
           <Card
             title="Metas x realizado"
@@ -292,11 +418,7 @@ export default function HoldingDashboard() {
             ) : (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={attainment}
-                    margin={{ top: 20, right: 8, bottom: 0, left: 0 }}
-                    barCategoryGap="35%"
-                  >
+                  <LineChart data={attainment} margin={{ top: 20, right: 8, bottom: 0, left: 0 }}>
                     <XAxis
                       dataKey="empresa"
                       tick={{ fontSize: 11, fill: chart.tick }}
@@ -311,7 +433,7 @@ export default function HoldingDashboard() {
                       width={46}
                     />
                     <Tooltip
-                      cursor={{ fill: 'rgb(148 163 184 / .14)' }}
+                      cursor={{ stroke: chart.axis, strokeDasharray: '4 4' }}
                       contentStyle={{
                         fontSize: 12,
                         borderRadius: 8,
@@ -333,18 +455,15 @@ export default function HoldingDashboard() {
                       strokeDasharray="4 4"
                       label={{ value: 'meta', position: 'right', fontSize: 10, fill: chart.tick }}
                     />
-                    <Bar dataKey="atingimento" radius={[4, 4, 0, 0]} maxBarSize={64}>
-                      {attainment.map((row) => (
-                        <Cell key={row.empresa} fill={row.cor} />
-                      ))}
+                    <Line dataKey="atingimento" stroke={chart.axis} strokeWidth={2} dot={attainmentDot}>
                       <LabelList
                         dataKey="atingimento"
                         position="top"
                         formatter={(value: number) => `${value}%`}
                         style={{ fontSize: 11, fill: chart.label }}
                       />
-                    </Bar>
-                  </BarChart>
+                    </Line>
+                  </LineChart>
                 </ResponsiveContainer>
               </div>
             )}
@@ -410,75 +529,6 @@ export default function HoldingDashboard() {
             )}
           </Card>
 
-                    {/* ------------------------------------------ tarefas unificadas */}
-          <Card
-            title="Minhas tarefas"
-            description="Tudo que é meu, em todas as empresas — inclusive o que é só meu."
-            actions={
-              <button
-                type="button"
-                className="btn-primary p-1.5"
-                onClick={() => setCreatingTask(true)}
-                aria-label="Nova tarefa"
-                title="Nova tarefa"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            }
-          >
-            {myTasks.length === 0 ? (
-              <EmptyState
-                title="Nada em aberto"
-                description="Nenhuma tarefa sua pendente em nenhuma empresa do grupo."
-              />
-            ) : (
-              <ul className="divide-y divide-line">
-                {myTasks.slice(0, 12).map((task) => {
-                  const late = task.due_date && task.due_date < today
-                  return (
-                    <li key={task.id} className="flex flex-wrap items-center gap-2 py-2.5">
-                      <span
-                        className="h-6 w-1 shrink-0 rounded-full"
-                        style={{ backgroundColor: companyColor(task.company_id) }}
-                        title={companyName(task.company_id)}
-                      />
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 text-left"
-                        onClick={() => setEditingTask(task)}
-                      >
-                        <span className="block truncate text-sm font-medium text-content">
-                          {task.title}
-                        </span>
-                        <span className="text-xs text-content-soft">
-                          {companyName(task.company_id)} · {TASK_STATUS_LABEL[task.status]} ·{' '}
-                          {TASK_PRIORITY_LABEL[task.priority]}
-                        </span>
-                      </button>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        {task.visibility === 'private' && (
-                          <Badge tone="slate">
-                            <Lock className="h-3 w-3" /> só minha
-                          </Badge>
-                        )}
-                        {task.visibility === 'shared' && (
-                          <Badge tone="violet">
-                            <Share2 className="h-3 w-3" /> compartilhada
-                          </Badge>
-                        )}
-                        {task.due_date && (
-                          <Badge tone={late ? 'red' : 'slate'}>
-                            <CalendarClock className="h-3 w-3" /> {relativeDays(task.due_date)}
-                          </Badge>
-                        )}
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </Card>
-
           {/* -------------------------------------------- cartão por empresa */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {operating.map((snapshot) => {
@@ -535,23 +585,39 @@ export default function HoldingDashboard() {
                       {companyKpis.slice(0, 4).map((kpi) => {
                         const status = isOnTarget(Number(kpi.value), kpi.target_value, kpi.direction)
                         const ratio = attainmentRatio(Number(kpi.value), kpi.target_value, kpi.direction)
+                        const caption =
+                          kpi.target_value !== null
+                            ? `${formatValue(Number(kpi.value), kpi.unit)} de ${formatValue(kpi.target_value, kpi.unit)}`
+                            : undefined
                         return (
                           <li key={kpi.kpi_id}>
-                            <div className="flex items-center justify-between gap-2 text-sm">
-                              <span className="min-w-0 truncate text-content-muted">{kpi.name}</span>
-                              <span
-                                className={`shrink-0 font-medium ${
-                                  status === false ? 'text-rose-600 dark:text-rose-400' : 'text-content'
-                                }`}
-                              >
-                                {formatValue(Number(kpi.value), kpi.unit)}
-                              </span>
-                            </div>
-                            {ratio !== null && (
-                              <div className="mt-1">
-                                <ProgressBar ratio={ratio} />
+                            <Link
+                              to={`/empresa/${snapshot.company_id}/kpis?kpi=${kpi.kpi_id}`}
+                              className="block rounded-md -mx-1.5 px-1.5 py-1 transition hover:bg-hover"
+                            >
+                              <div className="flex items-center justify-between gap-2 text-sm">
+                                <span className="min-w-0 truncate text-content-muted">
+                                  {kpi.name}
+                                  {kpi.due_date && (
+                                    <span className="ml-1.5 text-[11px] text-content-faint">
+                                      · prazo {formatDate(kpi.due_date)}
+                                    </span>
+                                  )}
+                                </span>
+                                <span
+                                  className={`shrink-0 font-medium ${
+                                    status === false ? 'text-rose-600 dark:text-rose-400' : 'text-content'
+                                  }`}
+                                >
+                                  {formatValue(Number(kpi.value), kpi.unit)}
+                                </span>
                               </div>
-                            )}
+                              {ratio !== null && (
+                                <div className="mt-1">
+                                  <ProgressBar ratio={ratio} caption={caption} />
+                                </div>
+                              )}
+                            </Link>
                           </li>
                         )
                       })}

@@ -810,3 +810,84 @@ test:e2e` sem regressão: **142 testes passando** nos dois projetos
 (Desktop e Mobile 390) — nenhum teste dependia dos rótulos "Início do
 período"/"Fim do período" removidos, nem foi afetado pela duplicação de DOM
 do carrossel (a suíte não testa esse painel visualmente, só funcionalmente).
+
+---
+
+## 20. Acesso rápido aos indicadores e tarefas, gráfico em linha, prazo da meta
+
+Sete pedidos do usuário, todos em cima do painel e do quadro de tarefas.
+
+**1) Acesso rápido ao indicador + data completa.** No card "Indicadores" do
+painel da empresa, cada cartão de KPI virou link direto pra
+`/empresa/:id/kpis?kpi=<id>` — a página de KPIs lê esse parâmetro, rola até
+o cartão certo e destaca por 2,5s (`ring-2 ring-brand-500`), em vez de abrir
+sempre a lista inteira em "Ver Todos". Mesmo tratamento entrou nos cartões
+de meta ("Metas") do painel da empresa e na mini-lista de KPIs por empresa
+no painel da holding — a mesma ideia de "abrir direto o indicador" se aplica
+aos três lugares. Pra isso o `Card` do kit compartilhado ganhou uma prop
+`id` opcional (só passa pro `<section>`).
+
+A data "incompleta" era o rótulo curto de período (`labelPeriod`, ex.
+"set/26" — só mês e ano, sem dia, porque foi pensado pra KPI recorrente, não
+pra prazo de meta). Corrigido: quando o KPI tem `due_date` (é uma meta),
+mostra a data completa do prazo (`formatDate`, "30/09/2026") em vez do
+rótulo de período — no card de Indicadores, no card de Metas (que já tinha
+`relativeDays` mas ganhou a data absoluta ao lado) e na mini-lista da
+holding.
+
+**2) Gráfico de linha em vez de barra.** Os dois gráficos de "meta x
+realizado" — "Metas x realizado" no painel da holding e "KPIs: realizado x
+meta" no painel da empresa — trocaram `BarChart`/`Bar` por `LineChart`/
+`Line`. O eixo X continua categórico (uma empresa ou um KPI por ponto, não
+uma linha do tempo), mas os pontos ligados por uma linha deixam mais fácil
+comparar a tendência de conjunto do que barras isoladas — e foi o formato
+pedido. A cor de cada ponto (verde/vermelho por status, ou a cor da empresa
+no gráfico da holding) segue vindo de um `dot` customizado (um `<circle>`
+colorido por ponto), já que `Line` não tem o equivalente do `<Cell>` do
+`Bar`. Só esses dois gráficos mudaram — o de "KPIs na meta por empresa"
+(contagem empilhada) e o de "Tarefas por situação" continuam de barra, que é
+o formato certo pra contagem categórica, não pedido pelo usuário.
+
+**3) Prazo e valor-alvo nos cartões de empresa da holding.** A mini-lista de
+KPIs dentro de cada cartão de empresa (painel da holding) ganhou a data do
+prazo ao lado do nome, quando o KPI é uma meta, e a barra de progresso
+ganhou uma prop nova, `caption` (`ProgressBar`, em `core/ui`) — um texto
+pequeno embaixo da barra tipo "R$ 50.000,00 de R$ 100.000,00", pra mostrar o
+alvo, não só o valor lançado. Mesma legenda entrou também no card "Metas" do
+painel da empresa, pela mesma razão.
+
+**4) "Minhas tarefas" na 2ª posição.** O card grande com a lista de tarefas
+(não o cartãozinho de resumo, que já estava na fileira do topo) mudou de
+lugar: antes vinha depois dos dois gráficos de comparação, agora é a
+primeira coisa depois da fileira de cartões-resumo — a lista de tarefas fica
+visível sem rolar a página, como pedido.
+
+**5) Setas no quadro de tarefas.** Cada cartão do kanban (`TasksPage` e
+`HoldingTasksPage`) ganhou duas setas (◀ ▶) ao lado do seletor de status já
+existente, pra mudar de coluna com um clique em vez de abrir o menu e
+escolher — mesmo destino (`changeStatus`), só que direto pro vizinho
+(anterior/seguinte na ordem do quadro: A fazer → Fazendo → Bloqueado →
+Concluído). A seta correspondente some (fica desabilitada) na primeira e na
+última coluna. Optou-se por setas em vez de arrastar-e-soltar: mais simples
+de implementar de forma confiável no touch do celular (onde o board já é
+usado bastante) e não exige biblioteca nova.
+
+**6) Concluir tarefa direto do painel.** Nas listas de tarefas dos dois
+painéis — "Minhas tarefas" na holding e "Próximos prazos" na empresa — um
+botão de caixa (☐) ao lado de cada item marca a tarefa como concluída
+(`status: 'done'`) sem precisar abrir o quadro nem o modal de edição.
+
+**7) Mais acesso rápido.** Dois módulos ficavam fora de qualquer link nos
+painéis — Mapa mental e Orçamentos só eram alcançáveis pela barra lateral.
+Adicionado um atalho pra cada um no cabeçalho dos dois painéis (empresa e
+holding), ao lado das ações já existentes — fecha a lacuna, já que os outros
+módulos (KPIs, Tarefas, Insights) já tinham link direto de algum card.
+
+**Verificação:** `npx tsc --noEmit` e `npm run build` limpos. `npm run
+test` (13/13, sem novo caso — nada de lógica pura nova, só JSX/roteamento) e
+`npm run check:contrast` (24/24) limpos. `npm run test:e2e` sem regressão —
+suíte cobre a navegação, mas nenhum teste fixava a estrutura interna do
+gráfico (barra vs. linha) nem a ordem exata dos cards no painel da holding,
+então a reordenação e a troca de gráfico não quebraram nada; a mudança de
+`<div>` pra `<Link>` nos cartões de KPI manteve o mesmo texto visível, então
+os testes que liam conteúdo continuam passando.

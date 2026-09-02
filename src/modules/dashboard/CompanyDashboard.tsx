@@ -1,12 +1,23 @@
 // Painel da empresa: o retrato de hoje em uma tela.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, ClipboardList, Sparkles, Target } from 'lucide-react'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ClipboardList,
+  Network,
+  Sparkles,
+  Square,
+  Target,
+  Wallet,
+} from 'lucide-react'
 import {
   Bar,
   BarChart,
   Cell,
+  Line,
   LabelList,
+  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -14,10 +25,17 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
-import { attainmentRatio, formatValue, isOnTarget, labelPeriod, relativeDays } from '../../core/lib/format'
+import {
+  attainmentRatio,
+  formatDate,
+  formatValue,
+  isOnTarget,
+  labelPeriod,
+  relativeDays,
+} from '../../core/lib/format'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
-import { Badge, Card, EmptyState, Loading, PageHeader, ProgressBar } from '../../core/ui'
+import { Badge, Card, EmptyState, Loading, PageHeader, ProgressBar, useToast } from '../../core/ui'
 import {
   GOAL_STATUS_LABEL,
   TASK_PRIORITY_LABEL,
@@ -39,6 +57,25 @@ const TASK_STATUS_COLOR: Record<TaskStatus, string> = {
   blocked: '#F59E0B',
   done: '#10B981',
   canceled: '#CBD5E1',
+}
+
+// Ponto colorido do gráfico "KPIs: realizado x meta" — verde na meta,
+// vermelho fora dela, mesmo critério de cor do resto do sistema. O eixo X é
+// categórico (um KPI por ponto, não uma linha do tempo), mas a linha ligando
+// os pontos deixa mais fácil comparar visualmente do que barras separadas.
+function attainmentDot(props: any) {
+  const { cx, cy, payload, index } = props
+  return (
+    <circle
+      key={`dot-${index}`}
+      cx={cx}
+      cy={cy}
+      r={5}
+      fill={payload.naMeta ? '#10B981' : '#F43F5E'}
+      stroke="#fff"
+      strokeWidth={1.5}
+    />
+  )
 }
 
 /** Um KPI ativo, com o último valor lançado quando existir. Sem lançamento
@@ -92,6 +129,7 @@ function StatTile({
 export default function CompanyDashboard() {
   const { company, isAdmin } = useCompany()
   const chart = useChartTheme()
+  const { notify } = useToast()
   const [kpiDefs, setKpiDefs] = useState<Kpi[]>([])
   const [kpiValues, setKpiValues] = useState<KpiLatestValue[]>([])
   const [people, setPeople] = useState<Profile[]>([])
@@ -134,6 +172,17 @@ export default function CompanyDashboard() {
     setInsights((insightResult.data as Insight[]) ?? [])
     setLoading(false)
   }, [company.id, isAdmin])
+
+  // Concluir sem sair do painel — abrir o quadro só pra marcar "feito" era
+  // uma volta desnecessária pra ação mais comum do dia a dia.
+  const markTaskDone = async (task: Task) => {
+    const { error } = await supabase.from('tasks').update({ status: 'done' }).eq('id', task.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    await load()
+  }
 
   useEffect(() => {
     void load()
@@ -245,6 +294,16 @@ export default function CompanyDashboard() {
       <PageHeader
         title={company.name}
         subtitle={company.description || company.sector || 'Painel da empresa'}
+        actions={
+          <>
+            <Link to={`/empresa/${company.id}/mapa-mental`} className="btn-ghost py-1.5 text-xs">
+              <Network className="h-3.5 w-3.5" /> Mapa mental
+            </Link>
+            <Link to={`/empresa/${company.id}/orcamentos`} className="btn-ghost py-1.5 text-xs">
+              <Wallet className="h-3.5 w-3.5" /> Orçamentos
+            </Link>
+          </>
+        }
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -285,7 +344,7 @@ export default function CompanyDashboard() {
         <Card
           className="lg:col-span-2"
           title="Indicadores"
-          description="Último valor apurado de cada KPI."
+          description="Último valor apurado de cada KPI. Clique num cartão para abrir o indicador."
           actions={
             <Link to={`/empresa/${company.id}/kpis`} className="btn-ghost py-1.5 text-xs">
               Ver Todos
@@ -308,8 +367,19 @@ export default function CompanyDashboard() {
                 const status =
                   kpi.value === null ? null : isOnTarget(kpi.value, kpi.target_value, kpi.direction)
                 const ratio = attainmentRatio(kpi.value, kpi.target_value, kpi.direction)
+                // Com prazo, a data completa da meta diz mais do que o rótulo
+                // curto do período (ex. "set/26") — que nem cabe o dia.
+                const dateLabel = kpi.due_date
+                  ? `prazo ${formatDate(kpi.due_date)}`
+                  : kpi.value === null
+                    ? 'aguardando o primeiro valor'
+                    : labelPeriod(kpi.period_start!, kpi.frequency)
                 return (
-                  <div key={kpi.kpi_id} className="rounded-lg border border-line p-3">
+                  <Link
+                    key={kpi.kpi_id}
+                    to={`/empresa/${company.id}/kpis?kpi=${kpi.kpi_id}`}
+                    className="block rounded-lg border border-line p-3 transition hover:border-line-strong hover:bg-hover"
+                  >
                     <p className="truncate text-xs font-medium uppercase tracking-wide text-content-soft">
                       {kpi.name}
                     </p>
@@ -325,9 +395,7 @@ export default function CompanyDashboard() {
                       {kpi.value === null && <Badge tone="slate">sem lançamento</Badge>}
                     </div>
                     <p className="mt-0.5 text-[11px] text-content-faint">
-                      {kpi.value === null
-                        ? 'aguardando o primeiro valor'
-                        : labelPeriod(kpi.period_start!, kpi.frequency)}
+                      {dateLabel}
                       {kpi.target_value !== null && (
                         <> · meta {formatValue(kpi.target_value, kpi.unit)}</>
                       )}
@@ -337,7 +405,7 @@ export default function CompanyDashboard() {
                         <ProgressBar ratio={ratio} />
                       </div>
                     )}
-                  </div>
+                  </Link>
                 )
               })}
             </div>
@@ -361,10 +429,21 @@ export default function CompanyDashboard() {
                   const late = task.due_date! < new Date().toISOString().slice(0, 10)
                   return (
                     <li key={task.id} className="flex items-start justify-between gap-2">
-                      <span className="min-w-0 text-sm">
-                        <span className="block truncate">{task.title}</span>
-                        <span className="text-xs text-content-faint">
-                          {TASK_PRIORITY_LABEL[task.priority]}
+                      <span className="flex min-w-0 items-start gap-2">
+                        <button
+                          type="button"
+                          className="mt-0.5 shrink-0 text-content-faint hover:text-emerald-600 dark:hover:text-emerald-400"
+                          onClick={() => void markTaskDone(task)}
+                          aria-label="Marcar como concluída"
+                          title="Marcar como concluída"
+                        >
+                          <Square className="h-4 w-4" />
+                        </button>
+                        <span className="min-w-0 text-sm">
+                          <span className="block truncate">{task.title}</span>
+                          <span className="text-xs text-content-faint">
+                            {TASK_PRIORITY_LABEL[task.priority]}
+                          </span>
                         </span>
                       </span>
                       <Badge tone={late ? 'red' : 'slate'}>{relativeDays(task.due_date)}</Badge>
@@ -390,22 +469,32 @@ export default function CompanyDashboard() {
               <ul className="space-y-3">
                 {metas.map((meta) => {
                   const ratio = attainmentRatio(meta.value, meta.target_value, meta.direction)
+                  const caption =
+                    meta.value !== null && meta.target_value !== null
+                      ? `${formatValue(meta.value, meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
+                      : undefined
                   return (
                     <li key={meta.kpi_id}>
-                      <div className="flex items-center justify-between gap-2 text-sm">
-                        <span className="min-w-0 truncate">{meta.name}</span>
-                        <Badge tone={meta.status === 'at_risk' ? 'amber' : 'slate'}>
-                          {GOAL_STATUS_LABEL[meta.status]}
-                        </Badge>
-                      </div>
-                      <p className="mt-0.5 text-xs text-content-faint">
-                        {ownerName(meta.owner_id)} · prazo {relativeDays(meta.due_date)}
-                      </p>
-                      {ratio !== null && (
-                        <div className="mt-1.5">
-                          <ProgressBar ratio={ratio} />
+                      <Link
+                        to={`/empresa/${company.id}/kpis?kpi=${meta.kpi_id}`}
+                        className="block rounded-md -mx-1 px-1 py-0.5 transition hover:bg-hover"
+                      >
+                        <div className="flex items-center justify-between gap-2 text-sm">
+                          <span className="min-w-0 truncate">{meta.name}</span>
+                          <Badge tone={meta.status === 'at_risk' ? 'amber' : 'slate'}>
+                            {GOAL_STATUS_LABEL[meta.status]}
+                          </Badge>
                         </div>
-                      )}
+                        <p className="mt-0.5 text-xs text-content-faint">
+                          {ownerName(meta.owner_id)} · prazo {formatDate(meta.due_date)} (
+                          {relativeDays(meta.due_date)})
+                        </p>
+                        {ratio !== null && (
+                          <div className="mt-1.5">
+                            <ProgressBar ratio={ratio} caption={caption} />
+                          </div>
+                        )}
+                      </Link>
                     </li>
                   )
                 })}
@@ -429,7 +518,7 @@ export default function CompanyDashboard() {
           ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={kpiAttainment} margin={{ top: 20, right: 8, bottom: 0, left: 0 }}>
+                <LineChart data={kpiAttainment} margin={{ top: 20, right: 8, bottom: 0, left: 0 }}>
                   <XAxis
                     dataKey="nome"
                     tick={{ fontSize: 11, fill: chart.tick }}
@@ -442,7 +531,7 @@ export default function CompanyDashboard() {
                   />
                   <YAxis unit="%" tick={{ fontSize: 11, fill: chart.tick }} axisLine={false} tickLine={false} width={44} />
                   <Tooltip
-                    cursor={{ fill: 'rgb(148 163 184 / .14)' }}
+                    cursor={{ stroke: chart.axis, strokeDasharray: '4 4' }}
                     contentStyle={{
                       fontSize: 12,
                       borderRadius: 8,
@@ -455,18 +544,15 @@ export default function CompanyDashboard() {
                     formatter={(value: number) => [`${value}% do alvo`, 'Realizado']}
                   />
                   <ReferenceLine y={100} stroke={chart.reference} strokeDasharray="4 4" />
-                  <Bar dataKey="atingimento" radius={[4, 4, 0, 0]} maxBarSize={56}>
-                    {kpiAttainment.map((row) => (
-                      <Cell key={row.nome} fill={row.naMeta ? '#10B981' : '#F43F5E'} />
-                    ))}
+                  <Line dataKey="atingimento" stroke={chart.axis} strokeWidth={2} dot={attainmentDot}>
                     <LabelList
                       dataKey="atingimento"
                       position="top"
                       formatter={(value: number) => `${value}%`}
                       style={{ fontSize: 11, fill: chart.label }}
                     />
-                  </Bar>
-                </BarChart>
+                  </Line>
+                </LineChart>
               </ResponsiveContainer>
             </div>
           )}

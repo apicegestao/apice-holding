@@ -101,7 +101,9 @@ src/
     tasks/             tarefas: quem, o quê, prazo e lembrete padrão (dias
                        antes + horário) — com subtarefas e notas editáveis
                        dentro da própria tarefa; quadro por empresa e um
-                       consolidado de todo o grupo em /holding/tarefas
+                       consolidado de todo o grupo em /holding/tarefas; setas
+                       de avançar/voltar em cada cartão do quadro, e marcar
+                       como concluída direto dos painéis (sem abrir a tarefa)
     mindmap/           mapa mental arrastável, organograma, fluxo lógico ou
                        linha do tempo automático, ramifica pra qualquer
                        lado; nó vira tarefa e edita o texto nele mesmo;

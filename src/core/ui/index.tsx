@@ -37,12 +37,14 @@ export function PageHeader({
 }
 
 export function Card({
+  id,
   title,
   description,
   actions,
   children,
   className = '',
 }: {
+  id?: string
   title?: string
   description?: string
   actions?: ReactNode
@@ -50,7 +52,7 @@ export function Card({
   className?: string
 }) {
   return (
-    <section className={`card ${className}`}>
+    <section id={id} className={`card ${className}`}>
       {(title || actions) && (
         <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div>
@@ -121,7 +123,16 @@ export function Badge({
 // gráficos de atingimento já usam (verde na meta, vermelho fora dela), pra
 // contar a mesma história em todo lugar do sistema. `ratio` vem em fração
 // (1 = meta batida), já calculada por `attainmentRatio`.
-export function ProgressBar({ ratio, label }: { ratio: number | null; label?: string }) {
+export function ProgressBar({
+  ratio,
+  label,
+  caption,
+}: {
+  ratio: number | null
+  label?: string
+  /** Texto pequeno sob a barra — pra mostrar "lançado / meta", não só o %. */
+  caption?: string
+}) {
   if (ratio === null) return null
   const pct = Math.round(ratio * 100)
   const width = Math.max(0, Math.min(100, pct))
@@ -139,6 +150,7 @@ export function ProgressBar({ ratio, label }: { ratio: number | null; label?: st
       <div className="h-1.5 overflow-hidden rounded-full bg-hover">
         <div className={`h-full rounded-full transition-all ${tone}`} style={{ width: `${width}%` }} />
       </div>
+      {caption && <p className="mt-1 text-[11px] text-content-faint">{caption}</p>}
     </div>
   )
 }
