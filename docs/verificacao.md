@@ -1514,3 +1514,61 @@ regressão (`'daily'` fora de `FREQUENCIES`, presente em todo
 tela futura. `npm run test:e2e`: 190 testes, mesmo total (nenhuma fixture
 usava `frequency: 'daily'`, nenhum teste dependia da opção "Diário" no
 seletor de frequência principal). `npm run check:contrast`: sem mudança.
+
+## 27. Painel da empresa: cartões-resumo em carrossel + barras de progresso mais elegantes
+
+Dois pedidos juntos porque os dois mexem no mesmo topo de tela.
+
+**Cartões-resumo em carrossel:** os 4 cartões (KPIs na meta, Metas em
+aberto, Tarefas abertas, Tarefas vencidas) do painel da empresa
+(`CompanyDashboard`) viravam uma grade que, no celular, empilhava em 4
+linhas — a mesma coisa que o painel da holding já tinha resolvido com
+`CardCarousel` (item 59/rodada anterior): no celular vira carrossel (arrasta
+ou passa sozinho, com os pontinhos embaixo), do tablet pra cima continua
+grade normal. Mesmo padrão, letra por letra — os cartões são montados uma
+vez só (agora usando `StatTile`, que já existia, em vez dos `<div>` inline
+do painel da holding) e reaproveitados nos dois formatos. Resultado: no
+celular, o topo da tela cai de 4 fileiras de cartão pra 1 — é o "ganhar
+espaço na tela" do pedido.
+
+**Barras de progresso mais elegantes e com meta/performance mais evidentes**
+(`ProgressBar`, componente único usado em 15 lugares do sistema — painéis,
+KPIs, produtos, orçamentos): trinca de mudanças, todas dentro do componente
+compartilhado, então toda barra do sistema ganha de uma vez, sem tocar em
+cada tela que a usa.
+- **O % sempre aparece agora**, com ou sem `label`. Antes, uma barra sem
+  rótulo (bastante comum — cartão de produto, indicador na grade) não
+  mostrava número nenhum, só a barrinha; a informação de desempenho que a
+  barra existe pra contar ficava muda bem onde mais precisava aparecer.
+- **Degradê de severidade em vez de corte binário** (variante `goal`, a
+  meta a bater): antes era só verde a partir de 100%, vermelho antes disso;
+  agora é vermelho (< 70%), âmbar (70–99%) e verde (≥ 100%) — a régua nova é
+  só visual, não mexe no `status` (`at_risk` etc.) que já existe à parte
+  pra outras telas. A variante `spend` (execução de orçamento) continua
+  binária de propósito: não existe "quase estourando" ali, só estourou ou
+  não.
+- **Mais peso visual**: barra de 1.5px pra 2px, com sombra interna sutil e
+  preenchimento em degradê (mesmo tom, mais claro pro mais escuro) em vez de
+  cor chapada; o % ganhou negrito e tamanho maior (`text-sm font-semibold`,
+  antes `text-xs font-medium`); a legenda abaixo (`caption`, ex. "R$ 32.000
+  de R$ 100.000") também cresceu de 11px pra 12px e saiu do tom mais apagado
+  — em vários lugares é ali que o valor da meta aparece por extenso, e
+  ficava fácil de passar batido.
+
+Nada na API do componente mudou (`ratio`, `label`, `caption`, `variant`) —
+os 15 chamadores continuam exatamente como estavam, ganhando o visual novo
+de graça.
+
+**Verificação:** conferido visualmente com screenshot real do painel
+(empresa Vibra, dados de fixture) em desktop claro, desktop escuro e
+celular — carrossel com os pontinhos funcionando, barras com % em negrito
+bem legível nos três casos, faixa vermelha (64%, abaixo de 70%) e verdes
+(109%, 115%, 119%, 123%, todas ≥ 100%) renderizando a cor certa. `npx tsc
+--noEmit` e `npm run build` limpos. `npm run test`: 28 testes, sem mudança
+(mudança é só visual/layout, nenhuma lógica pura nova). `npm run
+check:contrast`: 24/24 — as três cores do degradê (`emerald`/`amber`/`rose`
+600 no claro, 400 no escuro) já eram usadas em badge e `StatTile` nos
+mesmos fundos, nenhum par novo. `npm run test:e2e`: 190 testes, mesmo total,
+incluindo o teste geral de "sem rolagem lateral" no celular (que cobre o
+carrossel novo) e o de CSP — nenhum teste prende no texto ou na estrutura
+interna dos cartões/barra, só no conteúdo visível, que não mudou.

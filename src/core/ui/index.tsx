@@ -120,9 +120,11 @@ export function Badge({
 }
 
 // Barra de progresso meta x realizado — mesmo critério de cor que os
-// gráficos de atingimento já usam (verde na meta, vermelho fora dela), pra
-// contar a mesma história em todo lugar do sistema. `ratio` vem em fração
-// (1 = meta batida), já calculada por `attainmentRatio`.
+// gráficos de atingimento já usam, pra contar a mesma história em todo
+// lugar do sistema. `ratio` vem em fração (1 = meta batida), já calculada
+// por `attainmentRatio`. O % sempre aparece (com ou sem `label`) — é a
+// informação de performance que a barra existe pra mostrar; escondê-la só
+// porque ninguém passou um rótulo deixava várias barras do sistema mudas.
 export function ProgressBar({
   ratio,
   label,
@@ -134,31 +136,44 @@ export function ProgressBar({
   /** Texto pequeno sob a barra — pra mostrar "lançado / meta", não só o %. */
   caption?: string
   /**
-   * 'goal' (padrão): é uma meta a bater — verde a partir de 100%, vermelho
-   * antes disso. 'spend': é execução de orçamento, não meta — passar de
-   * 100% aqui é estourar o previsto (ruim), então a cor é neutra até lá e só
-   * vira vermelho depois de estourar.
+   * 'goal' (padrão): é uma meta a bater — um degradê de severidade conforme
+   * se aproxima (longe = vermelho, perto = âmbar, batida = verde), não só um
+   * corte binário. 'spend': é execução de orçamento, não meta — passar de
+   * 100% aqui é estourar o previsto (ruim), e não tem "quase estourando", só
+   * estourou ou não, então a cor fica neutra até lá e só vira vermelho depois.
    */
   variant?: 'goal' | 'spend'
 }) {
   if (ratio === null) return null
   const pct = Math.round(ratio * 100)
-  const width = Math.max(0, Math.min(100, pct))
-  const over = variant === 'spend' ? pct > 100 : pct < 100
-  const tone = variant === 'spend' ? (over ? 'bg-rose-500' : 'bg-brand-500') : over ? 'bg-rose-500' : 'bg-emerald-500'
-  const pctColor = over ? 'text-rose-600 dark:text-rose-400' : variant === 'spend' ? 'text-content' : 'text-emerald-600 dark:text-emerald-400'
+  // Uma lasca sempre visível pra qualquer progresso real (por menor que
+  // seja) é mais honesta que uma barra que parece completamente vazia.
+  const width = pct <= 0 ? 0 : Math.max(3, Math.min(100, pct))
+
+  const tone =
+    variant === 'spend'
+      ? pct > 100
+        ? { bar: 'from-rose-500 to-rose-600', text: 'text-rose-600 dark:text-rose-400' }
+        : { bar: 'from-brand-400 to-brand-600', text: 'text-content' }
+      : pct >= 100
+        ? { bar: 'from-emerald-400 to-emerald-600', text: 'text-emerald-600 dark:text-emerald-400' }
+        : pct >= 70
+          ? { bar: 'from-amber-400 to-amber-600', text: 'text-amber-600 dark:text-amber-400' }
+          : { bar: 'from-rose-400 to-rose-500', text: 'text-rose-600 dark:text-rose-400' }
+
   return (
     <div>
-      {label && (
-        <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-          <span className="min-w-0 truncate text-content-soft">{label}</span>
-          <span className={`shrink-0 font-medium ${pctColor}`}>{pct}%</span>
-        </div>
-      )}
-      <div className="h-1.5 overflow-hidden rounded-full bg-hover">
-        <div className={`h-full rounded-full transition-all ${tone}`} style={{ width: `${width}%` }} />
+      <div className={`mb-1.5 flex items-end gap-2 ${label ? 'justify-between' : 'justify-end'}`}>
+        {label && <span className="min-w-0 truncate text-xs text-content-soft">{label}</span>}
+        <span className={`shrink-0 text-sm font-semibold leading-none tabular-nums ${tone.text}`}>{pct}%</span>
       </div>
-      {caption && <p className="mt-1 text-[11px] text-content-faint">{caption}</p>}
+      <div className="h-2 overflow-hidden rounded-full bg-hover shadow-inner">
+        <div
+          className={`h-full rounded-full bg-gradient-to-r transition-all duration-500 ${tone.bar}`}
+          style={{ width: `${width}%` }}
+        />
+      </div>
+      {caption && <p className="mt-1.5 text-xs text-content-soft">{caption}</p>}
     </div>
   )
 }

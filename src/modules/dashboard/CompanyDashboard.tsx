@@ -36,7 +36,7 @@ import {
 import { buildChildrenByParent, effectiveKpiValue } from '../../core/lib/kpiRollup'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
-import { Badge, Card, EmptyState, Loading, PageHeader, ProgressBar, useToast } from '../../core/ui'
+import { Badge, Card, CardCarousel, EmptyState, Loading, PageHeader, ProgressBar, useToast } from '../../core/ui'
 import {
   GOAL_STATUS_LABEL,
   TASK_PRIORITY_LABEL,
@@ -387,39 +387,58 @@ export default function CompanyDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile
-          label="KPIs na meta"
-          value={`${stats.onTarget.length}/${stats.onTarget.length + stats.offTarget.length}`}
-          hint={
-            stats.noValue > 0
-              ? `${kpiRows.length} indicadores · ${stats.noValue} sem lançamento`
-              : `${kpiRows.length} indicadores`
-          }
-          tone={stats.offTarget.length === 0 ? 'green' : 'slate'}
-          icon={CheckCircle2}
-        />
-        <StatTile
-          label="Metas em aberto"
-          value={metas.length}
-          hint={`${metas.filter((meta) => meta.status === 'at_risk').length} em risco`}
-          tone={metas.some((meta) => meta.status === 'at_risk') ? 'amber' : 'slate'}
-          icon={Target}
-        />
-        <StatTile
-          label="Tarefas abertas"
-          value={stats.open.length}
-          hint={`${tasks.filter((task) => task.status === 'done').length} concluídas`}
-          icon={ClipboardList}
-        />
-        <StatTile
-          label="Tarefas vencidas"
-          value={stats.overdue.length}
-          tone={stats.overdue.length > 0 ? 'red' : 'green'}
-          hint={stats.overdue.length ? 'precisam de atenção' : 'nada atrasado'}
-          icon={AlertTriangle}
-        />
-      </div>
+      {/* Cartões de resumo — no celular viram carrossel (arrasta com o dedo
+          ou espera passar sozinho) pra caber tudo no topo sem ocupar a tela
+          toda; do tablet pra cima é grid de sempre. Mesmo padrão do painel
+          da holding — os cartões são montados uma vez só e reaproveitados
+          nos dois. */}
+      {(() => {
+        const cards = [
+          <StatTile
+            key="kpis"
+            label="KPIs na meta"
+            value={`${stats.onTarget.length}/${stats.onTarget.length + stats.offTarget.length}`}
+            hint={
+              stats.noValue > 0
+                ? `${kpiRows.length} indicadores · ${stats.noValue} sem lançamento`
+                : `${kpiRows.length} indicadores`
+            }
+            tone={stats.offTarget.length === 0 ? 'green' : 'slate'}
+            icon={CheckCircle2}
+          />,
+          <StatTile
+            key="metas"
+            label="Metas em aberto"
+            value={metas.length}
+            hint={`${metas.filter((meta) => meta.status === 'at_risk').length} em risco`}
+            tone={metas.some((meta) => meta.status === 'at_risk') ? 'amber' : 'slate'}
+            icon={Target}
+          />,
+          <StatTile
+            key="tarefas"
+            label="Tarefas abertas"
+            value={stats.open.length}
+            hint={`${tasks.filter((task) => task.status === 'done').length} concluídas`}
+            icon={ClipboardList}
+          />,
+          <StatTile
+            key="vencidas"
+            label="Tarefas vencidas"
+            value={stats.overdue.length}
+            tone={stats.overdue.length > 0 ? 'red' : 'green'}
+            hint={stats.overdue.length ? 'precisam de atenção' : 'nada atrasado'}
+            icon={AlertTriangle}
+          />,
+        ]
+        return (
+          <>
+            <div className="sm:hidden">
+              <CardCarousel items={cards} />
+            </div>
+            <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-4">{cards}</div>
+          </>
+        )
+      })()}
 
       {products.length > 0 && (
         <Card
