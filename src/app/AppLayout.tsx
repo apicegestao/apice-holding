@@ -109,7 +109,7 @@ export default function AppLayout() {
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-slate-50 text-ink-900">
         <div className="flex items-center justify-between gap-4 px-4 py-2.5 sm:px-6">
           <button type="button" onClick={() => navigate('/')} className="text-left">
-            <Logo size={28} withWordmark subtitle="Gestão do grupo" />
+            <Logo size={34} withWordmark subtitle="Gestão do grupo" />
           </button>
 
           <div className="flex items-center gap-2">

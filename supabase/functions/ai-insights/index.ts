@@ -120,7 +120,6 @@ async function holdingContext() {
   const { data: kpis } = await admin
     .from('kpi_latest_values')
     .select('company_id, name, value, target_value, unit, direction, period_start')
-    .eq('roll_up', true)
     .limit(300)
 
   const { data: companies } = await admin.from('companies').select('id, name, sector')

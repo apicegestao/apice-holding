@@ -83,7 +83,6 @@ export type Kpi = {
   direction: KpiDirection
   frequency: KpiFrequency
   target_value: number | null
-  roll_up: boolean
   source: 'manual' | 'integration'
   integration_id: string | null
   display_order: number
@@ -326,5 +325,4 @@ export type KpiLatestValue = {
   direction: KpiDirection
   frequency: KpiFrequency
   category: string | null
-  roll_up: boolean
 }

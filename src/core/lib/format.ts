@@ -129,3 +129,76 @@ export function isOnTarget(value: number, target: number | null, direction: 'up'
   if (target === null || target === undefined) return null
   return direction === 'up' ? value >= target : value <= target
 }
+
+/**
+ * Lê um número digitado por gente. Aceita "1.000.000,00", "1000000",
+ * "R$ 1.234,56", "12,5%" e também o formato americano "1,234.56".
+ *
+ * Regra: se houver vírgula e ponto, o último dos dois é o decimal. Só vírgula,
+ * ela é o decimal. Só ponto, ele é separador de milhar quando vier seguido de
+ * exatamente três dígitos ("1.000" = mil) — em português é o que a pessoa quer
+ * dizer; "1.5" e "1.50" continuam sendo decimais.
+ */
+export function parseNumberInput(raw: string | null | undefined): number | null {
+  if (raw === null || raw === undefined) return null
+
+  const cleaned = raw.replace(/[^\d.,-]/g, '').trim()
+  if (!cleaned || cleaned === '-' || cleaned === ',' || cleaned === '.') return null
+
+  const negative = cleaned.trimStart().startsWith('-')
+  let body = cleaned.replace(/-/g, '')
+
+  const lastComma = body.lastIndexOf(',')
+  const lastDot = body.lastIndexOf('.')
+
+  let decimal = ''
+  if (lastComma !== -1 && lastDot !== -1) {
+    decimal = lastComma > lastDot ? ',' : '.'
+  } else if (lastComma !== -1) {
+    decimal = ','
+  } else if (lastDot !== -1) {
+    const digitsAfter = body.length - lastDot - 1
+    const dots = body.split('.').length - 1
+    decimal = dots === 1 && digitsAfter !== 3 ? '.' : ''
+  }
+
+  if (decimal) {
+    const grouping = decimal === ',' ? '.' : ','
+    body = body.split(grouping).join('')
+    const index = body.lastIndexOf(decimal)
+    body = `${body.slice(0, index).split(decimal).join('')}.${body.slice(index + 1)}`
+  } else {
+    body = body.replace(/[.,]/g, '')
+  }
+
+  if (body === '' || body === '.') return null
+  const parsed = Number(body)
+  if (!Number.isFinite(parsed)) return null
+  return negative ? -parsed : parsed
+}
+
+/** Como o número aparece no campo quando ele perde o foco. */
+export function formatNumberInput(value: number | null | undefined, unit: KpiUnit = 'number') {
+  if (value === null || value === undefined || Number.isNaN(value)) return ''
+  const fractionDigits = unit === 'currency' ? 2 : unit === 'percent' ? 2 : 4
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: unit === 'currency' ? 2 : 0,
+    maximumFractionDigits: fractionDigits,
+  }).format(value)
+}
+
+/** Prefixo e sufixo mostrados junto ao campo, conforme a unidade do indicador. */
+export function unitAffix(unit: KpiUnit): { prefix?: string; suffix?: string } {
+  switch (unit) {
+    case 'currency':
+      return { prefix: 'R$' }
+    case 'percent':
+      return { suffix: '%' }
+    case 'days':
+      return { suffix: 'dias' }
+    case 'ratio':
+      return { suffix: 'x' }
+    default:
+      return {}
+  }
+}

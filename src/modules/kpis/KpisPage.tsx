@@ -31,6 +31,7 @@ import {
   Field,
   Loading,
   Modal,
+  NumberInput,
   PageHeader,
   Spinner,
   useToast,
@@ -57,8 +58,7 @@ const emptyKpi = {
   unit: 'number' as KpiUnit,
   direction: 'up' as KpiDirection,
   frequency: 'monthly' as KpiFrequency,
-  target_value: '',
-  roll_up: true,
+  target_value: null as number | null,
   is_active: true,
 }
 
@@ -181,8 +181,7 @@ export default function KpisPage() {
       unit: kpi.unit,
       direction: kpi.direction,
       frequency: kpi.frequency,
-      target_value: kpi.target_value === null ? '' : String(kpi.target_value),
-      roll_up: kpi.roll_up,
+      target_value: kpi.target_value,
       is_active: kpi.is_active,
     })
     setError('')
@@ -201,8 +200,7 @@ export default function KpisPage() {
       unit: kpiForm.unit,
       direction: kpiForm.direction,
       frequency: kpiForm.frequency,
-      target_value: kpiForm.target_value === '' ? null : Number(kpiForm.target_value),
-      roll_up: kpiForm.roll_up,
+      target_value: kpiForm.target_value,
       is_active: kpiForm.is_active,
     }
 
@@ -400,7 +398,6 @@ export default function KpisPage() {
 
                 <div className="mt-4 flex items-center justify-between gap-2">
                   <div className="flex gap-1.5">
-                    {kpi.roll_up && <Badge tone="blue">consolidado</Badge>}
                     {kpi.source === 'integration' && <Badge tone="violet">integração</Badge>}
                   </div>
                   {canWrite && (
@@ -556,12 +553,10 @@ export default function KpisPage() {
               </select>
             </Field>
             <Field label="Meta">
-              <input
-                className="input"
-                type="number"
-                step="any"
+              <NumberInput
+                unit={kpiForm.unit}
                 value={kpiForm.target_value}
-                onChange={(event) => setKpiForm((c) => ({ ...c, target_value: event.target.value }))}
+                onChange={(target_value) => setKpiForm((c) => ({ ...c, target_value }))}
               />
             </Field>
           </div>
@@ -574,20 +569,6 @@ export default function KpisPage() {
             />
           </Field>
           <div className="space-y-2">
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={kpiForm.roll_up}
-                onChange={(event) => setKpiForm((c) => ({ ...c, roll_up: event.target.checked }))}
-              />
-              <span>
-                Mostrar no painel consolidado da holding
-                <span className="block text-xs text-slate-500">
-                  Continua visível só para quem tem acesso a esta empresa.
-                </span>
-              </span>
-            </label>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -662,7 +643,7 @@ function ValueEntryModal({
   const bounds = periodBounds(kpi.frequency)
   const [periodStart, setPeriodStart] = useState(bounds.start)
   const [periodEnd, setPeriodEnd] = useState(bounds.end)
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState<number | null>(null)
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -670,14 +651,14 @@ function ValueEntryModal({
   // Se já existe lançamento no período escolhido, o formulário vira edição.
   useEffect(() => {
     const found = existing.find((item) => item.period_start === periodStart)
-    setValue(found ? String(found.value) : '')
+    setValue(found ? Number(found.value) : null)
     setNote(found?.note ?? '')
   }, [periodStart, existing])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setError('')
-    if (value === '') {
+    if (value === null) {
       setError('Informe o valor apurado.')
       return
     }
@@ -689,7 +670,7 @@ function ValueEntryModal({
         company_id: companyId,
         period_start: periodStart,
         period_end: periodEnd,
-        value: Number(value),
+        value,
         note: note.trim() || null,
         source: 'manual',
       },
@@ -749,14 +730,7 @@ function ValueEntryModal({
           label={`Valor apurado (${UNIT_LABEL[kpi.unit]})`}
           hint={kpi.target_value !== null ? `Meta: ${formatValue(kpi.target_value, kpi.unit)}` : undefined}
         >
-          <input
-            className="input"
-            type="number"
-            step="any"
-            required
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-          />
+          <NumberInput unit={kpi.unit} required value={value} onChange={setValue} />
         </Field>
         <Field label="Observação">
           <textarea

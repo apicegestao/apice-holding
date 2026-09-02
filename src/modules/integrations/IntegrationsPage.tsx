@@ -16,6 +16,7 @@ import {
   Field,
   Loading,
   Modal,
+  NumberInput,
   PageHeader,
   Spinner,
   useToast,
@@ -609,7 +610,7 @@ function MappingModal({
   const { notify } = useToast()
   const [kpiId, setKpiId] = useState(kpis[0]?.id ?? '')
   const [jsonPath, setJsonPath] = useState('')
-  const [multiplier, setMultiplier] = useState('1')
+  const [multiplier, setMultiplier] = useState<number | null>(1)
   const [periodMode, setPeriodMode] = useState('current_month')
   const [busy, setBusy] = useState(false)
 
@@ -624,7 +625,7 @@ function MappingModal({
       company_id: integration.company_id,
       kpi_id: kpiId,
       json_path: jsonPath.trim(),
-      multiplier: Number(multiplier) || 1,
+      multiplier: multiplier ?? 1,
       period_mode: periodMode,
     })
     setBusy(false)
@@ -712,14 +713,8 @@ function MappingModal({
               />
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Multiplicador" hint="Ex.: 0.01 para converter centavos.">
-                <input
-                  className="input"
-                  type="number"
-                  step="any"
-                  value={multiplier}
-                  onChange={(event) => setMultiplier(event.target.value)}
-                />
+              <Field label="Multiplicador" hint="Ex.: 0,01 para converter centavos em reais.">
+                <NumberInput value={multiplier} onChange={setMultiplier} />
               </Field>
               <Field label="Período do lançamento">
                 <select

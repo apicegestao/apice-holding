@@ -142,9 +142,9 @@ depois de editar esse arquivo — ele copia para dentro de cada função.
 Todo o sistema aponta para `public/logo-apice.svg` — trocar esse arquivo,
 mantendo o nome, atualiza login, cabeçalho e favicon de uma vez.
 
-A marca é escura, então o componente `Logo` a envolve numa moldura branca com
-borda fina: assim ela se destaca tanto do cabeçalho claro quanto de um fundo
-escuro. O cabeçalho e o painel do login são claros pelo mesmo motivo.
+A marca é transparente e desenhada para fundo claro — por isso o cabeçalho e o
+painel do login são claros. Em fundo escuro, o componente `Logo` aceita a
+propriedade `framed`, que a envolve numa moldura branca.
 
 ## Integrações com outros sistemas
 
@@ -158,6 +158,15 @@ dados.faturamento_mes  →  KPI "Faturamento"  ·  mês atual  ·  ×1
 O caminho aceita ponto e colchete (`dados.totais[0].receita`). O valor vira um
 lançamento do KPI no período escolhido, e o histórico de execuções fica visível
 na própria tela.
+
+## Números digitados por gente
+
+`<input type="number">` não serve para o Brasil: o navegador só entende ponto
+decimal, então "1.000.000,00" vira 1. Todo campo numérico usa o componente
+`NumberInput`, apoiado em `parseNumberInput`, que lê "1.000.000,00", "1000000",
+"R$ 1.234,56", "12,5%" e até o formato americano "1,234.56", e reescreve o valor
+formatado quando o campo perde o foco. As regras estão fixadas em testes
+(`npm run test`).
 
 ## Celular
 

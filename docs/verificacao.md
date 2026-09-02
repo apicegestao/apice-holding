@@ -110,3 +110,28 @@ Integrações tinha 5 colunas e empurrava a página para 421 px. As tabelas larg
 passaram a rolar dentro do próprio cartão. Também encurtei o canvas do mapa
 mental e escondi as colunas vazias do quadro de tarefas em tela pequena, que
 gastavam meia tela sem informação.
+
+---
+
+## 7. Campos numéricos
+
+O `<input type="number">` do navegador só aceita ponto decimal: digitar
+`1.000.000,00` resultava em **1**. Todos os campos numéricos passaram a usar o
+componente `NumberInput`.
+
+**Testes unitários** (`npm run test`, 9 casos) cobrem o interpretador:
+formato brasileiro com milhar e decimal, número solto, símbolos de moeda e
+porcentagem, formato americano, negativos, entradas vazias ou inválidas, e a
+ida-e-volta valor → texto formatado → valor.
+
+**Teste no navegador**, interceptando o que sai para o banco:
+
+| Digitado | Campo mostra | Enviado ao banco |
+| --- | --- | --- |
+| `1.000.000,00` (meta do KPI) | `1.000.000,00` | `1000000` |
+| `2.750.480,35` (lançamento) | `2.750.480,35` | `2750480.35` |
+| `500000` (alvo da meta) | `500.000,00` | `500000` |
+| `123.456,78` (realizado) | `123.456,78` | `123456.78` |
+
+As 16 rotas e os 2 modais foram percorridos de novo, no computador e a 390 px,
+sem erro de console e sem rolagem lateral.

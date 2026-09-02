@@ -25,7 +25,7 @@ export default function LoginPage() {
   return (
     <div className="grid min-h-full lg:grid-cols-2">
       <div className="hidden flex-col justify-between border-r border-slate-200 bg-gradient-to-br from-brand-50 via-white to-slate-100 p-10 lg:flex">
-        <Logo size={40} withWordmark />
+        <Logo size={48} withWordmark />
         <div className="max-w-md">
           <h1 className="text-3xl font-semibold leading-tight text-ink-900">
             Uma visão só, para todas as empresas do grupo.
@@ -40,7 +40,7 @@ export default function LoginPage() {
 
       <div className="flex items-center justify-center p-6">
         <form onSubmit={submit} className="card w-full max-w-sm p-6">
-          <Logo size={40} className="mb-4 lg:hidden" />
+          <Logo size={44} className="mb-4 lg:hidden" />
           <h2 className="text-lg font-semibold">Entrar</h2>
           <p className="mt-1 text-sm text-slate-500">
             Use o e-mail cadastrado pelo administrador.

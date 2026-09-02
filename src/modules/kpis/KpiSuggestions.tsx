@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { Check, Search } from 'lucide-react'
 import { KPI_CATALOG, KPI_CATEGORIES, type KpiTemplate } from '../../core/catalog'
-import { formatValue } from '../../core/lib/format'
+import { unitAffix } from '../../core/lib/format'
 import { FREQUENCY_LABEL } from '../../core/types'
 
 export default function KpiSuggestions({
@@ -121,7 +121,8 @@ export default function KpiSuggestions({
                     <span className="mt-1 block text-[11px] text-slate-400">
                       {template.category} · {FREQUENCY_LABEL[template.frequency]} ·{' '}
                       {template.direction === 'up' ? 'quanto maior, melhor' : 'quanto menor, melhor'}
-                      {template.unit === 'currency' && ` · em ${formatValue(0, 'currency').slice(0, 2)}`}
+                      {unitAffix(template.unit).prefix && ` · em ${unitAffix(template.unit).prefix}`}
+                      {unitAffix(template.unit).suffix && ` · em ${unitAffix(template.unit).suffix}`}
                     </span>
                   </span>
                 </button>

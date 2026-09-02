@@ -14,6 +14,7 @@ import {
   Field,
   Loading,
   Modal,
+  NumberInput,
   PageHeader,
   Spinner,
   useToast,
@@ -42,8 +43,8 @@ const emptyGoal = {
   title: '',
   description: '',
   kpi_id: '',
-  target_value: '',
-  current_value: '0',
+  target_value: null as number | null,
+  current_value: 0 as number | null,
   unit: 'number' as KpiUnit,
   start_date: new Date().toISOString().slice(0, 10),
   due_date: '',
@@ -105,8 +106,8 @@ export default function GoalsPage() {
       title: goal.title,
       description: goal.description ?? '',
       kpi_id: goal.kpi_id ?? '',
-      target_value: goal.target_value === null ? '' : String(goal.target_value),
-      current_value: String(goal.current_value),
+      target_value: goal.target_value,
+      current_value: Number(goal.current_value),
       unit: goal.unit,
       start_date: goal.start_date,
       due_date: goal.due_date ?? '',
@@ -131,8 +132,8 @@ export default function GoalsPage() {
       title: form.title.trim(),
       description: form.description.trim() || null,
       kpi_id: form.kpi_id || null,
-      target_value: form.target_value === '' ? null : Number(form.target_value),
-      current_value: Number(form.current_value) || 0,
+      target_value: form.target_value,
+      current_value: form.current_value ?? 0,
       unit: form.unit,
       start_date: form.start_date,
       due_date: form.due_date || null,
@@ -341,10 +342,7 @@ export default function GoalsPage() {
                   ...c,
                   kpi_id: event.target.value,
                   unit: kpi ? kpi.unit : c.unit,
-                  target_value:
-                    kpi?.target_value !== null && kpi?.target_value !== undefined
-                      ? String(kpi.target_value)
-                      : c.target_value,
+                  target_value: kpi?.target_value ?? c.target_value,
                 }))
               }}
             >
@@ -359,21 +357,17 @@ export default function GoalsPage() {
 
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Alvo">
-              <input
-                className="input"
-                type="number"
-                step="any"
+              <NumberInput
+                unit={form.unit}
                 value={form.target_value}
-                onChange={(event) => setForm((c) => ({ ...c, target_value: event.target.value }))}
+                onChange={(target_value) => setForm((c) => ({ ...c, target_value }))}
               />
             </Field>
             <Field label="Hoje">
-              <input
-                className="input"
-                type="number"
-                step="any"
+              <NumberInput
+                unit={form.unit}
                 value={form.current_value}
-                onChange={(event) => setForm((c) => ({ ...c, current_value: event.target.value }))}
+                onChange={(current_value) => setForm((c) => ({ ...c, current_value }))}
               />
             </Field>
             <Field label="Unidade">

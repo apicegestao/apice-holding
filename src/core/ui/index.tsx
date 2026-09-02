@@ -11,6 +11,9 @@ import {
 } from 'react'
 import { AlertTriangle, CheckCircle2, Info, Loader2, X } from 'lucide-react'
 
+export { NumberInput } from './NumberInput'
+export { Logo } from './Logo'
+
 // ------------------------------------------------------------------ blocos
 export function PageHeader({
   title,

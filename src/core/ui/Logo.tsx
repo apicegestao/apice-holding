@@ -1,14 +1,14 @@
 // Marca da Ápice. O arquivo vive em /public/logo-apice.svg — trocar aquele
 // arquivo pelo oficial atualiza login, cabeçalho e qualquer outro uso.
-// A marca é escura, então vai sempre dentro de uma moldura branca: assim ela
-// se destaca tanto de um fundo claro quanto de um escuro.
+// A marca é transparente e usada sobre fundo claro. Em fundo escuro, passe
+// framed para envolvê-la numa moldura branca.
 export function Logo({
   size = 32,
   withWordmark = false,
   subtitle,
   className = '',
   tone = 'dark',
-  framed = true,
+  framed = false,
 }: {
   size?: number
   withWordmark?: boolean
