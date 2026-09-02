@@ -7,7 +7,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { formatDateTime, initials } from '../../core/lib/format'
-import { ErrorText, Field, Modal, Spinner, useToast } from '../../core/ui'
+import { ConfirmDialog, ErrorText, Field, Modal, Spinner, useConfirmDelete, useToast } from '../../core/ui'
 import {
   TASK_PRIORITY_LABEL,
   TASK_STATUS_LABEL,
@@ -215,14 +215,14 @@ export default function TaskFormModal({
     if (updateError) notify(updateError.message, 'error')
   }
 
-  const removeChecklistItem = async (id: string) => {
-    const { error: deleteError } = await supabase.from('task_checklist_items').delete().eq('id', id)
+  const checklistDelete = useConfirmDelete<TaskChecklistItem>(async (item) => {
+    const { error: deleteError } = await supabase.from('task_checklist_items').delete().eq('id', item.id)
     if (deleteError) {
       notify(deleteError.message, 'error')
       return
     }
     if (task) await loadFollowUp(task.id)
-  }
+  })
 
   const addComment = async () => {
     const body = newComment.trim()
@@ -241,14 +241,14 @@ export default function TaskFormModal({
     await loadFollowUp(task.id)
   }
 
-  const removeComment = async (id: string) => {
-    const { error: deleteError } = await supabase.from('task_comments').delete().eq('id', id)
+  const commentDelete = useConfirmDelete<TaskComment>(async (comment) => {
+    const { error: deleteError } = await supabase.from('task_comments').delete().eq('id', comment.id)
     if (deleteError) {
       notify(deleteError.message, 'error')
       return
     }
     if (task) await loadFollowUp(task.id)
-  }
+  })
 
   const startEditingComment = (comment: TaskComment) => {
     setEditingCommentId(comment.id)
@@ -387,6 +387,7 @@ export default function TaskFormModal({
   const shareablePeople = allPeople.filter((person) => person.id !== profile?.id)
 
   return (
+    <>
     <Modal
       open={open}
       title={task ? 'Editar tarefa' : 'Nova tarefa'}
@@ -656,7 +657,7 @@ export default function TaskFormModal({
                       ) : (
                         <button
                           type="button"
-                          className={`flex-1 truncate text-left text-sm ${item.done ? 'text-content-faint line-through' : 'text-content'}`}
+                          className={`min-w-0 flex-1 truncate text-left text-sm ${item.done ? 'text-content-faint line-through' : 'text-content'}`}
                           onClick={() => setEditingChecklistId(item.id)}
                           title="Editar subtarefa"
                         >
@@ -666,7 +667,7 @@ export default function TaskFormModal({
                       <button
                         type="button"
                         className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
-                        onClick={() => void removeChecklistItem(item.id)}
+                        onClick={() => checklistDelete.ask(item)}
                         aria-label="Remover subtarefa"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -755,7 +756,7 @@ export default function TaskFormModal({
                             <button
                               type="button"
                               className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
-                              onClick={() => void removeComment(comment.id)}
+                              onClick={() => commentDelete.ask(comment)}
                               aria-label="Remover nota"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -790,5 +791,27 @@ export default function TaskFormModal({
         {error && <ErrorText>{error}</ErrorText>}
       </form>
     </Modal>
+
+    <ConfirmDialog
+      open={checklistDelete.target !== null}
+      title="Excluir subtarefa?"
+      message={`Isso remove "${checklistDelete.target?.title}" da lista. Não dá pra desfazer.`}
+      confirmLabel="Excluir"
+      danger
+      busy={checklistDelete.busy}
+      onConfirm={() => void checklistDelete.confirm()}
+      onCancel={checklistDelete.cancel}
+    />
+    <ConfirmDialog
+      open={commentDelete.target !== null}
+      title="Excluir nota?"
+      message="Essa nota some do histórico da tarefa. Não dá pra desfazer."
+      confirmLabel="Excluir"
+      danger
+      busy={commentDelete.busy}
+      onConfirm={() => void commentDelete.confirm()}
+      onCancel={commentDelete.cancel}
+    />
+    </>
   )
 }

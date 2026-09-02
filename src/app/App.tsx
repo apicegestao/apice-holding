@@ -14,6 +14,7 @@ import KpisPage from '../modules/kpis/KpisPage'
 import TasksPage from '../modules/tasks/TasksPage'
 import HoldingTasksPage from '../modules/tasks/HoldingTasksPage'
 import MindMapPage from '../modules/mindmap/MindMapPage'
+import BudgetsPage from '../modules/budgets/BudgetsPage'
 import IntegrationsPage from '../modules/integrations/IntegrationsPage'
 import InsightsPage from '../modules/insights/InsightsPage'
 import UsersPage from '../modules/users/UsersPage'
@@ -134,6 +135,14 @@ export default function App() {
           }
         />
         <Route
+          path="/holding/orcamentos"
+          element={
+            <HoldingOnly>
+              <BudgetsPage scope="holding" />
+            </HoldingOnly>
+          }
+        />
+        <Route
           path="/holding/insights"
           element={
             <HoldingOnly>
@@ -167,6 +176,7 @@ export default function App() {
           <Route path="metas" element={<Navigate to="../kpis" replace />} />
           <Route path="tarefas" element={<TasksPage />} />
           <Route path="mapa-mental" element={<MindMapPage />} />
+          <Route path="orcamentos" element={<BudgetsPage />} />
           <Route path="integracoes" element={<IntegrationsPage />} />
           <Route path="insights" element={<InsightsPage scope="company" />} />
           <Route path="equipe" element={<UsersPage scope="company" />} />

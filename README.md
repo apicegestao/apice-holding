@@ -98,9 +98,15 @@ src/
                        antes + horário) — com subtarefas e notas editáveis
                        dentro da própria tarefa; quadro por empresa e um
                        consolidado de todo o grupo em /holding/tarefas
-    mindmap/           mapa mental arrastável, organograma ou fluxo lógico
-                       automático, ramifica pra qualquer lado; nó vira
-                       tarefa e edita o texto nele mesmo
+    mindmap/           mapa mental arrastável, organograma, fluxo lógico ou
+                       linha do tempo automático, ramifica pra qualquer
+                       lado; nó vira tarefa e edita o texto nele mesmo;
+                       editar um nó abre um botão/modal, não uma barra
+                       lateral fixa — o canvas fica com o espaço todo
+    budgets/           orçamento por evento/projeto: linhas de receita e
+                       despesa (cotação → aprovado → pago/recebido, previsto
+                       e realizado lado a lado) e projeção de caixa por mês,
+                       por empresa e consolidado na holding
     integrations/      conectores REST e mapeamento campo → KPI
     insights/          insights gerados por IA
     users/             acessos por empresa e do grupo
@@ -116,7 +122,7 @@ Cada módulo é uma pasta fechada: mexer em Tarefas não obriga a abrir KPIs.
 | --- | --- | --- |
 | `admin-users` | sim | cria acesso com senha padrão, reseta senha, muda papel, inativa e exclui cadastro |
 | `admin-settings` | sim | lê e grava as configurações da holding (chave da IA mascarada na leitura) |
-| `ai-insights` | sim | monta o retrato de KPIs/metas/tarefas e pede insights ao provedor configurado |
+| `ai-insights` | sim | monta o retrato de KPIs/metas, tarefas, mapa mental, orçamentos e integrações, e pede insights ao provedor configurado |
 | `integrations-sync` | não | sincroniza integrações; autentica por JWT (manual) ou header assinado (cron) |
 
 `integrations-sync` roda sem `verify_jwt` porque o pg_cron não tem JWT — a
@@ -128,6 +134,7 @@ gerado no banco.
 | Job | Frequência | O que faz |
 | --- | --- | --- |
 | `apice_task_reminders` | a cada 5 min | dois lembretes automáticos por tarefa com prazo: N dias antes (menu suspenso, 1-15) e no próprio dia — ambos calculados pelo banco a partir de prazo + horário, nunca digitados |
+| `apice_daily_task_digest` | diário, 7:30 (Brasília) | uma notificação por pessoa e por empresa com o resumo das tarefas que vencem naquele dia |
 | `apice_integrations_sync` | a cada 5 min | chama `integrations-sync` para as integrações que já venceram o intervalo |
 
 ## Inteligência artificial
@@ -145,7 +152,8 @@ depois de editar esse arquivo — ele copia para dentro de cada função.
 
 **O retrato que a IA recebe é o sistema inteiro, não só KPIs.** Em
 `supabase/functions/ai-insights/index.ts`, `MODULE_READERS` é a lista de
-leitores — um por módulo (KPIs/metas, tarefas, mapa mental, integrações) —
+leitores — um por módulo (KPIs/metas, tarefas, mapa mental, orçamentos,
+integrações) —
 que juntos montam o contexto de uma empresa numa chamada só, para a IA poder
 cruzar sinais entre módulos (uma integração parada, o KPI que ela alimenta
 sem lançamento, a tarefa atrasada que resolveria isso). Um módulo novo no
@@ -210,16 +218,24 @@ rotas são auditadas a 390 px de largura: nenhuma pode gerar rolagem horizontal
 da página. Cada grid com colunas responsivas define uma coluna explícita
 também no celular (`grid-cols-1`), tabelas largas rolam dentro do próprio
 cartão (`overflow-x-auto` + `min-w`), o quadro de tarefas empilha as colunas e
-esconde as vazias, e o canvas do mapa mental encurta. O roteiro de verificação
-está em `docs/verificacao.md`.
+esconde as vazias, e o canvas do mapa mental usa o espaço todo (editar um nó
+abre um modal, não uma barra lateral fixa). `Modal` tem `overflow-x-hidden`
+como rede de segurança contra qualquer flex item que esqueça o `min-w-0`.
+Dropdowns (notificações, perfil, seletor de empresa) fecham ao clicar fora
+— hook `useClickOutside` compartilhado — e, no celular, o painel de
+notificações usa posição fixa própria em vez de ficar ancorado ao botão, pra
+nunca ficar espremido contra a barra de troca de empresa. O roteiro de
+verificação está em `docs/verificacao.md`.
 
 ## Testes automatizados (desktop + celular)
 
-`e2e/` tem uma suíte do Playwright que roda a mesma bateria de testes em dois
-formatos (`playwright.config.ts`, projetos "Desktop" e "Mobile 390") contra o
-Supabase simulado — sem rede de verdade. Ela cobre rolagem lateral em todas as
-rotas, o KPI sem lançamento continuar visível, os gráficos comparativos e o
-seletor de empresa certo em cada formato. `.github/workflows/ci.yml` roda essa
+`e2e/` tem uma suíte do Playwright (72 testes) que roda a mesma bateria em
+dois formatos (`playwright.config.ts`, projetos "Desktop" e "Mobile 390")
+contra o Supabase simulado — sem rede de verdade. Ela cobre rolagem lateral
+em todas as rotas, o KPI sem lançamento continuar visível, os gráficos
+comparativos, o seletor de empresa certo em cada formato, dropdowns
+fechando ao clicar fora e os totais de orçamento calculados corretamente.
+`.github/workflows/ci.yml` roda essa
 suíte (mais build, testes unitários e contraste) em todo push e pull request,
 para que um recurso novo chegue nos dois formatos sem precisar ser pedido de
 novo.

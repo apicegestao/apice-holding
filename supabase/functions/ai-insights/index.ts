@@ -25,8 +25,8 @@ const SEVERITIES = ['info', 'opportunity', 'warning', 'critical']
 
 const SYSTEM_PROMPT = `Você é o analista de gestão da Ápice Holding, uma holding que controla várias empresas.
 Recebe um retrato em JSON com o estado inteiro da empresa (ou do grupo): KPIs — que já são as metas quando
-têm prazo, com responsável e andamento —, tarefas, mapas mentais e integrações. Devolve insights acionáveis
-para o administrador.
+têm prazo, com responsável e andamento —, tarefas, mapas mentais, orçamentos de eventos/projetos (previsto x
+realizado) e integrações. Devolve insights acionáveis para o administrador.
 
 Regras:
 - Responda SEMPRE em português do Brasil.
@@ -175,6 +175,42 @@ const MODULE_READERS: Record<string, ModuleReader> = {
     }
   },
 
+  async orcamentos(companyId) {
+    const { data: budgets } = await admin
+      .from('budgets')
+      .select('id, title, status, event_date')
+      .eq('company_id', companyId)
+      .limit(20)
+    if (!budgets?.length) return { orcamentos: [] }
+
+    const { data: items } = await admin
+      .from('budget_items')
+      .select('budget_id, kind, status, planned_amount, actual_amount, due_date')
+      .in('budget_id', budgets.map((b) => b.id))
+      .neq('status', 'cancelado')
+
+    return {
+      // Orçamento de evento/projeto: previsto x realizado já somado por
+      // orçamento — a IA não precisa (nem consegue) somar centavo a
+      // centavo, só cruzar com prazos e tarefas do mesmo projeto.
+      orcamentos: budgets.map((budget) => {
+        const rows = (items ?? []).filter((i) => i.budget_id === budget.id)
+        const sum = (kind: string, field: 'planned_amount' | 'actual_amount') =>
+          rows.filter((r) => r.kind === kind).reduce((acc, r) => acc + Number(r[field] ?? 0), 0)
+        return {
+          titulo: budget.title,
+          situacao: budget.status,
+          data_evento: budget.event_date,
+          receita_prevista: sum('receita', 'planned_amount'),
+          despesa_prevista: sum('despesa', 'planned_amount'),
+          receita_realizada: sum('receita', 'actual_amount'),
+          despesa_realizada: sum('despesa', 'actual_amount'),
+          itens_sem_valor_realizado: rows.filter((r) => r.actual_amount === null).length,
+        }
+      }),
+    }
+  },
+
   async integracoes(companyId) {
     const { data: integrations } = await admin
       .from('integrations')
@@ -211,19 +247,30 @@ async function companyContext(companyId: string) {
 }
 
 async function holdingContext() {
-  const [{ data: snapshots }, { data: kpis }, { data: companies }, { data: integrations }] = await Promise.all([
-    admin.rpc('company_snapshots'),
-    admin
-      .from('kpi_latest_values')
-      .select('company_id, name, value, target_value, unit, direction, period_start, due_date, status')
-      .limit(300),
-    admin.from('companies').select('id, name, sector'),
-    // Uma integração parada numa empresa explica um KPI congelado nela —
-    // sinal de holding, não só de empresa.
-    admin.from('integrations').select('company_id, name, is_active, last_status, last_run_at'),
-  ])
+  const [{ data: snapshots }, { data: kpis }, { data: companies }, { data: integrations }, { data: budgets }] =
+    await Promise.all([
+      admin.rpc('company_snapshots'),
+      admin
+        .from('kpi_latest_values')
+        .select('company_id, name, value, target_value, unit, direction, period_start, due_date, status')
+        .limit(300),
+      admin.from('companies').select('id, name, sector'),
+      // Uma integração parada numa empresa explica um KPI congelado nela —
+      // sinal de holding, não só de empresa.
+      admin.from('integrations').select('company_id, name, is_active, last_status, last_run_at'),
+      admin.from('budgets').select('id, company_id, title, status, event_date').limit(100),
+    ])
 
   const byId = new Map((companies ?? []).map((c) => [c.id, c.name]))
+
+  const budgetIds = (budgets ?? []).map((b) => b.id)
+  const { data: budgetItems } = budgetIds.length
+    ? await admin
+        .from('budget_items')
+        .select('budget_id, kind, planned_amount, actual_amount')
+        .in('budget_id', budgetIds)
+        .neq('status', 'cancelado')
+    : { data: [] as { budget_id: string; kind: string; planned_amount: number; actual_amount: number | null }[] }
 
   return {
     escopo: 'holding',
@@ -243,6 +290,21 @@ async function holdingContext() {
     integracoes_com_problema: (integrations ?? [])
       .filter((i) => i.is_active && i.last_status === 'error')
       .map((i) => ({ empresa: byId.get(i.company_id) ?? i.company_id, nome: i.name, ultima_execucao: i.last_run_at })),
+    orcamentos: (budgets ?? []).map((budget) => {
+      const rows = (budgetItems ?? []).filter((i) => i.budget_id === budget.id)
+      const sum = (kind: string, field: 'planned_amount' | 'actual_amount') =>
+        rows.filter((r) => r.kind === kind).reduce((acc, r) => acc + Number(r[field] ?? 0), 0)
+      return {
+        empresa: byId.get(budget.company_id) ?? budget.company_id,
+        titulo: budget.title,
+        situacao: budget.status,
+        data_evento: budget.event_date,
+        receita_prevista: sum('receita', 'planned_amount'),
+        despesa_prevista: sum('despesa', 'planned_amount'),
+        receita_realizada: sum('receita', 'actual_amount'),
+        despesa_realizada: sum('despesa', 'actual_amount'),
+      }
+    }),
     hoje: new Date().toISOString().slice(0, 10),
   }
 }

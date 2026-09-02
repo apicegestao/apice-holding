@@ -37,6 +37,7 @@ import {
   NumberInput,
   PageHeader,
   Spinner,
+  useConfirmDelete,
   useToast,
 } from '../../core/ui'
 import { KPI_CATEGORIES, type KpiTemplate } from '../../core/catalog'
@@ -821,6 +822,7 @@ function ValueEntryModal({
     }
     notify('Valor lançado.')
     await onSaved()
+    onClose()
   }
 
   return (
@@ -908,15 +910,15 @@ function HistoryModal({
   }))
   const latestValue = series.length ? Number(series[series.length - 1].value) : null
 
-  const removeValue = async (id: string) => {
-    const { error } = await supabase.from('kpi_values').delete().eq('id', id)
+  const removeValue = useConfirmDelete<KpiValue>(async (item) => {
+    const { error } = await supabase.from('kpi_values').delete().eq('id', item.id)
     if (error) {
       notify(error.message, 'error')
       return
     }
     notify('Lançamento removido.')
     await onChanged()
-  }
+  })
 
   // Divide o alvo final numa meta acumulada por semana — semana 1 pede uma
   // fatia do total, a última semana pede o total inteiro. Refazer substitui
@@ -951,17 +953,15 @@ function HistoryModal({
     await onChanged()
   }
 
-  const limparRepartição = async () => {
-    setBusy(true)
+  const limparRepartição = useConfirmDelete<true>(async () => {
     const { error } = await supabase.from('kpi_checkpoints').delete().eq('kpi_id', kpi.id)
-    setBusy(false)
     if (error) {
       notify(error.message, 'error')
       return
     }
     notify('Divisão semanal removida.')
     await onChanged()
-  }
+  })
 
   const updateCheckpoint = async (id: string, target_value: number | null) => {
     if (target_value === null) return
@@ -971,6 +971,7 @@ function HistoryModal({
   }
 
   return (
+    <>
     <Modal open title={`Histórico · ${kpi.name}`} onClose={onClose} width="max-w-2xl">
       {kpi.due_date && (
         <div className="mb-5 rounded-lg border border-line p-3">
@@ -988,7 +989,7 @@ function HistoryModal({
                     type="button"
                     className="text-xs text-rose-600 hover:underline dark:text-rose-400"
                     disabled={busy}
-                    onClick={() => void limparRepartição()}
+                    onClick={() => limparRepartição.ask(true)}
                   >
                     Limpar
                   </button>
@@ -1090,7 +1091,7 @@ function HistoryModal({
                       <button
                         type="button"
                         className="rounded-md p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
-                        onClick={() => void removeValue(item.id)}
+                        onClick={() => removeValue.ask(item)}
                         aria-label="Remover lançamento"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1105,5 +1106,26 @@ function HistoryModal({
         </>
       )}
     </Modal>
+    <ConfirmDialog
+      open={removeValue.target !== null}
+      title="Excluir lançamento?"
+      message="O valor sai do histórico e dos gráficos deste KPI. Não dá pra desfazer."
+      confirmLabel="Excluir"
+      danger
+      busy={removeValue.busy}
+      onConfirm={() => void removeValue.confirm()}
+      onCancel={removeValue.cancel}
+    />
+    <ConfirmDialog
+      open={limparRepartição.target !== null}
+      title="Limpar divisão semanal?"
+      message="As metas semanais já definidas são apagadas. Você pode repartir de novo depois."
+      confirmLabel="Limpar"
+      danger
+      busy={limparRepartição.busy}
+      onConfirm={() => void limparRepartição.confirm()}
+      onCancel={limparRepartição.cancel}
+    />
+    </>
   )
 }

@@ -1,6 +1,6 @@
 // Casca do sistema: abas de empresa no topo (cada aba = uma empresa isolada),
 // menu do módulo na lateral e o conteúdo da rota no meio.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   Bell,
@@ -20,6 +20,7 @@ import {
   Sun,
   Target,
   Users,
+  Wallet,
 } from 'lucide-react'
 import { useAuth } from '../core/auth/AuthProvider'
 import CompanySwitcher from './CompanySwitcher'
@@ -27,6 +28,7 @@ import { useTheme, type ThemeChoice } from '../core/theme/ThemeProvider'
 import { Logo } from '../core/ui/Logo'
 import { supabase } from '../core/lib/supabase'
 import { formatDateTime, initials } from '../core/lib/format'
+import { useClickOutside } from '../core/lib/useClickOutside'
 import type { Notification } from '../core/types'
 
 type NavItem = { to: string; label: string; icon: typeof Gauge; end?: boolean }
@@ -46,6 +48,11 @@ export default function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [bellOpen, setBellOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const bellRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useClickOutside(bellRef, bellOpen, () => setBellOpen(false))
+  useClickOutside(menuRef, menuOpen, () => setMenuOpen(false))
 
   const onHolding = location.pathname.startsWith('/holding')
   const activeMembership = memberships.find((item) => item.company.id === companyId)
@@ -87,6 +94,7 @@ export default function AppLayout() {
         { to: '/holding/empresas', label: 'Empresas', icon: Building2 },
         { to: '/holding/usuarios', label: 'Usuários', icon: Users },
         { to: '/holding/mapa-mental', label: 'Mapa mental', icon: Network },
+        { to: '/holding/orcamentos', label: 'Orçamentos', icon: Wallet },
         { to: '/holding/insights', label: 'Insights de IA', icon: Sparkles },
         { to: '/holding/auditoria', label: 'Auditoria', icon: ScrollText },
         { to: '/holding/configuracoes', label: 'Configurações', icon: Settings },
@@ -99,6 +107,7 @@ export default function AppLayout() {
       { to: `${base}/kpis`, label: 'KPIs e metas', icon: Target },
       { to: `${base}/tarefas`, label: 'Tarefas', icon: ClipboardList },
       { to: `${base}/mapa-mental`, label: 'Mapa mental', icon: Network },
+      { to: `${base}/orcamentos`, label: 'Orçamentos', icon: Wallet },
       { to: `${base}/equipe`, label: 'Equipe', icon: Users },
     ]
     if (activeMembership?.role === 'admin' || isSuperAdmin) {
@@ -125,7 +134,7 @@ export default function AppLayout() {
           </button>
 
           <div className="flex items-center gap-2">
-            <div className="relative">
+            <div ref={bellRef} className="relative">
               <button
                 type="button"
                 onClick={() => {
@@ -143,8 +152,13 @@ export default function AppLayout() {
                 )}
               </button>
               {bellOpen && (
-                <div className="absolute right-0 mt-2 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-line bg-elevated text-content shadow-card">
-                  <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+                // Fixo em relação à tela (não ao cabeçalho) no celular: assim o
+                // painel nunca fica espremido/atrás da barra de troca de empresa
+                // nem sai da tela, e o cabeçalho ("Marcar como lidas") continua
+                // sempre visível e clicável. A partir de sm volta a ser o menu
+                // suspenso normal ancorado no sino.
+                <div className="fixed inset-x-3 top-16 z-50 flex max-h-[75vh] flex-col overflow-hidden rounded-xl border border-line bg-elevated text-content shadow-card sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-none sm:w-80">
+                  <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-2.5">
                     <span className="text-xs font-semibold uppercase tracking-wide text-content-soft">
                       Notificações
                     </span>
@@ -156,7 +170,7 @@ export default function AppLayout() {
                       Marcar como lidas
                     </button>
                   </div>
-                  <div className="max-h-80 overflow-y-auto">
+                  <div className="min-h-0 flex-1 overflow-y-auto sm:max-h-80 sm:flex-none">
                     {notifications.length === 0 && (
                       <p className="px-4 py-6 text-center text-sm text-content-soft">
                         Nada por aqui ainda.
@@ -186,7 +200,7 @@ export default function AppLayout() {
               )}
             </div>
 
-            <div className="relative">
+            <div ref={menuRef} className="relative">
               <button
                 type="button"
                 onClick={() => {
@@ -202,7 +216,7 @@ export default function AppLayout() {
                 <ChevronDown className="h-3.5 w-3.5 text-content-faint" />
               </button>
               {menuOpen && (
-                <div className="absolute right-0 mt-2 w-[17rem] overflow-hidden rounded-xl border border-line bg-elevated text-content shadow-card">
+                <div className="fixed inset-x-3 top-16 z-50 max-h-[75vh] overflow-y-auto rounded-xl border border-line bg-elevated text-content shadow-card sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-none sm:w-[17rem] sm:overflow-hidden">
                   <div className="border-b border-line px-4 py-3">
                     <p className="text-sm font-medium">{profile?.full_name}</p>
                     <p className="text-xs text-content-soft">{profile?.email}</p>

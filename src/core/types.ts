@@ -343,6 +343,66 @@ export type CompanySnapshot = {
   last_activity: string
 }
 
+// ------------------------------------------------------------- orçamentos
+export type BudgetStatus = 'planejamento' | 'aprovado' | 'em_andamento' | 'encerrado'
+export type BudgetItemKind = 'receita' | 'despesa'
+export type BudgetItemStatus = 'previsto' | 'cotado' | 'aprovado' | 'pago' | 'cancelado'
+
+export const BUDGET_STATUS_LABEL: Record<BudgetStatus, string> = {
+  planejamento: 'Planejamento',
+  aprovado: 'Aprovado',
+  em_andamento: 'Em andamento',
+  encerrado: 'Encerrado',
+}
+
+export const BUDGET_ITEM_STATUS_LABEL: Record<BudgetItemKind, Record<BudgetItemStatus, string>> = {
+  despesa: {
+    previsto: 'Previsto',
+    cotado: 'Cotado',
+    aprovado: 'Aprovado',
+    pago: 'Pago',
+    cancelado: 'Cancelado',
+  },
+  receita: {
+    previsto: 'Previsto',
+    cotado: 'Em negociação',
+    aprovado: 'Confirmado',
+    pago: 'Recebido',
+    cancelado: 'Cancelado',
+  },
+}
+
+export type Budget = {
+  id: string
+  company_id: string
+  title: string
+  description: string | null
+  event_date: string | null
+  status: BudgetStatus
+  owner_id: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type BudgetItem = {
+  id: string
+  budget_id: string
+  company_id: string
+  kind: BudgetItemKind
+  category: string
+  title: string
+  vendor: string | null
+  status: BudgetItemStatus
+  planned_amount: number
+  actual_amount: number | null
+  due_date: string | null
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 export type KpiLatestValue = {
   kpi_id: string
   company_id: string

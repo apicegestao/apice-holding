@@ -371,6 +371,58 @@ const NODES = [
   },
 ]
 
+export const BUDGET_ID = '99999999-9999-9999-9999-999999999991'
+const BUDGETS = [
+  {
+    id: BUDGET_ID,
+    company_id: COMPANY_ID_2,
+    title: 'Imersão 2027',
+    description: 'Evento anual com convidados e mentoria.',
+    event_date: '2027-03-15',
+    status: 'planejamento',
+    owner_id: USER_ID,
+    created_by: USER_ID,
+    created_at: '2026-09-01T00:00:00Z',
+    updated_at: '2026-09-01T00:00:00Z',
+  },
+]
+const BUDGET_ITEMS = [
+  {
+    id: 'bi1',
+    budget_id: BUDGET_ID,
+    company_id: COMPANY_ID_2,
+    kind: 'despesa',
+    category: 'Alimentação',
+    title: 'Buffet do evento',
+    vendor: 'Fornecedor Sabor & Cia',
+    status: 'cotado',
+    planned_amount: 18000,
+    actual_amount: null,
+    due_date: '2027-03-10',
+    notes: null,
+    created_by: USER_ID,
+    created_at: '2026-09-01T00:00:00Z',
+    updated_at: '2026-09-01T00:00:00Z',
+  },
+  {
+    id: 'bi2',
+    budget_id: BUDGET_ID,
+    company_id: COMPANY_ID_2,
+    kind: 'receita',
+    category: 'Ingressos',
+    title: 'Venda de ingressos',
+    vendor: null,
+    status: 'previsto',
+    planned_amount: 50000,
+    actual_amount: 12000,
+    due_date: '2027-02-20',
+    notes: null,
+    created_by: USER_ID,
+    created_at: '2026-09-01T00:00:00Z',
+    updated_at: '2026-09-01T00:00:00Z',
+  },
+]
+
 // Dois insights em dias diferentes — dá pra conferir o agrupamento por data
 // (item 1 do pedido) sem depender de fuso ou hora exata.
 const today = new Date()
@@ -422,6 +474,8 @@ const TABLES: Record<string, unknown[]> = {
   task_comments: [],
   mind_maps: MAPS,
   mind_map_nodes: NODES,
+  budgets: BUDGETS,
+  budget_items: BUDGET_ITEMS,
   integrations: [],
   integration_mappings: [],
   integration_runs: [],
@@ -476,6 +530,7 @@ export const ROUTES: [string, string][] = [
   ['/holding/usuarios', 'Usuários'],
   ['/holding/insights', 'Insights'],
   ['/holding/mapa-mental', 'Mapa da holding'],
+  ['/holding/orcamentos', 'Orçamentos da holding'],
   ['/holding/auditoria', 'Auditoria'],
   ['/holding/configuracoes', 'Configurações'],
   [`/empresa/${COMPANY_ID}`, 'Painel MDD (sem dados)'],
@@ -486,6 +541,7 @@ export const ROUTES: [string, string][] = [
   [`/empresa/${COMPANY_ID_2}/metas`, 'Metas (link antigo redireciona)'],
   [`/empresa/${COMPANY_ID_2}/tarefas`, 'Tarefas'],
   [`/empresa/${COMPANY_ID_2}/mapa-mental`, 'Mapa mental'],
+  [`/empresa/${COMPANY_ID_2}/orcamentos`, 'Orçamentos'],
   [`/empresa/${COMPANY_ID_2}/equipe`, 'Equipe'],
   [`/empresa/${COMPANY_ID_2}/integracoes`, 'Integrações'],
   [`/empresa/${COMPANY_ID_2}/insights`, 'Insights da empresa'],

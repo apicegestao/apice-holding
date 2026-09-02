@@ -76,6 +76,18 @@ test.describe('painel', () => {
     await expect(verTodos).toHaveClass(/btn-ghost/)
   })
 
+  // Item 1 (rodada de usabilidade): abrir o sino de notificações e depois
+  // clicar em qualquer outro lugar da tela fecha o menu — antes só fechava
+  // clicando de novo no próprio sino.
+  test('dropdown de notificações fecha ao clicar fora', async ({ page }) => {
+    await page.goto('/holding')
+    await page.waitForLoadState('networkidle')
+    await page.getByLabel('Notificações').click()
+    await expect(page.getByText('Nada por aqui ainda.')).toBeVisible()
+    await page.locator('main').click({ position: { x: 10, y: 10 } })
+    await expect(page.getByText('Nada por aqui ainda.')).toBeHidden()
+  })
+
   // Item 1: a lista completa de insights aparece organizada por data, com
   // um insight de hoje e outro de alguns dias atrás em grupos separados.
   test('insights aparecem organizados por data', async ({ page }) => {
@@ -138,6 +150,14 @@ test.describe('subtarefas e notas', () => {
     await expect(item).toBeVisible()
     await item.getByRole('checkbox').check()
 
+    // Item 2: um título sem nenhum espaço (não pode quebrar linha) já causou
+    // rolagem lateral no modal antes — flex-1 sem min-w-0 não encolhe abaixo
+    // do conteúdo. Regressão direta para não voltar a acontecer.
+    const longTitle = 'Conciliacaobancariacompletadetodasasfilialiseregionaisdoprimeirotrimestre'
+    await page.getByPlaceholder('Adicionar subtarefa…').fill(longTitle)
+    await page.getByPlaceholder('Adicionar subtarefa…').press('Enter')
+    await expect(page.locator('li', { hasText: longTitle })).toBeVisible()
+
     await page.getByPlaceholder('Escreva uma nota sobre o andamento…').fill('Falei com o financeiro hoje.')
     await page.locator('textarea + button').click()
     await expect(page.getByText('Falei com o financeiro hoje.')).toBeVisible()
@@ -195,5 +215,70 @@ test.describe('lembretes de tarefa', () => {
     await expect(page.getByLabel('Horário do lembrete')).toBeVisible()
     await page.getByLabel('Lembrar quantos dias antes').selectOption('3')
     await expect(page.getByLabel('Lembrar quantos dias antes')).toHaveValue('3')
+  })
+})
+
+// Itens 6, 7 e 8: menu único de organização (com linha do tempo), painel de
+// edição de nó virou botão/modal, e a barra de ferramentas nunca esconde
+// botão nenhum no celular.
+test.describe('mapa mental', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+  })
+
+  test('menu Organizar oferece linha do tempo', async ({ page }) => {
+    await page.goto('/holding/mapa-mental')
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Organizar' }).click()
+    await expect(page.getByText('Linha do tempo')).toBeVisible()
+    await expect(page.getByText('Organograma')).toBeVisible()
+    await expect(page.getByText('Fluxo lógico')).toBeVisible()
+  })
+
+  test('clicar num nó mostra o botão Editar nó em vez de painel fixo', async ({ page }) => {
+    await page.goto('/holding/mapa-mental')
+    await page.waitForLoadState('networkidle')
+    await page.getByText('Expansão 2027', { exact: true }).click()
+    await page.getByRole('button', { name: 'Editar nó' }).click()
+    await expect(page.getByLabel('Ideia')).toBeVisible()
+    await expect(page.getByLabel('Anotações')).toBeVisible()
+  })
+})
+
+// Item 5: orçamento por evento/projeto, com totais previsto x realizado
+// calculados a partir das linhas de verdade — confere a matemática e que o
+// modal (tabela larga) não estoura a tela nem no celular.
+test.describe('orçamentos', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+  })
+
+  test('abre o orçamento e mostra os totais calculados corretamente', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/orcamentos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByText('Imersão 2027', { exact: true }).click()
+
+    // bi1: despesa prevista 18.000 (sem realizado). bi2: receita prevista
+    // 50.000, realizada 12.000. Saldo previsto = 50.000 - 18.000 = 32.000;
+    // saldo realizado = 12.000 - 0 = 12.000 (despesa sem valor lançado não entra).
+    await expect(page.getByText('Receita prevista')).toBeVisible()
+    await expect(page.getByText(/R\$\s?50\.000,00/).first()).toBeVisible()
+    await expect(page.getByText(/R\$\s?18\.000,00/).first()).toBeVisible()
+    await expect(page.getByText(/R\$\s?32\.000,00/).first()).toBeVisible()
+    await expect(page.getByText(/R\$\s?12\.000,00/).first()).toBeVisible()
+
+    const overflow = await page.evaluate(() => {
+      const doc = document.documentElement
+      return { scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth }
+    })
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1)
+  })
+
+  test('pedir exclusão de orçamento abre confirmação, não exclui direto', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/orcamentos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByText('Imersão 2027', { exact: true }).click()
+    await page.getByRole('button', { name: 'Excluir' }).click()
+    await expect(page.getByText('Excluir orçamento?')).toBeVisible()
   })
 })

@@ -408,3 +408,118 @@ pelo `HoldingOnly`, então é admin da holding e mexe em qualquer tarefa.
 **58 testes** (atalho da sidebar, quadro com tarefas de duas empresas
 diferentes no mesmo lugar, menu suspenso de dias-antes do lembrete). As
 migrações `0018`, `0019` e `0020` foram aplicadas em produção.
+
+---
+
+## 15. Usabilidade mobile, exclusão sempre com confirmação, lembrete diário e módulo de orçamentos
+
+Rodada motivada por dois prints reais: o dropdown de notificações
+desalinhado no celular (cobrindo a própria opção de marcar como lida) e um
+exemplo de mapa mental em linha do tempo.
+
+**1) Fechar dropdowns ao clicar fora.** Sino e menu de perfil só fechavam
+clicando de novo no próprio botão. Novo hook compartilhado
+`useClickOutside` (`core/lib/useClickOutside.ts`) — o mesmo padrão que já
+existia isolado dentro do `CompanySwitcher` virou reutilizável, e o
+`CompanySwitcher` passou a usá-lo também (uma implementação só, não duas
+copiadas). Aplicado ao sino e ao menu de perfil em `AppLayout`.
+
+**2) Layout do dropdown de notificações no celular.** O painel usava
+`absolute` ancorado no próprio botão com `w-[min(20rem,calc(100vw-1.5rem))]`
+— no celular, isso ainda dependia da largura real do cabeçalho e podia ficar
+espremido/sobreposto à barra de troca de empresa, exatamente como no print.
+Trocado por `fixed inset-x-3 top-16` no celular (barra própria, sempre
+inteira na tela, `z-50` acima de tudo, cabeçalho "Marcar como lidas" sempre
+visível) voltando a ser o menu suspenso ancorado no sino a partir de `sm:`.
+Mesmo tratamento no menu de perfil.
+
+**3) Rolagem lateral ao editar tarefa no celular — causa raiz encontrada.**
+Um `<button>` de subtarefa usava `flex-1 truncate` sem `min-w-0`: um título
+sem espaço nenhum (não quebra linha) força o item a crescer além do
+contêiner, e como é um item flex, `flex-1` sozinho não encolhe abaixo do
+conteúdo — só com `min-w-0` junto. Grep em todo o `src/` confirmou que era o
+**único** lugar com esse padrão faltando (os outros já tinham `min-w-0`
+certo). Corrigido, e como rede de segurança contra a próxima vez que
+alguém esquecer: `Modal` ganhou `overflow-x-hidden` no cartão — na pior das
+hipóteses corta o texto, nunca mais deixa a tela rolar de lado. Regressão
+nova em `e2e`: subtarefa com título de 74 caracteres sem espaço, checando
+`scrollWidth <= clientWidth` depois.
+
+**4) Fechar modal automaticamente ao salvar — auditoria geral.** Passado
+`grep` em todo formulário/modal do sistema: só um ficava aberto depois de
+salvar com sucesso — "Lançar valor" de KPI (`ValueEntryModal`), que dava
+`notify` e nunca chamava `onClose()`. Corrigido. Todos os outros (tarefa,
+KPI, integração, usuário, mapa mental, empresa) já fechavam certo.
+
+**5) Confirmação antes de excluir — auditoria geral.** Novo hook
+`useConfirmDelete` em `core/ui` (junto do `ConfirmDialog` que já existia)
+padroniza "clica, confirma, só então exclui": guarda o alvo pendente, cuida
+do estado de carregando, e só chama a exclusão de verdade depois do
+`ConfirmDialog`. Grep em `.delete()` no `src/` inteiro achou 5 exclusões
+diretas sem confirmação (a maioria já usava o padrão certo): subtarefa e
+nota de tarefa, campo mapeado de integração, lançamento de KPI, divisão
+semanal de meta, e nó do mapa mental (que citava faltar apagar também toda
+a ramificação — mensagem avisa quando o nó tem filhos).
+
+**6) Lembrete diário às 7:30.** Nova função `app.send_daily_task_digest()` e
+job `apice_daily_task_digest` (migração `0021`) — todo dia, uma notificação
+por pessoa e por empresa com as tarefas do dia (título, contagem, até 4
+nomes e "e mais N"). Roda em UTC (confirmado via `now()`) e Brasília é
+UTC-3 o ano inteiro desde 2019 (sem horário de verão): agendado para
+10:30 UTC = 7:30 em Brasília. Guarda contra rodar duas vezes no mesmo dia
+(fuso de Brasília) sem precisar de outra tabela de controle. É um resumo
+diário à parte do aviso "prazo é hoje" que cada tarefa já dispara sozinha no
+próprio horário de lembrete (migração 0019) — continuam os dois.
+
+**7) Mapa mental: painel de edição virou botão + modal.** A barra lateral
+fixa (`<aside>`) ocupava 18rem de largura o tempo todo, mesmo sem nenhum nó
+selecionado — no celular, empurrava o canvas pra baixo. Agora só aparece um
+botão "Editar nó" (quando algo está selecionado) que abre as mesmas
+opções (Ideia, Anotações, Cor, Ramificar, Virar tarefa, Excluir nó) num
+modal — o canvas fica com 100% do espaço, no celular e no computador.
+
+**8) Mapa mental: toolbar simplificada e sem esconder botão no mobile.**
+Barra de ferramentas ganhou `overflow-x-auto` (rolagem lateral própria,
+nunca mais um botão inacessível no celular). "Organograma" e "lógica" —
+mais a nova "linha do tempo" — viraram um menu único "Organizar" (mesmo
+padrão de dropdown do item 1) em vez de um botão por layout. O botão
+"+ nó solto" só aparece quando o mapa está vazio (só serve pra criar o
+primeiro nó — depois disso, todo nó novo já nasce ramificando de outro, com
+as 4 setas ao redor do nó selecionado).
+
+**9) Mapa mental: layout de linha do tempo.** Terceiro modo de organização
+automática, inspirado no exemplo em anexo (XMind): a raiz vira a ponta
+esquerda, os filhos diretos dela viram etapas em sequência da esquerda pra
+direita, e a ramificação de detalhes de cada etapa se espalha acima ou
+abaixo da linha, alternando por etapa (par embaixo, ímpar em cima) pra não
+colidir com a vizinha. Reaproveita o `layoutTree` já existente por baixo —
+calcula o galho de cada etapa isoladamente e desloca pra a posição dela na
+linha, sem duplicar a lógica de árvore.
+
+**10) Módulo de orçamentos — empresa e holding.** Pedido: orçamento por
+evento/projeto (cotações, despesas, projeção de caixa). Nova tabela
+`budgets` (um por evento/projeto) e `budget_items` (linhas de receita ou
+despesa, cada uma com status previsto → cotado → aprovado → pago/recebido,
+valor previsto e valor realizado lado a lado) — migração `0022`, RLS
+idêntica a todo módulo por empresa (`app.is_member`/`app.can_write`). Nova
+tela `/empresa/:id/orcamentos` e `/holding/orcamentos` (mesmo padrão do
+mapa mental: a holding é só mais uma empresa na mesma tabela). Dentro de
+cada orçamento: totais (receita/despesa prevista e realizada, saldo dos
+dois) e uma projeção de caixa por mês (soma por `due_date`, saldo
+acumulado previsto e realizado) — tudo calculado no próprio frontend a
+partir das linhas, nunca guardado pronto, evitando desatualização; somas em
+centavos arredondadas só no fim (`round2`) para não acumular erro de ponto
+flutuante. `NumberInput` (já usado em KPIs) cuida da entrada de valor em
+real. IA de insights ganhou o módulo `orcamentos` como mais um leitor
+(`MODULE_READERS`, e o equivalente agregado por empresa no contexto da
+holding) — edge function `ai-insights` redeployada (v5).
+
+**Verificação:** `npm run build`, `npm run test` (9/9) e
+`npm run check:contrast` (24/24) limpos. `npm run test:e2e` subiu de 58 para
+**72 testes**: dropdown fecha ao clicar fora, orçamento com totais
+calculados (receita/despesa prevista e realizada, saldo dos dois) conferidos
+número a número, exclusão de orçamento passando pela confirmação, menu
+Organizar com as três opções, "Editar nó" abrindo o modal, e a regressão de
+rolagem lateral com subtarefa de título longo sem espaço — desktop e mobile
+(390px), todas passando. Migrações `0021` e `0022` aplicadas em produção;
+`get_advisors` conferido sem novo alerta.

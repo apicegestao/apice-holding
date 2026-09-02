@@ -187,7 +187,11 @@ export function Modal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-950/50 p-4 backdrop-blur-[2px] sm:p-8">
-      <div className={`card w-full ${width} my-auto bg-elevated`}>
+      {/* overflow-x-hidden como rede de segurança: mesmo que algum conteúdo
+          futuro esqueça o min-w-0 num flex item (a causa mais comum de
+          rolagem lateral), o modal nunca mais vaza para o lado — na pior
+          das hipóteses o texto é cortado, nunca a tela rola. */}
+      <div className={`card w-full ${width} my-auto overflow-x-hidden bg-elevated`}>
         <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div>
             <h2 className="text-sm font-semibold text-content">{title}</h2>
@@ -258,6 +262,34 @@ export function ConfirmDialog({
       <div className="text-sm text-content-muted">{message}</div>
     </Modal>
   )
+}
+
+// Padroniza o "clica, confirma, só então exclui" em qualquer lugar do
+// sistema: guarda o alvo pendente, cuida do estado de carregando e só chama
+// a ação de verdade depois do usuário confirmar na janela padrão.
+// Uso: const del = useConfirmDelete<Item>(async (item) => { ...excluir... })
+// del.ask(item) no botão de lixeira, e <ConfirmDialog open={!!del.target}
+// busy={del.busy} onConfirm={del.confirm} onCancel={del.cancel} .../> perto do fim do JSX.
+export function useConfirmDelete<T>(action: (target: T) => Promise<void> | void) {
+  const [target, setTarget] = useState<T | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const confirm = useCallback(async () => {
+    if (target === null) return
+    setBusy(true)
+    await action(target)
+    setBusy(false)
+    setTarget(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target])
+
+  return {
+    target,
+    busy,
+    ask: (value: T) => setTarget(value),
+    cancel: () => setTarget(null),
+    confirm,
+  }
 }
 
 // ------------------------------------------------------------------ toasts

@@ -7,11 +7,14 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  ChevronDown,
+  Clock,
   ClipboardList,
   Maximize2,
   Network,
   Pencil,
   Plus,
+  Settings2,
   Trash2,
   Workflow,
   ZoomIn,
@@ -20,6 +23,7 @@ import {
 import { supabase } from '../../core/lib/supabase'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { useCompany } from '../../core/company/CompanyProvider'
+import { useClickOutside } from '../../core/lib/useClickOutside'
 import {
   Badge,
   ConfirmDialog,
@@ -29,6 +33,7 @@ import {
   Modal,
   PageHeader,
   Spinner,
+  useConfirmDelete,
   useToast,
 } from '../../core/ui'
 import type { Company, MindMap, MindMapNode } from '../../core/types'
@@ -95,6 +100,79 @@ function layoutTree(
   return positions
 }
 
+/** Linha do tempo: a raiz fica na ponta esquerda e os filhos diretos dela
+ *  viram etapas em sequência da esquerda pra direita — cada etapa com sua
+ *  própria ramificação de detalhes, alternando pra cima e pra baixo da
+ *  linha (etapa par mostra os detalhes embaixo, ímpar em cima), pra não
+ *  colidir com a etapa vizinha. Reaproveita o mesmo layoutTree por baixo —
+ *  só troca o pivô (a etapa vira a "raiz" só pra calcular o próprio galho)
+ *  e espelha o eixo Y quando o galho precisa subir. */
+function layoutTimeline(nodes: MindMapNode[]): Record<string, { x: number; y: number }> {
+  const GAP_SPINE = 90
+  const positions: Record<string, { x: number; y: number }> = {}
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const byParent = new Map<string | null, MindMapNode[]>()
+  for (const node of nodes) {
+    const list = byParent.get(node.parent_id) ?? []
+    list.push(node)
+    byParent.set(node.parent_id, list)
+  }
+
+  const roots = byParent.get(null) ?? []
+  if (!roots.length) return positions
+  const [root] = roots
+  positions[root.id] = { x: 0, y: 0 }
+
+  const collectSubtree = (id: string): MindMapNode[] => {
+    const out: MindMapNode[] = []
+    const stack = [id]
+    while (stack.length) {
+      const current = stack.pop()!
+      const node = byId.get(current)
+      if (node) out.push(node)
+      for (const child of byParent.get(current) ?? []) stack.push(child.id)
+    }
+    return out
+  }
+
+  const spine = byParent.get(root.id) ?? []
+  let cursorX = NODE_WIDTH + GAP_SPINE
+  spine.forEach((step, index) => {
+    const subtree = collectSubtree(step.id).map((node) =>
+      node.id === step.id ? { ...node, parent_id: null } : node,
+    )
+    const relative = layoutTree(subtree, 'down')
+    const stepPos = relative[step.id] ?? { x: 0, y: 0 }
+    const up = index % 2 === 1
+    let spanMin = 0
+    let spanMax = 0
+    for (const node of subtree) {
+      const rel = relative[node.id]
+      if (!rel) continue
+      const dy = rel.y - stepPos.y
+      const x = cursorX + (rel.x - stepPos.x)
+      positions[node.id] = { x, y: up ? -dy : dy }
+      spanMin = Math.min(spanMin, rel.x - stepPos.x)
+      spanMax = Math.max(spanMax, rel.x - stepPos.x)
+    }
+    cursorX += Math.max(spanMax - spanMin + NODE_WIDTH, NODE_WIDTH) + GAP_SPINE
+  })
+
+  // Nós soltos (sem pai) além da raiz principal — caso raro, mas não podem
+  // desaparecer: empilham como organograma normal, abaixo da linha do tempo.
+  const covered = new Set(Object.keys(positions))
+  const leftover = nodes.filter((node) => !covered.has(node.id))
+  if (leftover.length) {
+    const restPositions = layoutTree(leftover, 'down')
+    const offsetY = 260
+    for (const [id, pos] of Object.entries(restPositions)) {
+      positions[id] = { x: pos.x, y: pos.y + offsetY }
+    }
+  }
+
+  return positions
+}
+
 /** Cotovelo reto entre pai e filho, escolhendo a rota pela posição relativa
  *  real dos dois — nunca uma linha na diagonal, nunca saindo pela face
  *  errada do nó. Funciona com o filho embaixo, em cima, do lado, em
@@ -143,6 +221,11 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
   const [removingMap, setRemovingMap] = useState<MindMap | null>(null)
   const [taskFor, setTaskFor] = useState<MindMapNode | null>(null)
   const [busy, setBusy] = useState(false)
+  const [organizeOpen, setOrganizeOpen] = useState(false)
+  const [editingPanelOpen, setEditingPanelOpen] = useState(false)
+
+  const organizeRef = useRef<HTMLDivElement>(null)
+  useClickOutside(organizeRef, organizeOpen, () => setOrganizeOpen(false))
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const fittedMapRef = useRef<string | null>(null)
@@ -283,7 +366,9 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
     setSelectedId(data.id)
   }
 
-  const deleteNode = async (node: MindMapNode) => {
+  // Apagar um nó apaga junto toda a ramificação abaixo dele (on delete
+  // cascade) — por isso passa pela confirmação como qualquer exclusão.
+  const nodeDelete = useConfirmDelete<MindMapNode>(async (node) => {
     const { error } = await supabase.from('mind_map_nodes').delete().eq('id', node.id)
     if (error) {
       notify(error.message, 'error')
@@ -291,7 +376,8 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
     }
     setSelectedId(null)
     if (activeMapId) await loadNodes(activeMapId)
-  }
+  })
+  const nodeHasChildren = (node: MindMapNode) => nodes.some((item) => item.parent_id === node.id)
 
   // ------------------------------------------------------------- arrastar
   const toWorld = (clientX: number, clientY: number) => {
@@ -389,11 +475,11 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
     })
   }, [nodes])
 
-  // Rearranja o mapa inteiro como organograma — raiz em cima, filhos embaixo
-  // — e salva as posições novas. Continua tudo arrastável depois.
-  const organizeAsTree = async (orientation: 'down' | 'right') => {
+  // Rearranja o mapa inteiro — organograma, fluxo lógico ou linha do tempo —
+  // e salva as posições novas. Continua tudo arrastável depois.
+  const organizeAsTree = async (mode: 'down' | 'right' | 'timeline') => {
     if (!nodes.length) return
-    const positions = layoutTree(nodes, orientation)
+    const positions = mode === 'timeline' ? layoutTimeline(nodes) : layoutTree(nodes, mode)
     const arranged = nodes.map((node) => {
       const pos = positions[node.id]
       return pos ? { ...node, position_x: pos.x, position_y: pos.y } : node
@@ -414,7 +500,13 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
       return
     }
     fitToContent(arranged)
-    notify(orientation === 'down' ? 'Mapa organizado como organograma.' : 'Mapa organizado como fluxo lógico.')
+    notify(
+      mode === 'down'
+        ? 'Mapa organizado como organograma.'
+        : mode === 'right'
+          ? 'Mapa organizado como fluxo lógico.'
+          : 'Mapa organizado como linha do tempo.',
+    )
   }
 
   // Ao abrir um mapa, enquadra o conteúdo uma vez — senão o usuário cai
@@ -471,6 +563,15 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
                 ))}
               </select>
             )}
+            {canWrite && activeMapId && (
+              <button
+                type="button"
+                className="btn-ghost text-rose-600 dark:text-rose-400"
+                onClick={() => setRemovingMap(maps.find((map) => map.id === activeMapId) ?? null)}
+              >
+                <Trash2 className="h-4 w-4" /> Excluir mapa
+              </button>
+            )}
             {canWrite && (
               <button type="button" className="btn-primary" onClick={() => setCreatingMap(true)}>
                 <Plus className="h-4 w-4" /> Novo mapa
@@ -493,12 +594,15 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
           }
         />
       ) : (
-        <div className="flex flex-col gap-4 lg:flex-row">
-          <div className="card relative min-h-[22rem] flex-1 overflow-hidden sm:min-h-[35rem]">
-            <div className="absolute left-3 top-3 z-10 flex gap-1">
+        <div className="flex flex-col gap-4">
+          <div className="card relative min-h-[22rem] w-full overflow-hidden sm:min-h-[35rem]">
+            {/* overflow-x-auto (com padding pro scrollbar não cobrir o
+                último botão) garante que, no celular, dá pra chegar em
+                todos os botões arrastando o dedo — nunca mais escondidos. */}
+            <div className="absolute inset-x-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] items-center gap-1 overflow-x-auto pb-1">
               <button
                 type="button"
-                className="btn-ghost px-2 py-1"
+                className="btn-ghost shrink-0 px-2 py-1"
                 onClick={() => setTransform((c) => ({ ...c, scale: Math.min(2, c.scale + 0.15) }))}
                 aria-label="Aproximar"
               >
@@ -506,7 +610,7 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
               </button>
               <button
                 type="button"
-                className="btn-ghost px-2 py-1"
+                className="btn-ghost shrink-0 px-2 py-1"
                 onClick={() => setTransform((c) => ({ ...c, scale: Math.max(0.35, c.scale - 0.15) }))}
                 aria-label="Afastar"
               >
@@ -514,46 +618,88 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
               </button>
               <button
                 type="button"
-                className="btn-ghost px-2 py-1"
+                className="btn-ghost shrink-0 px-2 py-1"
                 onClick={() => fitToContent()}
                 aria-label="Enquadrar"
               >
                 <Maximize2 className="h-4 w-4" />
               </button>
-              {canWrite && (
-                <button type="button" className="btn-ghost px-2 py-1" onClick={() => void addNode(null)}>
-                  <Plus className="h-4 w-4" /> nó solto
+              {/* O botão de nó solto só faz sentido pra criar o primeiro nó
+                  do mapa — depois disso, todo nó novo nasce ramificando de
+                  um nó existente (botões nas setas ao redor dele). */}
+              {canWrite && nodes.length === 0 && (
+                <button type="button" className="btn-ghost shrink-0 px-2 py-1" onClick={() => void addNode(null)}>
+                  <Plus className="h-4 w-4" /> Adicionar primeiro nó
                 </button>
               )}
               {canWrite && nodes.length > 1 && (
-                <>
+                <div ref={organizeRef} className="relative shrink-0">
                   <button
                     type="button"
                     className="btn-ghost px-2 py-1"
                     disabled={busy}
-                    onClick={() => void organizeAsTree('down')}
-                    title="Reorganiza o mapa como organograma, raiz em cima"
+                    onClick={() => setOrganizeOpen((open) => !open)}
+                    aria-expanded={organizeOpen}
                   >
-                    <Network className="h-4 w-4" /> organograma
+                    <Settings2 className="h-4 w-4" /> Organizar
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${organizeOpen ? 'rotate-180' : ''}`} />
                   </button>
-                  <button
-                    type="button"
-                    className="btn-ghost px-2 py-1"
-                    disabled={busy}
-                    onClick={() => void organizeAsTree('right')}
-                    title="Reorganiza o mapa como fluxo lógico, raiz na esquerda"
-                  >
-                    <Workflow className="h-4 w-4" /> lógica
-                  </button>
-                </>
+                  {organizeOpen && (
+                    <div className="absolute left-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-lg border border-line bg-elevated py-1 shadow-card">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-hover"
+                        onClick={() => {
+                          setOrganizeOpen(false)
+                          void organizeAsTree('down')
+                        }}
+                      >
+                        <Network className="h-4 w-4 shrink-0 text-content-soft" /> Organograma
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-hover"
+                        onClick={() => {
+                          setOrganizeOpen(false)
+                          void organizeAsTree('right')
+                        }}
+                      >
+                        <Workflow className="h-4 w-4 shrink-0 text-content-soft" /> Fluxo lógico
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-hover"
+                        onClick={() => {
+                          setOrganizeOpen(false)
+                          void organizeAsTree('timeline')
+                        }}
+                      >
+                        <Clock className="h-4 w-4 shrink-0 text-content-soft" /> Linha do tempo
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
+
+            {selected && (
+              <button
+                type="button"
+                className="btn-primary absolute right-3 top-3 z-10 px-3 py-1.5 text-xs"
+                onClick={() => setEditingPanelOpen(true)}
+              >
+                <Pencil className="h-3.5 w-3.5" /> Editar nó
+              </button>
+            )}
 
             {canWrite && (
               <p className="absolute bottom-3 left-3 z-10 hidden text-[11px] text-content-faint sm:block">
                 Arraste o fundo para mover · toque + para ramificar · lápis edita o texto
               </p>
             )}
+            <p className="absolute bottom-3 right-3 z-10">
+              <Badge>{nodes.length} nó(s)</Badge>
+            </p>
 
             <div
               ref={viewportRef}
@@ -681,111 +827,105 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
             </div>
           </div>
 
-          {/* ------------------------------------------------ painel do nó */}
-          <aside className="w-full shrink-0 lg:w-72">
-            {selected ? (
-              <div className="card space-y-4 p-4">
-                <Field label="Ideia">
-                  <textarea
-                    className="input min-h-16"
-                    value={selected.label}
-                    disabled={!canWrite}
-                    onChange={(event) =>
-                      setNodes((current) =>
-                        current.map((node) =>
-                          node.id === selected.id ? { ...node, label: event.target.value } : node,
-                        ),
-                      )
-                    }
-                    onBlur={(event) => void patchNode(selected.id, { label: event.target.value })}
-                  />
-                </Field>
-                <Field label="Anotações">
-                  <textarea
-                    className="input min-h-20"
-                    value={selected.notes ?? ''}
-                    disabled={!canWrite}
-                    onChange={(event) =>
-                      setNodes((current) =>
-                        current.map((node) =>
-                          node.id === selected.id ? { ...node, notes: event.target.value } : node,
-                        ),
-                      )
-                    }
-                    onBlur={(event) =>
-                      void patchNode(selected.id, { notes: event.target.value || null })
-                    }
-                  />
-                </Field>
-                <Field asGroup label="Cor">
-                  <div className="flex flex-wrap gap-2">
-                    {PALETTE.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        disabled={!canWrite}
-                        onClick={() => void patchNode(selected.id, { color })}
-                        className={`h-7 w-7 rounded-full border-2 ${
-                          selected.color === color ? 'border-content' : 'border-transparent'
-                        }`}
-                        style={{ backgroundColor: color }}
-                        aria-label={`Cor ${color}`}
-                      />
-                    ))}
-                  </div>
-                </Field>
-
-                {canWrite && (
-                  <div className="space-y-2 border-t border-line pt-3">
-                    <button
-                      type="button"
-                      className="btn-ghost w-full"
-                      onClick={() => void addNode(selected)}
-                    >
-                      <Plus className="h-4 w-4" /> Ramificar
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-ghost w-full"
-                      onClick={() => setTaskFor(selected)}
-                    >
-                      <ClipboardList className="h-4 w-4" /> Virar tarefa
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-danger w-full"
-                      onClick={() => void deleteNode(selected)}
-                    >
-                      <Trash2 className="h-4 w-4" /> Excluir nó
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="card p-4 text-sm text-content-soft">
-                <p className="font-medium text-content">Nenhum nó selecionado</p>
-                <p className="mt-1">
-                  Clique em um nó para editar o texto, mudar a cor, ramificar ou transformar em
-                  tarefa.
-                </p>
-                <p className="mt-3">
-                  <Badge>{nodes.length} nó(s) neste mapa</Badge>
-                </p>
-              </div>
-            )}
-
-            {canWrite && activeMapId && (
-              <button
-                type="button"
-                className="mt-3 w-full text-xs text-rose-600 dark:text-rose-400 hover:underline"
-                onClick={() => setRemovingMap(maps.find((map) => map.id === activeMapId) ?? null)}
-              >
-                Excluir este mapa
-              </button>
-            )}
-          </aside>
         </div>
       )}
+
+      {/* Editar nó virou um botão que abre isto aqui — no lugar da barra
+          lateral fixa de antes — pra sobrar 100% da largura pro desenho do
+          mapa, tanto no celular quanto no computador. */}
+      <Modal
+        open={editingPanelOpen && Boolean(selected)}
+        title="Editar nó"
+        onClose={() => setEditingPanelOpen(false)}
+        width="max-w-md"
+      >
+        {selected && (
+          <div className="space-y-4">
+            <Field label="Ideia">
+              <textarea
+                className="input min-h-16"
+                value={selected.label}
+                disabled={!canWrite}
+                onChange={(event) =>
+                  setNodes((current) =>
+                    current.map((node) =>
+                      node.id === selected.id ? { ...node, label: event.target.value } : node,
+                    ),
+                  )
+                }
+                onBlur={(event) => void patchNode(selected.id, { label: event.target.value })}
+              />
+            </Field>
+            <Field label="Anotações">
+              <textarea
+                className="input min-h-20"
+                value={selected.notes ?? ''}
+                disabled={!canWrite}
+                onChange={(event) =>
+                  setNodes((current) =>
+                    current.map((node) =>
+                      node.id === selected.id ? { ...node, notes: event.target.value } : node,
+                    ),
+                  )
+                }
+                onBlur={(event) => void patchNode(selected.id, { notes: event.target.value || null })}
+              />
+            </Field>
+            <Field asGroup label="Cor">
+              <div className="flex flex-wrap gap-2">
+                {PALETTE.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    disabled={!canWrite}
+                    onClick={() => void patchNode(selected.id, { color })}
+                    className={`h-7 w-7 rounded-full border-2 ${
+                      selected.color === color ? 'border-content' : 'border-transparent'
+                    }`}
+                    style={{ backgroundColor: color }}
+                    aria-label={`Cor ${color}`}
+                  />
+                ))}
+              </div>
+            </Field>
+
+            {canWrite && (
+              <div className="space-y-2 border-t border-line pt-3">
+                <button
+                  type="button"
+                  className="btn-ghost w-full"
+                  onClick={() => {
+                    void addNode(selected)
+                    setEditingPanelOpen(false)
+                  }}
+                >
+                  <Plus className="h-4 w-4" /> Ramificar
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost w-full"
+                  onClick={() => {
+                    setTaskFor(selected)
+                    setEditingPanelOpen(false)
+                  }}
+                >
+                  <ClipboardList className="h-4 w-4" /> Virar tarefa
+                </button>
+                <button
+                  type="button"
+                  className="btn-danger w-full"
+                  onClick={() => {
+                    setEditingPanelOpen(false)
+                    nodeDelete.ask(selected)
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" /> Excluir nó
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={creatingMap}
@@ -837,6 +977,28 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
         }
         onConfirm={() => void removeMap()}
         onCancel={() => setRemovingMap(null)}
+      />
+
+      <ConfirmDialog
+        open={nodeDelete.target !== null}
+        title="Excluir nó"
+        danger
+        busy={nodeDelete.busy}
+        confirmLabel="Excluir"
+        message={
+          nodeDelete.target && nodeHasChildren(nodeDelete.target) ? (
+            <>
+              Excluir <strong>{nodeDelete.target?.label}</strong> apaga também todos os nós ligados a
+              ele. Não dá pra desfazer.
+            </>
+          ) : (
+            <>
+              Excluir <strong>{nodeDelete.target?.label}</strong>. Não dá pra desfazer.
+            </>
+          )
+        }
+        onConfirm={() => void nodeDelete.confirm()}
+        onCancel={nodeDelete.cancel}
       />
     </div>
   )

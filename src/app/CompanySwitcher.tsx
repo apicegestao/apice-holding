@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { Building2, ChevronDown, LayoutGrid } from 'lucide-react'
 import { ROLE_LABEL, type Company, type Role } from '../core/types'
+import { useClickOutside } from '../core/lib/useClickOutside'
 
 type Membership = { company: Company; role: Role }
 
@@ -25,14 +26,7 @@ export default function CompanySwitcher({
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    const onClick = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
-  }, [open])
+  useClickOutside(rootRef, open, () => setOpen(false))
 
   // Fecha o menu ao trocar de rota por qualquer outro caminho (voltar do navegador etc).
   useEffect(() => {

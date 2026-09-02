@@ -19,6 +19,7 @@ import {
   NumberInput,
   PageHeader,
   Spinner,
+  useConfirmDelete,
   useToast,
 } from '../../core/ui'
 import type { Integration, IntegrationMapping, IntegrationRun, Kpi } from '../../core/types'
@@ -639,16 +640,17 @@ function MappingModal({
     notify('Campo mapeado.')
   }
 
-  const remove = async (id: string) => {
-    const { error } = await supabase.from('integration_mappings').delete().eq('id', id)
+  const removeMapping = useConfirmDelete<IntegrationMapping>(async (mapping) => {
+    const { error } = await supabase.from('integration_mappings').delete().eq('id', mapping.id)
     if (error) {
       notify(error.message, 'error')
       return
     }
     await onChanged()
-  }
+  })
 
   return (
+    <>
     <Modal
       open
       title={`Campos · ${integration.name}`}
@@ -676,7 +678,7 @@ function MappingModal({
                 <button
                   type="button"
                   className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
-                  onClick={() => void remove(mapping.id)}
+                  onClick={() => removeMapping.ask(mapping)}
                   aria-label="Remover"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -738,5 +740,16 @@ function MappingModal({
         )}
       </div>
     </Modal>
+    <ConfirmDialog
+      open={removeMapping.target !== null}
+      title="Excluir mapeamento?"
+      message="O campo deixa de alimentar o KPI automaticamente. Não dá pra desfazer."
+      confirmLabel="Excluir"
+      danger
+      busy={removeMapping.busy}
+      onConfirm={() => void removeMapping.confirm()}
+      onCancel={removeMapping.cancel}
+    />
+    </>
   )
 }
