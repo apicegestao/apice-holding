@@ -149,8 +149,9 @@ export default function CompanyDashboard() {
           .select('*')
           .eq('company_id', company.id)
           .eq('is_active', true)
+          .is('archived_at', null)
           .order('display_order'),
-        supabase.from('kpi_latest_values').select('*').eq('company_id', company.id),
+        supabase.from('kpi_latest_values').select('*').eq('company_id', company.id).is('archived_at', null),
         supabase.from('company_members').select('user_id').eq('company_id', company.id),
         supabase.from('tasks').select('*').eq('company_id', company.id),
         isAdmin

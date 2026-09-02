@@ -103,9 +103,18 @@ src/
                        repartição do alvo por semana); barra de progresso
                        meta × realizado em todo cartão de KPI e no
                        "Lançar valor", que pede só uma data de referência —
-                       a frequência do KPI já define o período; pode ligar o
-                       KPI a um produto (e a uma edição dele), com filtro por
-                       produto na lista
+                       a frequência do KPI já define o período (diário,
+                       semanal, quinzenal, mensal, trimestral ou anual);
+                       pode ligar o KPI a um produto (e a uma edição dele),
+                       com filtro por produto na lista. Uma meta anual pode
+                       lançar em cadência mais fina (ex. mês a mês) — os
+                       lançamentos somam sozinhos pro total, via gatilho no
+                       banco. Um KPI de sub-produto (turma/edição) pode
+                       "contribuir para" o KPI do produto como um todo — o
+                       pai mostra a soma ao vivo dos filhos, sem lançamento
+                       próprio. KPI com prazo vencido arquiva sozinho (ou
+                       manualmente, a qualquer hora); arquivado vive numa
+                       aba separada, fora da tela principal
     tasks/             tarefas: quem, o quê, prazo e lembrete padrão (dias
                        antes + horário) — com subtarefas e notas editáveis
                        dentro da própria tarefa; quadro por empresa e um
@@ -146,12 +155,12 @@ Cada módulo é uma pasta fechada: mexer em Tarefas não obriga a abrir KPIs.
 | --- | --- | --- |
 | `admin-users` | sim | cria acesso com senha padrão, reseta senha, muda papel, inativa e exclui cadastro |
 | `admin-settings` | sim | lê e grava as configurações da holding (chave da IA mascarada na leitura) |
-| `ai-insights` | sim | monta o retrato de KPIs/metas, tarefas, mapa mental, orçamentos e integrações, e pede insights ao provedor configurado |
+| `ai-insights` | não | monta o retrato de KPIs/metas, tarefas, mapa mental, orçamentos e integrações, e pede insights ao provedor configurado; autentica por JWT (botão "Gerar Insights") ou header assinado (chamada diária do pg_cron, sem usuário logado) |
 | `integrations-sync` | não | sincroniza integrações; autentica por JWT (manual) ou header assinado (cron) |
 
-`integrations-sync` roda sem `verify_jwt` porque o pg_cron não tem JWT — a
-autorização é feita dentro da função, comparando `x-sync-secret` com um segredo
-gerado no banco.
+`integrations-sync` e `ai-insights` rodam sem `verify_jwt` porque o pg_cron
+não tem JWT — a autorização é feita dentro de cada função, comparando
+`x-sync-secret` com um segredo gerado no banco.
 
 ## Agendamentos (pg_cron)
 
@@ -160,6 +169,8 @@ gerado no banco.
 | `apice_task_reminders` | a cada 5 min | dois lembretes automáticos por tarefa com prazo: N dias antes (menu suspenso, 1-15) e no próprio dia — ambos calculados pelo banco a partir de prazo + horário, nunca digitados |
 | `apice_daily_task_digest` | diário, 7:30 (Brasília) | uma notificação por pessoa e por empresa com o resumo das tarefas que vencem naquele dia |
 | `apice_integrations_sync` | a cada 5 min | chama `integrations-sync` para as integrações que já venceram o intervalo |
+| `apice_daily_insights` | diário, 7:00 (Brasília) | chama `ai-insights` uma vez para a holding e uma vez por empresa ativa, com prompt pedindo as prioridades do dia; notifica os admins depois de gerar |
+| `apice_archive_overdue_kpis` | diário, 3:00 (Brasília) | arquiva sozinho todo KPI com prazo (meta) já vencido — não mexe em KPI recorrente sem prazo |
 
 ## Inteligência artificial
 
@@ -182,6 +193,12 @@ que juntos montam o contexto de uma empresa numa chamada só, para a IA poder
 cruzar sinais entre módulos (uma integração parada, o KPI que ela alimenta
 sem lançamento, a tarefa atrasada que resolveria isso). Um módulo novo no
 sistema ganha um leitor novo nessa lista — é o único lugar que precisa mudar.
+
+**Todo dia às 7h (Brasília)**, `apice_daily_insights` chama a mesma função
+automaticamente — uma vez pra holding, uma vez por empresa ativa — pedindo
+explicitamente as prioridades do dia (tarefa vencendo hoje, meta em risco).
+Os insights gerados entram na mesma lista de sempre e os administradores
+(da holding ou da empresa) recebem uma notificação no sistema.
 
 ## Temas
 

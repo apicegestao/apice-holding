@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attainmentRatio, formatNumberInput, formatValue, parseNumberInput } from '../format'
+import { attainmentRatio, formatNumberInput, formatValue, labelPeriod, parseNumberInput, periodBounds } from '../format'
 
 describe('parseNumberInput', () => {
   it('lê o formato brasileiro com milhar e decimal', () => {
@@ -86,5 +86,39 @@ describe('attainmentRatio', () => {
     expect(attainmentRatio(null, 100, 'up')).toBeNull()
     expect(attainmentRatio(50, null, 'up')).toBeNull()
     expect(attainmentRatio(50, 0, 'up')).toBeNull()
+  })
+})
+
+describe('periodBounds quinzenal', () => {
+  // Mesma âncora e mesma conta que app.coarse_period_bounds() no banco
+  // (migração 0026_kpi_lifecycle.sql) — os dois têm que bater exatamente,
+  // senão um lançamento cai num período aqui e noutro lá. Casos conferidos
+  // rodando a função SQL de verdade contra as mesmas datas.
+  it('a própria âncora (uma segunda-feira) inicia a primeira quinzena', () => {
+    expect(periodBounds('biweekly', new Date(2024, 0, 1))).toEqual({ start: '2024-01-01', end: '2024-01-14' })
+  })
+
+  it('qualquer dia dentro da quinzena cai no mesmo período', () => {
+    expect(periodBounds('biweekly', new Date(2024, 0, 8))).toEqual({ start: '2024-01-01', end: '2024-01-14' })
+    expect(periodBounds('biweekly', new Date(2024, 0, 14))).toEqual({ start: '2024-01-01', end: '2024-01-14' })
+  })
+
+  it('quinzena seguinte começa exatamente 14 dias depois', () => {
+    expect(periodBounds('biweekly', new Date(2024, 0, 15))).toEqual({ start: '2024-01-15', end: '2024-01-28' })
+  })
+
+  it('funciona longe da âncora, atravessando ano', () => {
+    expect(periodBounds('biweekly', new Date(2026, 8, 2))).toEqual({ start: '2026-08-24', end: '2026-09-06' })
+    expect(periodBounds('biweekly', new Date(2026, 11, 31))).toEqual({ start: '2026-12-28', end: '2027-01-10' })
+  })
+
+  it('funciona antes da âncora também (quinzenas negativas)', () => {
+    expect(periodBounds('biweekly', new Date(2023, 11, 31))).toEqual({ start: '2023-12-18', end: '2023-12-31' })
+  })
+})
+
+describe('labelPeriod', () => {
+  it('rotula a quinzena pela data de início', () => {
+    expect(labelPeriod('2024-01-15', 'biweekly')).toBe('quinz. 15/01')
   })
 })

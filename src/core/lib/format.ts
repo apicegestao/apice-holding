@@ -60,6 +60,12 @@ export function relativeDays(dateStr: string | null | undefined) {
   return diff > 0 ? `em ${diff} dias` : `há ${Math.abs(diff)} dias`
 }
 
+// Segunda-feira usada como âncora pro cálculo de quinzena — tem que ser
+// EXATAMENTE a mesma que app.coarse_period_bounds() usa no banco (migração
+// 0026_kpi_lifecycle.sql), senão um lançamento fino cai num período aqui e
+// noutro lá.
+const BIWEEKLY_ANCHOR = new Date(2024, 0, 1)
+
 /** Início e fim do período de acordo com a frequência do KPI. */
 export function periodBounds(frequency: string, reference = new Date()) {
   const y = reference.getFullYear()
@@ -67,6 +73,8 @@ export function periodBounds(frequency: string, reference = new Date()) {
   const d = reference.getDate()
   const iso = (date: Date) =>
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const daysBetween = (a: Date, b: Date) =>
+    Math.round((Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) - Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / 86_400_000)
 
   switch (frequency) {
     case 'daily':
@@ -77,6 +85,17 @@ export function periodBounds(frequency: string, reference = new Date()) {
       const sunday = new Date(monday)
       sunday.setDate(monday.getDate() + 6)
       return { start: iso(monday), end: iso(sunday) }
+    }
+    case 'biweekly': {
+      const weekday = new Date(y, m, d).getDay()
+      const monday = new Date(y, m, d - ((weekday + 6) % 7))
+      const weeksSince = Math.floor(daysBetween(BIWEEKLY_ANCHOR, monday) / 7)
+      const fortnightIndex = Math.floor(weeksSince / 2)
+      const start = new Date(BIWEEKLY_ANCHOR)
+      start.setDate(start.getDate() + fortnightIndex * 14)
+      const end = new Date(start)
+      end.setDate(start.getDate() + 13)
+      return { start: iso(start), end: iso(end) }
     }
     case 'quarterly': {
       const first = Math.floor(m / 3) * 3
@@ -98,6 +117,8 @@ export function labelPeriod(periodStart: string, frequency: string) {
       return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
     case 'weekly':
       return `sem. ${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`
+    case 'biweekly':
+      return `quinz. ${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`
     case 'quarterly':
       return `${Math.floor(date.getMonth() / 3) + 1}º tri/${String(date.getFullYear()).slice(2)}`
     case 'yearly':

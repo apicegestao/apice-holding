@@ -97,7 +97,7 @@ export type ProductEdition = {
 
 export type KpiUnit = 'currency' | 'percent' | 'number' | 'days' | 'ratio'
 export type KpiDirection = 'up' | 'down'
-export type KpiFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
+export type KpiFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly'
 
 export const UNIT_LABEL: Record<KpiUnit, string> = {
   currency: 'R$',
@@ -110,9 +110,27 @@ export const UNIT_LABEL: Record<KpiUnit, string> = {
 export const FREQUENCY_LABEL: Record<KpiFrequency, string> = {
   daily: 'Diário',
   weekly: 'Semanal',
+  biweekly: 'Quinzenal',
   monthly: 'Mensal',
   quarterly: 'Trimestral',
   yearly: 'Anual',
+}
+
+// Ordem em que as frequências aparecem em qualquer seletor — da mais fina pra
+// mais larga. Um único lugar pra isso; nenhuma tela lista `Object.keys` e
+// arrisca uma ordem diferente da outra.
+export const FREQUENCIES: KpiFrequency[] = ['daily', 'weekly', 'biweekly', 'monthly', 'quarterly', 'yearly']
+
+/** Cadências que cabem como entry_frequency dentro de cada frequency — só as
+ *  mais finas que ela fazem sentido (não dá pra "lançar por ano" uma meta
+ *  mensal). Usado pra montar a lista de opções na hora de configurar o KPI. */
+export const FINER_FREQUENCIES: Record<KpiFrequency, KpiFrequency[]> = {
+  daily: [],
+  weekly: ['daily'],
+  biweekly: ['daily', 'weekly'],
+  monthly: ['daily', 'weekly', 'biweekly'],
+  quarterly: ['daily', 'weekly', 'biweekly', 'monthly'],
+  yearly: ['daily', 'weekly', 'biweekly', 'monthly', 'quarterly'],
 }
 
 export type Kpi = {
@@ -141,6 +159,18 @@ export type Kpi = {
   // podendo ser só "da empresa" sem nenhum dos dois.
   product_id: string | null
   product_edition_id: string | null
+  // null = ativo. Arquivar não apaga nada, só tira da tela principal — o
+  // sistema arquiva sozinho quando due_date passa, e sempre dá pra desfazer.
+  archived_at: string | null
+  // KPI da frente principal (ex. "Entre Donos", product_edition_id nulo) que
+  // este KPI de sub-produto/turma contribui — a meta do pai soma as dos
+  // filhos. Só dois níveis: quem já é filho não pode virar pai de outro.
+  parent_kpi_id: string | null
+  // Quando preenchida, é a cadência REAL do lançamento (mais fina que
+  // frequency) — ex. meta anual (frequency) lançada mês a mês
+  // (entry_frequency). null = lança direto no período de frequency, como
+  // sempre foi.
+  entry_frequency: KpiFrequency | null
 }
 
 /** Uma parcela semanal do alvo de um KPI com prazo — "essa semana precisa
@@ -471,4 +501,23 @@ export type KpiLatestValue = {
   status: GoalStatus
   product_id: string | null
   product_edition_id: string | null
+  parent_kpi_id: string | null
+  archived_at: string | null
+}
+
+/** Um lançamento fino (entry_frequency) — várias destas somam pro período
+ *  "grosso" (frequency) do mesmo KPI em kpi_values, via trigger no banco.
+ *  A tela nunca escreve em kpi_values quando entry_frequency está preenchida:
+ *  escreve aqui, e o banco recalcula a soma sozinho. */
+export type KpiValueEntry = {
+  id: string
+  kpi_id: string
+  company_id: string
+  period_start: string
+  period_end: string
+  value: number
+  note: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
 }

@@ -88,7 +88,7 @@ export default function HoldingDashboard() {
     setLoading(true)
     const [snapshotResult, kpiResult, taskResult, insightResult] = await Promise.all([
       supabase.rpc('company_snapshots'),
-      supabase.from('kpi_latest_values').select('*'),
+      supabase.from('kpi_latest_values').select('*').is('archived_at', null),
       // A RLS já entrega só o que enxergo; aqui reduzo ao que é meu.
       supabase
         .from('tasks')

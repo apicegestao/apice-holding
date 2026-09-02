@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
+  Archive,
+  ArchiveRestore,
   ArrowDownRight,
   ArrowUpRight,
   CalendarRange,
   History,
+  Layers,
   Pencil,
   Plus,
   Trash2,
@@ -32,6 +35,7 @@ import {
   periodBounds,
   relativeDays,
 } from '../../core/lib/format'
+import { useAuth } from '../../core/auth/AuthProvider'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
 import {
@@ -53,6 +57,8 @@ import {
 import { KPI_CATEGORIES, type KpiTemplate } from '../../core/catalog'
 import KpiSuggestions from './KpiSuggestions'
 import {
+  FINER_FREQUENCIES,
+  FREQUENCIES,
   FREQUENCY_LABEL,
   GOAL_STATUS_LABEL,
   UNIT_LABEL,
@@ -63,13 +69,13 @@ import {
   type KpiFrequency,
   type KpiUnit,
   type KpiValue,
+  type KpiValueEntry,
   type Product,
   type ProductEdition,
   type Profile,
 } from '../../core/types'
 
 const UNITS: KpiUnit[] = ['currency', 'percent', 'number', 'days', 'ratio']
-const FREQUENCIES: KpiFrequency[] = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
 const STATUSES: GoalStatus[] = ['planned', 'active', 'at_risk', 'achieved', 'missed']
 
 function statusTone(status: GoalStatus) {
@@ -93,6 +99,8 @@ const emptyKpi = {
   status: 'active' as GoalStatus,
   product_id: '',
   product_edition_id: '',
+  entry_frequency: '' as KpiFrequency | '',
+  parent_kpi_id: '',
 }
 
 export default function KpisPage() {
@@ -103,11 +111,15 @@ export default function KpisPage() {
 
   const [kpis, setKpis] = useState<Kpi[]>([])
   const [values, setValues] = useState<KpiValue[]>([])
+  const [entries, setEntries] = useState<KpiValueEntry[]>([])
   const [people, setPeople] = useState<Profile[]>([])
   const [checkpoints, setCheckpoints] = useState<KpiCheckpoint[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [editions, setEditions] = useState<ProductEdition[]>([])
   const [productFilter, setProductFilter] = useState('')
+  // Arquivados ficam num ambiente à parte — só aparece a aba quando existe
+  // pelo menos um, pra não acrescentar nada na tela de quem nunca arquivou.
+  const [showArchived, setShowArchived] = useState(false)
   const [loading, setLoading] = useState(true)
 
   const [kpiForm, setKpiForm] = useState(emptyKpi)
@@ -137,13 +149,20 @@ export default function KpisPage() {
       ])
 
     const ids = (kpiRows ?? []).map((row) => row.id)
-    const [{ data: valueRows }, { data: checkpointRows }] = await Promise.all([
+    const [{ data: valueRows }, { data: checkpointRows }, { data: entryRows }] = await Promise.all([
       ids.length
         ? supabase.from('kpi_values').select('*').in('kpi_id', ids).order('period_start', { ascending: true })
         : Promise.resolve({ data: [] as KpiValue[] }),
       ids.length
         ? supabase.from('kpi_checkpoints').select('*').in('kpi_id', ids).order('seq', { ascending: true })
         : Promise.resolve({ data: [] as KpiCheckpoint[] }),
+      ids.length
+        ? supabase
+            .from('kpi_value_entries')
+            .select('*')
+            .in('kpi_id', ids)
+            .order('period_start', { ascending: true })
+        : Promise.resolve({ data: [] as KpiValueEntry[] }),
     ])
 
     const memberIds = (memberRows ?? []).map((row) => row.user_id)
@@ -153,6 +172,7 @@ export default function KpisPage() {
 
     setKpis((kpiRows as Kpi[]) ?? [])
     setValues((valueRows as KpiValue[]) ?? [])
+    setEntries((entryRows as KpiValueEntry[]) ?? [])
     setCheckpoints((checkpointRows as KpiCheckpoint[]) ?? [])
     setPeople((profileRows as Profile[]) ?? [])
     setProducts((productRows as Product[]) ?? [])
@@ -259,6 +279,8 @@ export default function KpisPage() {
       status: kpi.status,
       product_id: kpi.product_id ?? '',
       product_edition_id: kpi.product_edition_id ?? '',
+      entry_frequency: kpi.entry_frequency ?? '',
+      parent_kpi_id: kpi.parent_kpi_id ?? '',
     })
     setError('')
     setEditingKpi(kpi)
@@ -286,6 +308,15 @@ export default function KpisPage() {
       // a edição antiga presa nele seria o mesmo bug que a guarda no banco
       // (assert_kpi_product) já rejeitaria; melhor nem tentar gravar.
       product_edition_id: kpiForm.product_id ? kpiForm.product_edition_id || null : null,
+      // Só faz sentido lançar em cadência mais fina quando ela existe pra
+      // essa frequência — se a pessoa trocou a frequência depois de escolher
+      // uma cadência que não cabe mais nela, descarta em vez de gravar lixo.
+      entry_frequency:
+        kpiForm.entry_frequency && FINER_FREQUENCIES[kpiForm.frequency].includes(kpiForm.entry_frequency)
+          ? kpiForm.entry_frequency
+          : null,
+      // "Contribui para" só se aplica a um KPI de sub-produto (tem edição).
+      parent_kpi_id: kpiForm.product_edition_id ? kpiForm.parent_kpi_id || null : null,
     }
 
     if (!payload.name) {
@@ -328,6 +359,29 @@ export default function KpisPage() {
     await load()
   }
 
+  // Arquivar não some com nada — só tira da tela de ativos. O sistema já
+  // arquiva sozinho quando o prazo passa; isto é só a versão manual, com o
+  // desfazer sempre à mão na aba de arquivados.
+  const archiveKpi = async (kpi: Kpi) => {
+    const { error } = await supabase.from('kpis').update({ archived_at: new Date().toISOString() }).eq('id', kpi.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify('KPI arquivado.')
+    await load()
+  }
+
+  const unarchiveKpi = async (kpi: Kpi) => {
+    const { error } = await supabase.from('kpis').update({ archived_at: null }).eq('id', kpi.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify('KPI reativado.')
+    await load()
+  }
+
   const ownerName = (id: string | null) =>
     id ? (people.find((person) => person.id === id)?.full_name ?? '—') : null
 
@@ -335,10 +389,16 @@ export default function KpisPage() {
   const editionsForProduct = (productId: string) =>
     editions.filter((edition) => edition.product_id === productId)
 
-  const visibleKpis = useMemo(
-    () => (productFilter ? kpis.filter((kpi) => kpi.product_id === productFilter) : kpis),
-    [kpis, productFilter],
-  )
+  // Checagem por "verdadeiro" (não por === null) de propósito: em dado
+  // vindo de fora do banco de verdade (ex. simulação de teste) o campo pode
+  // vir ausente (undefined) em vez de nulo — mesmo padrão que product_id já
+  // usa aqui embaixo, pra não tratar "campo faltando" como "arquivado".
+  const archivedKpis = useMemo(() => kpis.filter((kpi) => Boolean(kpi.archived_at)), [kpis])
+
+  const visibleKpis = useMemo(() => {
+    const byArchiveTab = kpis.filter((kpi) => (showArchived ? Boolean(kpi.archived_at) : !kpi.archived_at))
+    return productFilter ? byArchiveTab.filter((kpi) => kpi.product_id === productFilter) : byArchiveTab
+  }, [kpis, productFilter, showArchived])
 
   const checkpointsByKpi = useMemo(() => {
     const map = new Map<string, KpiCheckpoint[]>()
@@ -349,6 +409,73 @@ export default function KpisPage() {
     }
     return map
   }, [checkpoints])
+
+  const entriesByKpi = useMemo(() => {
+    const map = new Map<string, KpiValueEntry[]>()
+    for (const entry of entries) {
+      const list = map.get(entry.kpi_id) ?? []
+      list.push(entry)
+      map.set(entry.kpi_id, list)
+    }
+    return map
+  }, [entries])
+
+  // Produto pai (ex. "Entre Donos") e seus sub-produtos (turmas) — cada
+  // filho soma pro pai. Guardado pelos dois lados: quem são os filhos de
+  // cada pai, pra calcular a soma e pra agrupar visualmente na lista.
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, Kpi[]>()
+    for (const kpi of kpis) {
+      if (!kpi.parent_kpi_id) continue
+      const list = map.get(kpi.parent_kpi_id) ?? []
+      list.push(kpi)
+      map.set(kpi.parent_kpi_id, list)
+    }
+    return map
+  }, [kpis])
+
+  /** Soma o último valor lançado de cada sub-produto — o valor "oficial" do
+   *  pai é essa soma, não um lançamento próprio nele. */
+  const rollupFor = useCallback(
+    (kpiId: string) => {
+      const children = childrenByParent.get(kpiId)
+      if (!children?.length) return null
+      let value = 0
+      let reported = 0
+      for (const child of children) {
+        const series = seriesByKpi.get(child.id) ?? []
+        const latest = series[series.length - 1]
+        if (latest) {
+          value += Number(latest.value)
+          reported += 1
+        }
+      }
+      return { value, total: children.length, reported, children }
+    },
+    [childrenByParent, seriesByKpi],
+  )
+
+  // Lista final: cada pai visível é seguido imediatamente dos próprios
+  // filhos (quando também visíveis) — assim dá pra acompanhar o produto e
+  // suas turmas juntos, em vez de espalhados pela ordem alfabética.
+  const groupedKpis = useMemo(() => {
+    const visibleIds = new Set(visibleKpis.map((kpi) => kpi.id))
+    const seen = new Set<string>()
+    const ordered: Kpi[] = []
+    for (const kpi of visibleKpis) {
+      if (seen.has(kpi.id)) continue
+      if (kpi.parent_kpi_id && visibleIds.has(kpi.parent_kpi_id)) continue
+      ordered.push(kpi)
+      seen.add(kpi.id)
+      for (const child of childrenByParent.get(kpi.id) ?? []) {
+        if (visibleIds.has(child.id) && !seen.has(child.id)) {
+          ordered.push(child)
+          seen.add(child.id)
+        }
+      }
+    }
+    return ordered
+  }, [visibleKpis, childrenByParent])
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -372,7 +499,7 @@ export default function KpisPage() {
                 ))}
               </select>
             )}
-            {canWrite && (
+            {canWrite && !showArchived && (
               <button type="button" className="btn-primary" onClick={openCreate}>
                 <Plus className="h-4 w-4" /> Novo KPI
               </button>
@@ -380,6 +507,31 @@ export default function KpisPage() {
           </>
         }
       />
+
+      {/* Arquivados vivem num ambiente à parte — a aba só existe quando há
+          pelo menos um, pra não acrescentar nada em quem nunca arquivou. */}
+      {archivedKpis.length > 0 && (
+        <div className="mb-4 inline-flex rounded-lg border border-line-strong p-0.5 text-sm">
+          <button
+            type="button"
+            onClick={() => setShowArchived(false)}
+            className={`rounded-md px-3 py-1.5 font-medium transition ${
+              !showArchived ? 'bg-brand/10 text-brand-text' : 'text-content-muted hover:bg-hover'
+            }`}
+          >
+            Ativos
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowArchived(true)}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition ${
+              showArchived ? 'bg-brand/10 text-brand-text' : 'text-content-muted hover:bg-hover'
+            }`}
+          >
+            <Archive className="h-3.5 w-3.5" /> Arquivados ({archivedKpis.length})
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <Loading />
@@ -397,21 +549,28 @@ export default function KpisPage() {
         />
       ) : visibleKpis.length === 0 ? (
         <EmptyState
-          title="Nenhum KPI neste produto"
-          description="Troque o filtro ou cadastre um indicador vinculado a este produto."
+          title={showArchived ? 'Nenhum KPI arquivado' : 'Nenhum KPI neste produto'}
+          description={
+            showArchived
+              ? 'Indicadores arquivados (manualmente ou por prazo vencido) aparecem aqui.'
+              : 'Troque o filtro ou cadastre um indicador vinculado a este produto.'
+          }
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {visibleKpis.map((kpi) => {
+          {groupedKpis.map((kpi) => {
             const series = seriesByKpi.get(kpi.id) ?? []
             const latest = series[series.length - 1]
             const previous = series[series.length - 2]
-            const onTarget = latest ? isOnTarget(Number(latest.value), kpi.target_value, kpi.direction) : null
-            const ratio = latest
-              ? attainmentRatio(Number(latest.value), kpi.target_value, kpi.direction)
-              : null
+            // Um KPI pai não lança valor direto — o número dele é a soma do
+            // último valor de cada sub-produto.
+            const rollup = rollupFor(kpi.id)
+            const parent = kpi.parent_kpi_id ? kpis.find((item) => item.id === kpi.parent_kpi_id) : null
+            const displayValue = rollup ? rollup.value : latest ? Number(latest.value) : null
+            const onTarget = displayValue !== null ? isOnTarget(displayValue, kpi.target_value, kpi.direction) : null
+            const ratio = displayValue !== null ? attainmentRatio(displayValue, kpi.target_value, kpi.direction) : null
             const delta =
-              latest && previous ? Number(latest.value) - Number(previous.value) : null
+              !rollup && latest && previous ? Number(latest.value) - Number(previous.value) : null
             const improving =
               delta === null ? null : kpi.direction === 'up' ? delta >= 0 : delta <= 0
 
@@ -434,16 +593,24 @@ export default function KpisPage() {
                     <p className="text-xs text-content-soft">
                       {kpi.category ? `${kpi.category} · ` : ''}
                       {FREQUENCY_LABEL[kpi.frequency]}
+                      {kpi.entry_frequency && ` · lançado por ${FREQUENCY_LABEL[kpi.entry_frequency].toLowerCase()}`}
                     </p>
-                    {kpi.product_id && (
-                      <p className="mt-1">
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {kpi.product_id && (
                         <Badge tone="violet">
                           {productName(kpi.product_id)}
                           {kpi.product_edition_id &&
                             ` · ${editions.find((edition) => edition.id === kpi.product_edition_id)?.name ?? ''}`}
                         </Badge>
-                      </p>
-                    )}
+                      )}
+                      {rollup && (
+                        <Badge tone="blue">
+                          <Layers className="mr-1 inline h-3 w-3" />
+                          soma {rollup.reported}/{rollup.total} sub-produtos
+                        </Badge>
+                      )}
+                      {parent && <Badge tone="slate">contribui p/ {parent.name}</Badge>}
+                    </div>
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <button
@@ -464,6 +631,25 @@ export default function KpisPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
+                        {kpi.archived_at ? (
+                          <button
+                            type="button"
+                            className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
+                            title="Reativar"
+                            onClick={() => void unarchiveKpi(kpi)}
+                          >
+                            <ArchiveRestore className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
+                            title="Arquivar"
+                            onClick={() => void archiveKpi(kpi)}
+                          >
+                            <Archive className="h-4 w-4" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
@@ -480,10 +666,14 @@ export default function KpisPage() {
                 <div className="mt-3 flex items-end justify-between gap-2">
                   <div>
                     <p className="text-2xl font-semibold text-content">
-                      {latest ? formatValue(Number(latest.value), kpi.unit) : '—'}
+                      {displayValue !== null ? formatValue(displayValue, kpi.unit) : '—'}
                     </p>
                     <p className="text-xs text-content-soft">
-                      {latest ? labelPeriod(latest.period_start, kpi.frequency) : 'sem lançamento'}
+                      {rollup
+                        ? 'soma atual dos sub-produtos'
+                        : latest
+                          ? labelPeriod(latest.period_start, kpi.frequency)
+                          : 'sem lançamento'}
                       {kpi.target_value !== null && (
                         <> · meta {formatValue(kpi.target_value, kpi.unit)}</>
                       )}
@@ -511,6 +701,22 @@ export default function KpisPage() {
                     )}
                   </div>
                 </div>
+
+                {rollup && (
+                  <ul className="mt-2 space-y-1 border-t border-line pt-2">
+                    {rollup.children.map((child) => {
+                      const childLatest = seriesByKpi.get(child.id)?.slice(-1)[0]
+                      return (
+                        <li key={child.id} className="flex items-center justify-between gap-2 text-xs">
+                          <span className="truncate text-content-soft">{child.name}</span>
+                          <span className="font-medium text-content">
+                            {childLatest ? formatValue(Number(childLatest.value), kpi.unit) : 'sem lançamento'}
+                          </span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
 
                 {/* KPI com prazo já ganha a barra lá embaixo, junto do resto
                     da meta — mostrar duas vezes na mesma tela é redundante. */}
@@ -587,7 +793,9 @@ export default function KpisPage() {
                   <div className="flex gap-1.5">
                     {kpi.source === 'integration' && <Badge tone="violet">integração</Badge>}
                   </div>
-                  {canWrite && (
+                  {/* KPI pai não lança valor direto — o número vem da soma
+                      dos sub-produtos, mostrada acima. */}
+                  {canWrite && !rollup && (
                     <button type="button" className="btn-ghost py-1.5" onClick={() => setEntryFor(kpi)}>
                       <TrendingUp className="h-3.5 w-3.5" /> Lançar valor
                     </button>
@@ -682,39 +890,89 @@ export default function KpisPage() {
               onChange={(event) => setKpiForm((c) => ({ ...c, name: event.target.value }))}
             />
           </Field>
+          {/* Agrupado numa caixa só, como a de prazo/meta mais abaixo — três
+              campos que só existem quando a empresa usa produtos, e o
+              terceiro só quando o segundo aponta pra uma turma. Ver os três
+              juntos deixa claro que "contribui para" é consequência de
+              "edição", que é consequência de "produto". */}
           {products.length > 0 && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Produto" hint="Opcional — deixe em branco pra um KPI geral da empresa.">
-                <select
-                  className="input"
-                  value={kpiForm.product_id}
-                  onChange={(event) =>
-                    setKpiForm((c) => ({ ...c, product_id: event.target.value, product_edition_id: '' }))
-                  }
-                >
-                  <option value="">Nenhum — indicador da empresa toda</option>
-                  {products.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              {kpiForm.product_id && editionsForProduct(kpiForm.product_id).length > 0 && (
-                <Field label="Edição" hint="Opcional — só se este KPI for de uma turma específica.">
+            <div className="rounded-lg border border-dashed border-line-strong p-3">
+              <p className="mb-3 text-xs font-medium uppercase tracking-wide text-content-soft">
+                Produto e sub-produto — opcional
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="Produto" hint="Deixe em branco pra um KPI geral da empresa.">
                   <select
                     className="input"
-                    value={kpiForm.product_edition_id}
-                    onChange={(event) => setKpiForm((c) => ({ ...c, product_edition_id: event.target.value }))}
+                    value={kpiForm.product_id}
+                    onChange={(event) =>
+                      setKpiForm((c) => ({
+                        ...c,
+                        product_id: event.target.value,
+                        product_edition_id: '',
+                        parent_kpi_id: '',
+                      }))
+                    }
                   >
-                    <option value="">Todas as edições (o produto como um todo)</option>
-                    {editionsForProduct(kpiForm.product_id).map((edition) => (
-                      <option key={edition.id} value={edition.id}>
-                        {edition.name}
+                    <option value="">Nenhum — indicador da empresa toda</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name}
                       </option>
                     ))}
                   </select>
                 </Field>
+                {kpiForm.product_id && editionsForProduct(kpiForm.product_id).length > 0 && (
+                  <Field label="Edição" hint="Só se este KPI for de uma turma específica.">
+                    <select
+                      className="input"
+                      value={kpiForm.product_edition_id}
+                      onChange={(event) =>
+                        setKpiForm((c) => ({ ...c, product_edition_id: event.target.value, parent_kpi_id: '' }))
+                      }
+                    >
+                      <option value="">Todas as edições (o produto como um todo)</option>
+                      {editionsForProduct(kpiForm.product_id).map((edition) => (
+                        <option key={edition.id} value={edition.id}>
+                          {edition.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+              </div>
+
+              {/* Só aparece pra um KPI de turma específica — é o que soma
+                  pro indicador do produto como um todo (ex. "Entre Donos"
+                  soma as turmas de setembro, outubro...). */}
+              {kpiForm.product_id && kpiForm.product_edition_id && (
+                <div className="mt-4">
+                  <Field
+                    label="Contribui para"
+                    hint="O KPI do produto (sem edição) que recebe a soma desta turma."
+                  >
+                    <select
+                      className="input"
+                      value={kpiForm.parent_kpi_id}
+                      onChange={(event) => setKpiForm((c) => ({ ...c, parent_kpi_id: event.target.value }))}
+                    >
+                      <option value="">Nenhum — não soma em nenhum outro indicador</option>
+                      {kpis
+                        .filter(
+                          (candidate) =>
+                            candidate.id !== editingKpi?.id &&
+                            candidate.product_id === kpiForm.product_id &&
+                            !candidate.product_edition_id &&
+                            !candidate.parent_kpi_id,
+                        )
+                        .map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.name}
+                          </option>
+                        ))}
+                    </select>
+                  </Field>
+                </div>
               )}
             </div>
           )}
@@ -737,9 +995,19 @@ export default function KpisPage() {
               <select
                 className="input"
                 value={kpiForm.frequency}
-                onChange={(event) =>
-                  setKpiForm((c) => ({ ...c, frequency: event.target.value as KpiFrequency }))
-                }
+                onChange={(event) => {
+                  const frequency = event.target.value as KpiFrequency
+                  setKpiForm((c) => ({
+                    ...c,
+                    frequency,
+                    // A cadência de lançamento só existe se ainda couber na
+                    // nova frequência (ex. trocar de anual pra mensal tira o
+                    // sentido de lançar "por mês" — já é a própria medição).
+                    entry_frequency: FINER_FREQUENCIES[frequency].includes(c.entry_frequency as KpiFrequency)
+                      ? c.entry_frequency
+                      : '',
+                  }))
+                }}
               >
                 {FREQUENCIES.map((item) => (
                   <option key={item} value={item}>
@@ -749,6 +1017,32 @@ export default function KpisPage() {
               </select>
             </Field>
           </div>
+
+          {/* Uma meta anual (ex. faturamento) pode ser mais fácil de
+              acompanhar lançando mês a mês — só aparece quando a frequência
+              escolhida tem uma cadência mais fina que faça sentido. */}
+          {FINER_FREQUENCIES[kpiForm.frequency].length > 0 && (
+            <Field
+              label="Lançar em cadência mais fina"
+              hint={`Opcional — os lançamentos somam automaticamente pro total ${FREQUENCY_LABEL[kpiForm.frequency].toLowerCase()}.`}
+            >
+              <select
+                className="input"
+                value={kpiForm.entry_frequency}
+                onChange={(event) =>
+                  setKpiForm((c) => ({ ...c, entry_frequency: event.target.value as KpiFrequency | '' }))
+                }
+              >
+                <option value="">Lançar direto no período {FREQUENCY_LABEL[kpiForm.frequency].toLowerCase()}</option>
+                {FINER_FREQUENCIES[kpiForm.frequency].map((item) => (
+                  <option key={item} value={item}>
+                    Lançar por {FREQUENCY_LABEL[item].toLowerCase()}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field label="Unidade">
               <select
@@ -855,6 +1149,7 @@ export default function KpisPage() {
           kpi={entryFor}
           companyId={company.id}
           existing={seriesByKpi.get(entryFor.id) ?? []}
+          entries={entriesByKpi.get(entryFor.id) ?? []}
           onClose={() => setEntryFor(null)}
           onSaved={async () => {
             setEntryFor(null)
@@ -867,6 +1162,7 @@ export default function KpisPage() {
         <HistoryModal
           kpi={historyFor}
           series={seriesByKpi.get(historyFor.id) ?? []}
+          entries={entriesByKpi.get(historyFor.id) ?? []}
           checkpoints={checkpointsByKpi.get(historyFor.id) ?? []}
           canWrite={canWrite}
           onClose={() => setHistoryFor(null)}
@@ -898,22 +1194,29 @@ function ValueEntryModal({
   kpi,
   companyId,
   existing,
+  entries,
   onClose,
   onSaved,
 }: {
   kpi: Kpi
   companyId: string
   existing: KpiValue[]
+  entries: KpiValueEntry[]
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
   const { notify } = useToast()
-  // A frequência do KPI já diz o tamanho do período — pedir início E fim
-  // toda vez que alguém lança um valor é redundante (e ainda deixa abrir
-  // brecha pra um intervalo que não bate com a frequência). Um único campo
-  // de referência basta: a pessoa escolhe qualquer dia dentro do período
-  // que quer lançar (hoje, por padrão) e o sistema calcula o intervalo
-  // certo sozinho, do mesmo jeito que já calculava a data padrão antes.
+  const { profile } = useAuth()
+  // Quando o KPI tem uma cadência de lançamento mais fina (entry_frequency),
+  // é ela que decide o período do formulário — o banco soma sozinho pro
+  // total no período da frequência declarada (frequency), via gatilho.
+  const usesEntries = kpi.entry_frequency !== null
+  const entryFrequency = kpi.entry_frequency ?? kpi.frequency
+
+  // A frequência já diz o tamanho do período — pedir início E fim toda vez
+  // que alguém lança um valor é redundante. Um único campo de referência
+  // basta: a pessoa escolhe qualquer dia dentro do período (hoje, por
+  // padrão) e o sistema calcula o intervalo certo sozinho.
   const [reference, setReference] = useState(() => new Date().toISOString().slice(0, 10))
   const [value, setValue] = useState<number | null>(null)
   const [note, setNote] = useState('')
@@ -921,16 +1224,44 @@ function ValueEntryModal({
   const [busy, setBusy] = useState(false)
 
   const { start: periodStart, end: periodEnd } = useMemo(
-    () => periodBounds(kpi.frequency, new Date(`${reference}T12:00:00`)),
-    [kpi.frequency, reference],
+    () => periodBounds(entryFrequency, new Date(`${reference}T12:00:00`)),
+    [entryFrequency, reference],
   )
+
+  // Contexto de quem lança fino: quanto já soma no período grosso (ex. mês
+  // dentro do ano) antes mesmo de salvar este lançamento.
+  const coarseBounds = useMemo(
+    () => (usesEntries ? periodBounds(kpi.frequency, new Date(`${reference}T12:00:00`)) : null),
+    [usesEntries, kpi.frequency, reference],
+  )
+  // Exclui o próprio período sendo editado — a mensagem sempre significa
+  // "o que já está lançado além deste", tanto criando quanto editando.
+  const coarseEntries = useMemo(
+    () =>
+      coarseBounds
+        ? entries.filter(
+            (item) =>
+              item.period_start >= coarseBounds.start &&
+              item.period_start <= coarseBounds.end &&
+              item.period_start !== periodStart,
+          )
+        : [],
+    [entries, coarseBounds, periodStart],
+  )
+  const coarseTotal = coarseEntries.reduce((sum, item) => sum + Number(item.value), 0)
 
   // Se já existe lançamento no período escolhido, o formulário vira edição.
   useEffect(() => {
-    const found = existing.find((item) => item.period_start === periodStart)
-    setValue(found ? Number(found.value) : null)
-    setNote(found?.note ?? '')
-  }, [periodStart, existing])
+    if (usesEntries) {
+      const found = entries.find((item) => item.period_start === periodStart)
+      setValue(found ? Number(found.value) : null)
+      setNote(found?.note ?? '')
+    } else {
+      const found = existing.find((item) => item.period_start === periodStart)
+      setValue(found ? Number(found.value) : null)
+      setNote(found?.note ?? '')
+    }
+  }, [periodStart, existing, entries, usesEntries])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -941,18 +1272,31 @@ function ValueEntryModal({
     }
 
     setBusy(true)
-    const { error: upsertError } = await supabase.from('kpi_values').upsert(
-      {
-        kpi_id: kpi.id,
-        company_id: companyId,
-        period_start: periodStart,
-        period_end: periodEnd,
-        value,
-        note: note.trim() || null,
-        source: 'manual',
-      },
-      { onConflict: 'kpi_id,period_start' },
-    )
+    const { error: upsertError } = usesEntries
+      ? await supabase.from('kpi_value_entries').upsert(
+          {
+            kpi_id: kpi.id,
+            company_id: companyId,
+            period_start: periodStart,
+            period_end: periodEnd,
+            value,
+            note: note.trim() || null,
+            created_by: profile?.id ?? null,
+          },
+          { onConflict: 'kpi_id,period_start' },
+        )
+      : await supabase.from('kpi_values').upsert(
+          {
+            kpi_id: kpi.id,
+            company_id: companyId,
+            period_start: periodStart,
+            period_end: periodEnd,
+            value,
+            note: note.trim() || null,
+            source: 'manual',
+          },
+          { onConflict: 'kpi_id,period_start' },
+        )
     setBusy(false)
 
     if (upsertError) {
@@ -968,7 +1312,11 @@ function ValueEntryModal({
     <Modal
       open
       title={`Lançar valor · ${kpi.name}`}
-      description={`Medição ${FREQUENCY_LABEL[kpi.frequency].toLowerCase()}`}
+      description={
+        usesEntries
+          ? `Lançamento ${FREQUENCY_LABEL[entryFrequency].toLowerCase()} — soma pro total ${FREQUENCY_LABEL[kpi.frequency].toLowerCase()}`
+          : `Medição ${FREQUENCY_LABEL[kpi.frequency].toLowerCase()}`
+      }
       onClose={onClose}
       width="max-w-md"
       footer={
@@ -985,14 +1333,14 @@ function ValueEntryModal({
     >
       <form id="value-form" onSubmit={submit} className="space-y-4">
         <Field
-          label={kpi.frequency === 'daily' ? 'Dia' : 'Qualquer dia do período'}
+          label={entryFrequency === 'daily' ? 'Dia' : 'Qualquer dia do período'}
           hint={
-            kpi.frequency === 'daily'
+            entryFrequency === 'daily'
               ? undefined
               : `Período: ${formatDate(periodStart)} a ${formatDate(periodEnd)}`
           }
         >
-          {kpi.frequency === 'monthly' ? (
+          {entryFrequency === 'monthly' ? (
             <input
               className="input"
               type="month"
@@ -1016,11 +1364,23 @@ function ValueEntryModal({
         >
           <NumberInput unit={kpi.unit} required value={value} onChange={setValue} />
         </Field>
+        {/* Contexto de quem lança fino: quanto já está somado no período
+            grosso antes deste lançamento, pra não digitar "no escuro". */}
+        {usesEntries && coarseBounds && (
+          <p className="rounded-lg bg-hover px-3 py-2 text-xs text-content-soft">
+            Já lançado no {FREQUENCY_LABEL[kpi.frequency].toLowerCase()} de {formatDate(coarseBounds.start)} a{' '}
+            {formatDate(coarseBounds.end)}:{' '}
+            <strong className="text-content">{formatValue(coarseTotal, kpi.unit)}</strong>
+            {coarseEntries.length > 0 && ` em ${coarseEntries.length} período(s)`}
+            {' '}(sem contar este lançamento).
+          </p>
+        )}
         {/* Atualiza junto com o valor digitado — vê o efeito antes de salvar. */}
-        {(() => {
-          const ratio = attainmentRatio(value, kpi.target_value, kpi.direction)
-          return ratio !== null ? <ProgressBar ratio={ratio} label="Meta x realizado" /> : null
-        })()}
+        {!usesEntries &&
+          (() => {
+            const ratio = attainmentRatio(value, kpi.target_value, kpi.direction)
+            return ratio !== null ? <ProgressBar ratio={ratio} label="Meta x realizado" /> : null
+          })()}
         <Field label="Observação">
           <textarea
             className="input min-h-16"
@@ -1039,6 +1399,7 @@ function ValueEntryModal({
 function HistoryModal({
   kpi,
   series,
+  entries,
   checkpoints,
   canWrite,
   onClose,
@@ -1046,6 +1407,7 @@ function HistoryModal({
 }: {
   kpi: Kpi
   series: KpiValue[]
+  entries: KpiValueEntry[]
   checkpoints: KpiCheckpoint[]
   canWrite: boolean
   onClose: () => void
@@ -1062,6 +1424,18 @@ function HistoryModal({
 
   const removeValue = useConfirmDelete<KpiValue>(async (item) => {
     const { error } = await supabase.from('kpi_values').delete().eq('id', item.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify('Lançamento removido.')
+    await onChanged()
+  })
+
+  // Um lançamento fino removido refaz a soma do período grosso sozinho —
+  // o mesmo gatilho que soma também resolve quando sobra zero.
+  const removeEntry = useConfirmDelete<KpiValueEntry>(async (item) => {
+    const { error } = await supabase.from('kpi_value_entries').delete().eq('id', item.id)
     if (error) {
       notify(error.message, 'error')
       return
@@ -1186,8 +1560,50 @@ function HistoryModal({
         </div>
       )}
 
+      {/* Lançamentos finos (entry_frequency) por trás da soma que aparece no
+          gráfico abaixo — só existe quando o KPI lança em cadência mais fina
+          que a própria medição. */}
+      {kpi.entry_frequency && (
+        <div className="mb-5 rounded-lg border border-line p-3">
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-content">
+            <Layers className="h-4 w-4 text-content-faint" /> Lançamentos por {FREQUENCY_LABEL[kpi.entry_frequency].toLowerCase()}
+          </p>
+          {entries.length === 0 ? (
+            <p className="text-xs text-content-soft">Nenhum lançamento fino ainda.</p>
+          ) : (
+            <ul className="max-h-40 space-y-1 overflow-y-auto text-sm">
+              {[...entries].reverse().map((item) => (
+                <li key={item.id} className="flex items-center justify-between gap-2">
+                  <span className="text-content-soft">{labelPeriod(item.period_start, kpi.entry_frequency!)}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="font-medium text-content">{formatValue(Number(item.value), kpi.unit)}</span>
+                    {canWrite && (
+                      <button
+                        type="button"
+                        className="rounded-md p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
+                        onClick={() => removeEntry.ask(item)}
+                        aria-label="Remover lançamento fino"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {series.length === 0 ? (
-        <EmptyState title="Sem lançamentos" description="Registre o primeiro valor deste KPI." />
+        <EmptyState
+          title="Sem lançamentos"
+          description={
+            kpi.entry_frequency
+              ? 'Sem total ainda — registre o primeiro lançamento fino acima.'
+              : 'Registre o primeiro valor deste KPI.'
+          }
+        />
       ) : (
         <>
           <div className="h-56">
@@ -1270,6 +1686,16 @@ function HistoryModal({
       busy={removeValue.busy}
       onConfirm={() => void removeValue.confirm()}
       onCancel={removeValue.cancel}
+    />
+    <ConfirmDialog
+      open={removeEntry.target !== null}
+      title="Excluir lançamento fino?"
+      message="O total do período refaz a soma sozinho, sem contar mais este valor. Não dá pra desfazer."
+      confirmLabel="Excluir"
+      danger
+      busy={removeEntry.busy}
+      onConfirm={() => void removeEntry.confirm()}
+      onCancel={removeEntry.cancel}
     />
     <ConfirmDialog
       open={limparRepartição.target !== null}

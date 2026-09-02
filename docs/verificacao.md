@@ -1092,3 +1092,163 @@ Corrigido nos dois arquivos: o modal "de fora" (detalhe/edições) agora é
 declarado antes do modal "de dentro" (form de editar) — comentário deixado
 em cada um explicando a ordem, pra ninguém inverter de novo sem querer.
 Nenhuma lógica mudou, só a posição dos blocos no JSX.
+
+## 23. Insight diário automático, arquivamento de KPI, lançamento em cadência mais fina e hierarquia de produto pai/sub-produto
+
+Cinco pedidos do usuário, o último deles explícito: "o sistema está
+confuso, preciso que seja simples e fácil de enxergar o que é necessário" —
+tratado não como item à parte, mas como critério pra construir os outros
+quatro (aba separada em vez de mais um filtro, campo condicional em vez de
+sempre visível, agrupamento visual em vez de lista solta).
+
+### 1) Insight automático todo dia às 7h + notificação
+
+Mesma Edge Function `ai-insights` do botão "Gerar Insights" — sem duplicar
+tabela nem lógica de geração — ganhou um segundo caminho de entrada. Um novo
+job `apice_daily_insights` (pg_cron, 10:00 UTC = 7:00 em Brasília) chama a
+função uma vez para a holding e uma vez por empresa ativa, assinando com o
+mesmo segredo interno (`x-sync-secret`) que `integrations-sync` já usa —
+não tem usuário logado às 7h da manhã, então a função aceita ou um Bearer
+token (chamada manual, como sempre) ou o segredo (chamada agendada). Isso
+exigiu religar `verify_jwt` da função para `false`: com `true`, o gateway do
+Supabase rejeita a chamada sem token antes mesmo do código da função rodar
+— o mesmo motivo pelo qual `integrations-sync` já roda assim.
+
+Na chamada diária, o prompt pede explicitamente que ao menos um insight
+liste as prioridades de hoje (tarefa vencendo ou vencida, meta em risco),
+além dos insights de sempre. Depois de gerar, uma notificação no sistema
+avisa os administradores (da holding ou da empresa) — sem isso, ninguém
+saberia que chegou insight novo até abrir a tela por acaso.
+
+**Bug encontrado testando ponta a ponta:** `parseInsights` pegava o
+primeiro `[` e o **último** `]` do texto que a IA devolve. Funciona quando a
+resposta é só o array — mas para duas empresas com pouquíssimo dado (uma
+sem membro nenhum, outra sem tarefa nem orçamento), a IA respondeu com um
+array vazio seguido de uma frase explicando por que não tinha o que dizer,
+e essa frase continha outro colchete mais adiante. O corte de "primeiro até
+o último colchete" incluía a frase inteira, e `JSON.parse` quebrava com
+`Unexpected non-whitespace character after JSON at position 2` — a chamada
+pra essas duas empresas retornava 502 em vez de silenciosamente não gerar
+nada. Corrigido com um casador de colchetes de verdade (conta profundidade,
+ignora colchete dentro de string) em vez do `indexOf`/`lastIndexOf`
+ingênuo. Confirmado ao vivo: as mesmas duas empresas passaram a responder
+"a IA não gerou insights desta vez" (esperado — pouco dado mesmo) em vez de
+quebrar.
+
+**Verificação:** `app.trigger_daily_insights()` chamado manualmente duas
+vezes direto no banco (antes e depois do conserto) — a primeira vez expôs o
+bug acima em 2 das 4 chamadas (as 2 de holding/empresa-com-dado
+funcionaram, geraram insight com o prompt de "prioridades de hoje" e
+notificação pro admin certo); a segunda vez, já com `ai-insights` versão 7
+implantada, as 4 chamadas resolveram sem erro de parsing. Cron conferido em
+`cron.job` (`apice_daily_insights`, `0 10 * * *`, ativo).
+
+### 2) Arquivar KPI depois do prazo (+ manual) — ambiente separado
+
+`kpis.archived_at` (nulo = ativo). Um novo job diário,
+`apice_archive_overdue_kpis` (06:00 UTC = 3h em Brasília), arquiva sozinho
+todo KPI **com prazo** (é meta) cujo prazo já passou — um KPI recorrente
+sem prazo (faturamento mensal, por exemplo) nunca arquiva sozinho, porque
+não existe "depois do prazo" pra ele. Arquivar não apaga nada: o histórico
+inteiro continua ali, só sai da tela principal.
+
+Na `KpisPage`, cada cartão ganhou um botão de arquivar/desarquivar — e a
+lista principal só mostra KPI ativo por padrão. Uma aba "Arquivados",
+com a contagem ao lado, **só aparece quando existe pelo menos um** KPI
+arquivado — do contrário não acrescenta nada na tela de quem nunca
+arquivou (o critério de simplicidade do item 5 aplicado direto aqui).
+`kpi_latest_values` ganhou a coluna `archived_at`; toda tela que já lia
+essa view (painel da empresa, painel da holding, produtos) passou a
+filtrar `archived_at is null`, pra um KPI arquivado não voltar a poluir
+contas de saúde geral nem médias.
+
+### 3) Cadência de lançamento mais fina que a frequência do KPI, e quinzenal como opção nova
+
+O pedido: "faturamento é medido por ano, mas eu quero lançar mês a mês".
+Resolvido sem tocar no contrato de `kpi_values` (que qualquer tela do
+sistema já lê como "uma linha por período") — criada uma tabela separada,
+`kpi_value_entries`, pros lançamentos finos, e um gatilho no banco
+(`app.rollup_kpi_value_entry`) que soma os lançamentos dentro do período
+"grosso" (a frequência de verdade do KPI) e escreve o total em
+`kpi_values` sozinho, toda vez que um lançamento fino muda. Nenhum painel,
+gráfico ou consulta precisou mudar pra saber somar — continuam lendo
+`kpi_values` exatamente como sempre leram.
+
+No formulário do KPI, um campo novo "Lançar em cadência mais fina" só
+aparece quando a frequência escolhida tem alguma cadência mais fina que
+faça sentido (não dá pra "lançar por ano" uma meta mensal). No "Lançar
+valor", quando essa cadência está configurada, o formulário pede a data
+dentro do período fino, grava em `kpi_value_entries`, e mostra o total já
+acumulado no período grosso antes mesmo de salvar (pra não digitar "no
+escuro"). O histórico do KPI ganhou uma lista dos lançamentos finos, cada
+um com opção de excluir — excluir também refaz a soma sozinho (o mesmo
+gatilho cobre insert, update e delete).
+
+**Quinzenal era pedido explícito** ("diário, semanal, quinzenal, mensal,
+anual") e não existia como frequência. Adicionado ao enum `kpi_frequency`
+numa migração própria (`0025_biweekly_frequency.sql`) — um valor novo de
+enum não pode ser usado na mesma transação em que foi criado, daí o
+arquivo à parte. A conta de "que quinzena é essa data" usa uma âncora fixa
+(2024-01-01, uma segunda-feira) tanto no banco (`app.coarse_period_bounds`)
+quanto no frontend (`periodBounds`, em `core/lib/format.ts`) — as duas
+implementações foram comparadas número a número (9 datas, incluindo virada
+de ano e datas antes da âncora) via consulta direta no banco de produção, e
+bateram em todas. Testes automatizados novos em
+`format.test.ts` cobrem os mesmos casos.
+
+### 4) Produto pai e sub-produtos — uma meta que soma outras metas
+
+O exemplo do usuário: "Entre Donos" é o produto (a frente); "Turma de
+setembro 2026" é um sub-produto (uma edição específica) com sua própria
+meta, que contribui pra meta do produto como um todo. Modelado com
+`kpis.parent_kpi_id` — um KPI de sub-produto (tem `product_edition_id`)
+pode apontar pra um KPI do produto (sem edição, mesmo `product_id`) como
+seu pai. Uma trigger (`app.assert_kpi_parent`) garante só dois níveis (quem
+já é filho não pode virar pai de outro) e que pai e filho são da mesma
+empresa.
+
+O valor do pai **não é lançado** — é a soma do último valor de cada filho,
+calculada no cliente (todo painel que consome KPI já carrega a lista
+inteira da empresa na memória, então somar ali é mais simples que criar
+outro gatilho no banco pra isso). Na `KpisPage`, o formulário de um KPI de
+sub-produto ganha um campo "Contribui para" listando os KPIs elegíveis do
+mesmo produto; o cartão do pai mostra a soma, quantos dos N sub-produtos já
+lançaram, e a lista deles com o valor de cada um; o cartão do filho mostra
+uma etiqueta "contribui p/ {produto}". Na lista, o pai aparece
+imediatamente seguido dos próprios filhos, em vez de espalhados pela ordem
+alfabética — visual de "produto e suas turmas juntos" sem precisar de
+outra tela.
+
+### 5) Simplicidade — critério aplicado, não item à parte
+
+Três decisões de UI vieram direto do "confuso, preciso que seja simples":
+a aba de arquivados só existe quando há algo arquivado; a cadência mais
+fina e o "contribui para" só aparecem quando fazem sentido pro que já foi
+escolhido (frequência, produto, edição) — nunca um campo vazio pedindo
+atenção à toa; e os três campos de produto/edição/contribui-para, que antes
+ficavam soltos no formulário, foram agrupados numa caixa só (mesmo padrão
+visual que a caixa de "vira meta com prazo" já usava), deixando claro que
+um é consequência do outro.
+
+**Verificação:** migrações aplicadas em produção via Supabase MCP
+(`biweekly_frequency`, `kpi_lifecycle`, `daily_insights_cron`, e um ajuste
+de `search_path` em `coarse_period_bounds` depois que `get_advisors`
+apontou o mutable path); rollup de `kpi_value_entries` testado direto no
+banco (soma de dois lançamentos mensais, recomputação após excluir um,
+remoção da linha depois de excluir o último — sem sobrar linha zerada
+fantasma); `app.archive_overdue_kpis()` chamado manualmente (retornou 0 —
+nenhum prazo vencido nos dados reais no momento do teste).
+`get_advisors` (security) conferido depois de cada migração — os mesmos
+dois avisos pré-existentes, nenhum novo. `npx tsc --noEmit` e `npm run
+build` limpos. `npm run test` subiu de 13 para **19 testes** — os 6 novos
+cobrem `periodBounds`/`labelPeriod` de quinzena, que nunca tinham teste
+antes desta rodada (os valores foram conferidos um a um contra a mesma
+conta rodada de verdade no banco, não só entre si). `npm run
+check:contrast` (24/24) limpo — nenhuma cor nova introduzida. `npm run
+test:e2e`: **147 testes**, mesmo total de antes desta rodada, todos
+passando (o mock de REST em `e2e/fixtures.ts` devolve `[]` pra qualquer
+tabela não simulada, então `kpi_value_entries` não precisou de fixture
+nova; os campos novos de `Kpi` — `archived_at`, `parent_kpi_id`,
+`entry_frequency` — foram checados com `Boolean(...)`/falsy em vez de
+`=== null` exatamente por isso, pra dado de teste sem esses campos não ser
+lido como "arquivado" por engano).

@@ -78,7 +78,7 @@ export default function ProductsPage() {
           .select('*')
           .eq('company_id', company.id)
           .order('start_date', { ascending: false, nullsFirst: false }),
-        supabase.from('kpi_latest_values').select('*').eq('company_id', company.id),
+        supabase.from('kpi_latest_values').select('*').eq('company_id', company.id).is('archived_at', null),
         supabase.from('tasks').select('id, product_id, status').eq('company_id', company.id),
       ])
     setProducts((productRows as Product[]) ?? [])
