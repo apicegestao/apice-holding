@@ -85,7 +85,7 @@ export function CompanyFields({
         />
       </Field>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Setor">
           <select
             className="input"
@@ -124,7 +124,7 @@ export function CompanyFields({
         </Field>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Razão social">
           <input
             className="input"
@@ -167,7 +167,7 @@ export function CompanyFields({
       </Field>
 
       {showOrdering && (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Ordem na barra de abas">
             <input
               className="input"

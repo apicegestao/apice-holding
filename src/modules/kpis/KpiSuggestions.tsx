@@ -81,7 +81,7 @@ export default function KpiSuggestions({
           Nenhuma sugestão com esse termo. Você pode criar o indicador do zero na outra aba.
         </p>
       ) : (
-        <ul className="grid max-h-[46vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+        <ul className="grid grid-cols-1 max-h-[46vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
           {results.map((template) => {
             const added = already.has(template.name.toLowerCase())
             const on = selected.includes(template.name)

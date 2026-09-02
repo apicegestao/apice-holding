@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "\u00c1pice Holding \u2014 sistema central de gest\u00e3o multiempresas",
+  "description": "Ápice Holding — sistema central de gestão multiempresas",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "sync:functions": "node scripts/sync-edge-shared.mjs",
     "check:contrast": "node scripts/check-contrast.mjs"
   },
@@ -23,6 +24,7 @@
     "recharts": "^2.13.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.2",

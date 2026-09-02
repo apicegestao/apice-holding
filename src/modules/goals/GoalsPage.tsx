@@ -355,7 +355,7 @@ export default function GoalsPage() {
             </select>
           </Field>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field label="Alvo">
               <NumberInput
                 unit={form.unit}
@@ -385,7 +385,7 @@ export default function GoalsPage() {
             </Field>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Início">
               <input
                 className="input"
@@ -404,7 +404,7 @@ export default function GoalsPage() {
             </Field>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Responsável">
               <select
                 className="input"

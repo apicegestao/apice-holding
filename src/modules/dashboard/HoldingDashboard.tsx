@@ -18,6 +18,7 @@ import {
   Bar,
   BarChart,
   Cell,
+  Legend,
   LabelList,
   ReferenceLine,
   ResponsiveContainer,
@@ -150,6 +151,30 @@ export default function HoldingDashboard() {
     [operating, goals],
   )
 
+  // ------------------------------------------------- KPIs na meta por empresa
+  // Comparação entre empresas, mas por SAÚDE do indicador (na meta / fora /
+  // sem lançamento ainda), não pelo valor bruto — que nem faria sentido
+  // somar entre empresas com KPIs de unidades diferentes.
+  const kpiHealth = useMemo(
+    () =>
+      operating
+        .map((company) => {
+          const total = Number(company.kpis_total)
+          if (total === 0) return null
+          const naMeta = Number(company.kpis_on_target)
+          const fora = Number(company.kpis_off_target)
+          return {
+            empresa: company.company_name,
+            naMeta,
+            fora,
+            semLancamento: Math.max(0, total - naMeta - fora),
+            total,
+          }
+        })
+        .filter((row): row is NonNullable<typeof row> => row !== null),
+    [operating],
+  )
+
   const myTasks = useMemo(
     () => tasks.filter((task) => OPEN_STATUSES.includes(task.status)),
     [tasks],
@@ -183,7 +208,7 @@ export default function HoldingDashboard() {
         />
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="card p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-content-soft">Empresas</p>
               <p className="mt-2 text-2xl font-semibold">{operating.length}</p>
@@ -300,7 +325,67 @@ export default function HoldingDashboard() {
             )}
           </Card>
 
-          {/* ------------------------------------------ tarefas unificadas */}
+          {/* ------------------------------------------- KPIs na meta por empresa */}
+          <Card
+            title="KPIs na meta por empresa"
+            description="Quantos indicadores de cada empresa estão na meta, fora dela ou ainda sem lançamento."
+          >
+            {kpiHealth.length === 0 ? (
+              <EmptyState
+                title="Nenhum KPI cadastrado ainda"
+                description="Cadastre indicadores nas empresas para comparar aqui."
+              />
+            ) : (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={kpiHealth} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap="35%">
+                    <XAxis
+                      dataKey="empresa"
+                      tick={{ fontSize: 11, fill: chart.tick }}
+                      axisLine={{ stroke: chart.axis }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tick={{ fontSize: 11, fill: chart.tick }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={32}
+                    />
+                    <Tooltip
+                      cursor={{ fill: 'rgb(148 163 184 / .14)' }}
+                      contentStyle={{
+                        fontSize: 12,
+                        borderRadius: 8,
+                        background: chart.tooltipBg,
+                        borderColor: chart.tooltipBorder,
+                        color: chart.tooltipText,
+                      }}
+                      itemStyle={{ color: chart.tooltipText }}
+                      labelStyle={{ color: chart.tooltipText }}
+                    />
+                    <Legend
+                      wrapperStyle={{ fontSize: 12, color: chart.label }}
+                      formatter={(value: string) => (
+                        <span style={{ color: chart.label }}>{value}</span>
+                      )}
+                    />
+                    <Bar dataKey="naMeta" name="Na meta" stackId="kpis" fill="#10B981" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="fora" name="Fora da meta" stackId="kpis" fill="#F43F5E" />
+                    <Bar
+                      dataKey="semLancamento"
+                      name="Sem lançamento"
+                      stackId="kpis"
+                      fill="#94A3B8"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </Card>
+
+                    {/* ------------------------------------------ tarefas unificadas */}
           <Card
             title="Minhas tarefas"
             description="Tudo que é meu, em todas as empresas — inclusive o que é só meu."
@@ -368,7 +453,7 @@ export default function HoldingDashboard() {
           </Card>
 
           {/* -------------------------------------------- cartão por empresa */}
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {operating.map((snapshot) => {
               const companyKpis = kpis.filter((kpi) => kpi.company_id === snapshot.company_id)
               return (

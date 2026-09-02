@@ -23,7 +23,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="grid min-h-full lg:grid-cols-2">
+    <div className="grid grid-cols-1 min-h-full lg:grid-cols-2">
       <div className="hidden flex-col justify-between border-r border-line bg-gradient-to-br from-brand-50 via-white to-slate-100 p-10 lg:flex">
         <Logo size={48} withWordmark />
         <div className="max-w-md">

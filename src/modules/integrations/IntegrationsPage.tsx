@@ -457,7 +457,7 @@ export default function IntegrationsPage() {
             />
           </Field>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Método">
               <select
                 className="input"
@@ -487,7 +487,7 @@ export default function IntegrationsPage() {
             </Field>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Autenticação">
               <select
                 className="input"
@@ -712,7 +712,7 @@ function MappingModal({
                 placeholder="dados.faturamento_mes"
               />
             </Field>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Multiplicador" hint="Ex.: 0,01 para converter centavos em reais.">
                 <NumberInput value={multiplier} onChange={setMultiplier} />
               </Field>

@@ -23,11 +23,12 @@ import {
   Users,
 } from 'lucide-react'
 import { useAuth } from '../core/auth/AuthProvider'
+import CompanySwitcher from './CompanySwitcher'
 import { useTheme, type ThemeChoice } from '../core/theme/ThemeProvider'
 import { Logo } from '../core/ui/Logo'
 import { supabase } from '../core/lib/supabase'
 import { formatDateTime, initials } from '../core/lib/format'
-import { ROLE_LABEL, type Notification } from '../core/types'
+import type { Notification } from '../core/types'
 
 type NavItem = { to: string; label: string; icon: typeof Gauge; end?: boolean }
 
@@ -268,52 +269,13 @@ export default function AppLayout() {
         </div>
 
         {/* --------------------------------------------------- abas de empresa */}
-        <nav className="flex gap-1 overflow-x-auto px-2 sm:px-4">
-          {(isSuperAdmin || holdingCompany) && (
-            <NavLink
-              to="/holding"
-              className={() =>
-                `flex shrink-0 items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-sm transition ${
-                  onHolding
-                    ? 'border-brand-500 font-semibold text-content'
-                    : 'border-transparent text-content-soft hover:text-content'
-                }`
-              }
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              Holding
-            </NavLink>
-          )}
-          {tabs.map(({ company, role }) => {
-            const active = company.id === companyId
-            return (
-              <NavLink
-                key={company.id}
-                to={`/empresa/${company.id}`}
-                title={`${company.name} — ${ROLE_LABEL[role]}`}
-                className={`flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-sm transition ${
-                  active
-                    ? 'border-brand-500 font-semibold text-content'
-                    : 'border-transparent text-content-soft hover:text-content'
-                }`}
-              >
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: company.color }}
-                />
-                {company.name}
-              </NavLink>
-            )
-          })}
-          {isSuperAdmin && (
-            <NavLink
-              to="/holding/empresas"
-              className="flex shrink-0 items-center gap-1 border-b-2 border-transparent px-3 py-2.5 text-sm text-content-soft hover:text-content"
-            >
-              + Empresa
-            </NavLink>
-          )}
-        </nav>
+        <CompanySwitcher
+          isSuperAdmin={isSuperAdmin}
+          onHolding={onHolding}
+          holdingCompany={holdingCompany}
+          tabs={tabs}
+          activeCompanyId={companyId}
+        />
       </header>
 
       {/* -------------------------------------------------------- conteúdo */}

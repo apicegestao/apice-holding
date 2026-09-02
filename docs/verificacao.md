@@ -181,3 +181,63 @@ pelo histórico de commits, o conteúdo foi copiado para `logo-apice.svg` e
 Verificado: build limpo, as 16 rotas e o favicon no navegador nos dois temas,
 e as mesmas 16 rotas e os 2 modais a 390 px — sem erro de console e sem
 rolagem lateral.
+
+---
+
+## 10. KPI sem lançamento, rolagem lateral, menu de empresa e gráficos comparativos
+
+Seis pedidos numa mensagem só. Registro do que era cada um e como foi
+verificado.
+
+**1) KPI cadastrado sumindo do painel.** O bug não era do celular — era do
+dado: o painel (empresa e holding) e a função `company_snapshots()` só
+contavam um KPI depois que ele tinha pelo menos um valor lançado. Um KPI
+recém-criado, sem lançamento nenhum, ficava invisível nos dois. A correção
+juntou a lista de KPIs ativos com a de últimos valores (migração
+`0015_fix_kpi_totals_include_unfilled.sql` para a contagem da holding, e
+`CompanyDashboard.tsx` juntando as duas fontes para o painel da empresa), e o
+indicador sem valor aparece com "—" e o selo "sem lançamento" em vez de
+desaparecer. Conferido direto no banco: a MDD tinha `kpis_total: 0` antes da
+correção e `kpis_total: 1` depois, com o "Faturamento" de fato aparecendo.
+
+**2) Rolagem lateral no celular.** Isolado por bisseção no DOM (medindo o
+`scrollWidth` de cada nível da árvore, do `<body>` para dentro) até achar o
+elemento que de fato crescia: o grid de 3 colunas do painel da empresa
+(`grid gap-6 lg:grid-cols-3`) e o de 2 colunas dos novos gráficos
+(`lg:grid-cols-2`) não tinham nenhuma coluna definida abaixo do `lg`, e um
+grid sem `grid-template-columns` deixa a célula esticar pelo conteúdo em vez
+de caber na tela — exatamente o "grid" equivalente ao clássico problema de
+`min-width: auto` do flexbox. A varredura achou o mesmo padrão faltando (um
+`grid-cols-N` com prefixo de breakpoint mas sem base) em **14 arquivos** do
+projeto inteiro, não só no painel — todos ganharam `grid-cols-1` explícito.
+
+**3) Menu de empresa suspenso no celular.** Extraído para `CompanySwitcher.tsx`,
+componente único usado por `AppLayout.tsx`: abas de sempre a partir do `md`,
+menu suspenso abaixo disso — mesma fonte de dados, sem lógica duplicada.
+
+**4 e 5) Gráficos comparativos.** No painel da empresa: "KPIs: realizado x
+meta" (atingimento de cada indicador, com a linha de 100%) e "Tarefas por
+situação" (quadro por coluna). No painel da holding: "KPIs na meta por
+empresa", barra empilhada com na-meta / fora / sem lançamento por empresa. No
+caminho, um KPI de direção "menor é melhor" (ex. churn) usava a mesma conta de
+atingimento de um "maior é melhor" e dava um número sem sentido — corrigido
+para inverter a razão (`meta / valor`) nesse caso.
+
+**Verificação:** `npm run build`, `npm run test` (9/9) e
+`npm run check:contrast` (24/24) limpos. Auditoria de rolagem lateral nas 18
+rotas + 2 modais + menu suspenso, em três larguras (360/375/390) — zero
+estouro depois da correção do grid (antes dela, o painel da empresa estourava
+para 520 px nas três larguras).
+
+## 11. Suíte automatizada (desktop + celular), para não depender de pedir
+
+Para não ter que reconferir manualmente cada ajuste novo nas duas versões,
+entrou uma suíte do Playwright (`e2e/`) com a **mesma bateria de testes**
+rodando em dois formatos (`playwright.config.ts`, projetos "Desktop" e
+"Mobile 390"): as 18 rotas sem rolagem lateral, o KPI sem lançamento
+aparecendo, os três gráficos comparativos, e o seletor de empresa certo em
+cada formato (abas vs. menu suspenso). Tudo contra o Supabase simulado — sem
+rede de verdade. `npm run test:e2e` roda local; `.github/workflows/ci.yml`
+roda a mesma suíte (mais build, testes unitários e contraste) em todo push e
+pull request, então uma quebra em qualquer um dos dois formatos aparece
+sozinha, sem precisar ser pedida. 44/44 testes passando (22 por formato).

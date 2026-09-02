@@ -165,7 +165,7 @@ export default function TasksPage() {
           }
         />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {columns.map(({ status, items }) => (
             <div key={status} className="flex flex-col gap-3">
               <div className="flex items-center justify-between px-1">

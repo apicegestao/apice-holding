@@ -189,11 +189,30 @@ formatado quando o campo perde o foco. As regras estão fixadas em testes
 
 ## Celular
 
-O sistema é usado no celular tanto quanto no computador. Todas as rotas são
-auditadas a 390 px de largura: nenhuma pode gerar rolagem horizontal da página.
-Tabelas largas rolam dentro do próprio cartão (`overflow-x-auto` + `min-w`),
-o quadro de tarefas empilha as colunas e esconde as vazias, e o canvas do mapa
-mental encurta. O roteiro de verificação está em `docs/verificacao.md`.
+O sistema é usado no celular tanto quanto no computador. O painel do usuário
+funciona nos dois formatos a partir dos mesmos componentes — a seleção de
+empresa vira menu suspenso abaixo do `md` (`CompanySwitcher.tsx`) — e todas as
+rotas são auditadas a 390 px de largura: nenhuma pode gerar rolagem horizontal
+da página. Cada grid com colunas responsivas define uma coluna explícita
+também no celular (`grid-cols-1`), tabelas largas rolam dentro do próprio
+cartão (`overflow-x-auto` + `min-w`), o quadro de tarefas empilha as colunas e
+esconde as vazias, e o canvas do mapa mental encurta. O roteiro de verificação
+está em `docs/verificacao.md`.
+
+## Testes automatizados (desktop + celular)
+
+`e2e/` tem uma suíte do Playwright que roda a mesma bateria de testes em dois
+formatos (`playwright.config.ts`, projetos "Desktop" e "Mobile 390") contra o
+Supabase simulado — sem rede de verdade. Ela cobre rolagem lateral em todas as
+rotas, o KPI sem lançamento continuar visível, os gráficos comparativos e o
+seletor de empresa certo em cada formato. `.github/workflows/ci.yml` roda essa
+suíte (mais build, testes unitários e contraste) em todo push e pull request,
+para que um recurso novo chegue nos dois formatos sem precisar ser pedido de
+novo.
+
+```bash
+npm run test:e2e          # local — sobe o build e roda os dois formatos
+```
 
 ## Rodando localmente
 
@@ -203,7 +222,9 @@ npm install
 npm run dev
 ```
 
-Scripts: `npm run build` (typecheck + build), `npm run typecheck`, `npm run test`.
+Scripts: `npm run build` (typecheck + build), `npm run typecheck`,
+`npm run test` (unitários), `npm run test:e2e` (Playwright, desktop + celular),
+`npm run check:contrast` (WCAG).
 
 ## Banco de dados
 

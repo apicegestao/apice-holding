@@ -275,7 +275,7 @@ export default function KpisPage() {
           }
         />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {kpis.map((kpi) => {
             const series = seriesByKpi.get(kpi.id) ?? []
             const latest = series[series.length - 1]
@@ -505,7 +505,7 @@ export default function KpisPage() {
               onChange={(event) => setKpiForm((c) => ({ ...c, name: event.target.value }))}
             />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Categoria">
               <input
                 className="input"
@@ -536,7 +536,7 @@ export default function KpisPage() {
               </select>
             </Field>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field label="Unidade">
               <select
                 className="input"
@@ -716,7 +716,7 @@ function ValueEntryModal({
       }
     >
       <form id="value-form" onSubmit={submit} className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Início do período">
             <input
               className="input"

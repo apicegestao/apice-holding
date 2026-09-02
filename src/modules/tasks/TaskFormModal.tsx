@@ -304,7 +304,7 @@ export default function TaskFormModal({
           />
         </Field>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Quem faz">
             <select
               className="input"
@@ -419,7 +419,7 @@ export default function TaskFormModal({
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Prioridade">
             <select
               className="input"
