@@ -1438,3 +1438,79 @@ no lugar. Total: 190 testes (163 passando, 27 puladas por projeto/rota que
 não se aplica), mesmo saldo de antes descontada a troca de módulo. `npm run
 check:contrast`: sem mudança (nenhuma cor nova). `get_advisors` (security):
 mesmos dois avisos pré-existentes de sempre.
+
+## 26. Bug real: lançar valor em dia diferente não somava o total do KPI
+
+Relato: "6 vendas no dia 02/09 e uma venda no dia 01/09, o sistema permanece
+com 6 vendas." Achado direto no banco de produção (não era um dado de
+exemplo): o KPI `Vendas - Entre Donos Set.26` — meta de 22, prazo 09/09 —
+tinha `frequency = 'daily'` e `entry_frequency` nulo. Os dois lançamentos
+existiam mesmo (`kpi_values`: 2026-09-01 = 1, 2026-09-02 = 6), só que como
+duas linhas **independentes**, uma por dia.
+
+**Causa raiz:** o período de um KPI `daily` É um único dia
+(`period_start = period_end`) — não existe cadência mais fina que "diário"
+pra somar dentro dele (`FINER_FREQUENCIES.daily` sempre foi `[]`). Cada
+lançamento vira uma leitura isolada daquele dia, e `kpi_latest_values`
+(usado por todo o resto do sistema: os dois painéis, os gráficos, o
+`kpi_latest_values` em si) sempre mostra só o período **mais recente**
+(`distinct on (kpi_id) order by period_start desc`) — nunca soma períodos
+diferentes. Isso está certo pra métrica de "estado atual" (ex. estoque
+hoje), mas quebra qualquer meta cumulativa lançada dia a dia, que é
+exatamente o que uma frequência `daily` com `target_value`/`due_date`
+convida a fazer por engano — e é o único jeito de configurar um KPI onde
+isso dá errado, porque `daily` não tem como ir mais fino. A ferramenta certa
+pra "eu lanço todo dia e quero que some" já existia desde a rodada anterior
+(`entry_frequency`, item 25 do relatório antigo — hoje item 77 da lista de
+tarefas): configurar `frequency` mais larga (ex. mensal) com
+`entry_frequency = 'daily'`, que soma automaticamente via gatilho. O problema
+era só não existir nada impedindo alguém de escolher `daily` como frequência
+PRINCIPAL, o único caso em que essa ferramenta é matematicamente impossível
+de usar.
+
+**Correção (migração `0030_kpi_no_daily_frequency.sql`):** qualquer KPI com
+`frequency = 'daily'` (achado com uma consulta ampla — só existia esse um)
+migra pra `frequency = 'monthly'` + `entry_frequency = 'daily'`; os
+lançamentos diários existentes (já no formato exato de `kpi_value_entries`)
+são movidos pra lá, e o próprio gatilho de soma recalcula o total certo do
+mês assim que entram. Uma `check constraint` (`frequency <> 'daily'`) trava
+a regra no banco — nenhuma tela nova, script ou chamada direta à API
+reintroduz o problema. `FREQUENCIES` (frontend, `core/types.ts`) também
+perdeu `'daily'` como opção de frequência principal — o seletor "Frequência
+de medição" nunca mais oferece a escolha que não tem saída; `'daily'`
+continua a única cadência mais fina disponível pra qualquer frequência
+restante (`FINER_FREQUENCIES`), que é onde ele faz sentido de verdade.
+
+**Um segundo bug, encontrado testando o primeiro** (migração
+`0031_rollup_period_end_fix.sql`): depois de migrar, o total somou certo
+(7) mas o `period_end` gravado ficou `2026-09-01` em vez de `2026-09-30` —
+o mês inteiro virou "1 dia" na aparência. Causa: o gatilho
+`app.rollup_kpi_value_entry()` (0026) atualiza `value`/`source`/`updated_at`
+no `on conflict`, mas nunca `period_end` — inofensivo no uso normal (o
+`period_end` de um mesmo `period_start` nunca muda de uma soma pra outra),
+mas a linha herdada da migração 0030 já existia com um `period_end` de "um
+dia só" ANTES de virar `rollup`, e ficou presa nele. Corrigido no próprio
+gatilho (`set period_end = excluded.period_end` a mais no `on conflict`) e
+reparado com um `update` de uma vez só pra qualquer linha `rollup` que já
+tivesse ficado errada (achada com `app.coarse_period_bounds` comparando
+contra o valor gravado — só existia essa uma).
+
+**Verificação:** os dois bugs, e a correção de cada um, foram confirmados
+direto no banco antes de qualquer coisa ser dada como resolvida — não só
+lida no código. Antes da correção: `kpi_latest_values` do KPI mostrava
+`value = 6` (a leitura de 02/09, ignorando a de 01/09). Depois: `value = 7`,
+`period_start = 2026-09-01`, `period_end = 2026-09-30`. Testado também o
+caminho "novo" (não só a migração de dado velho): inserido um terceiro
+lançamento (`2026-09-03 = 2`) direto em `kpi_value_entries` — o total foi
+pra 9 automaticamente, com o `period_end` certo mantido; removido o
+lançamento de teste, o total voltou a 7 sozinho (o gatilho reflete
+exclusão também, não só inserção). Testada a `check constraint`: uma
+tentativa de `update kpis set frequency = 'daily'` no KPI corrigido foi
+rejeitada pelo banco. `get_advisors` (security): mesmos dois avisos
+pré-existentes, nenhum novo. `npx tsc --noEmit` e `npm run build` limpos.
+`npm run test`: 26 → **28 testes** — os 2 novos travam exatamente a
+regressão (`'daily'` fora de `FREQUENCIES`, presente em todo
+`FINER_FREQUENCIES`), pra ninguém reintroduzir a opção por engano numa
+tela futura. `npm run test:e2e`: 190 testes, mesmo total (nenhuma fixture
+usava `frequency: 'daily'`, nenhum teste dependia da opção "Diário" no
+seletor de frequência principal). `npm run check:contrast`: sem mudança.

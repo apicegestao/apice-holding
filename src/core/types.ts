@@ -116,10 +116,22 @@ export const FREQUENCY_LABEL: Record<KpiFrequency, string> = {
   yearly: 'Anual',
 }
 
+// Frequência PRINCIPAL do KPI — nunca inclui 'daily'. O período de um KPI
+// diário é, por definição, um único dia (period_start = period_end): não tem
+// como "somar" lançamentos de dias diferentes num período que já é um dia só,
+// então quem escolhe 'daily' como frequência principal nunca consegue ver o
+// total de uma meta lançada dia a dia (ex. vendas até uma data) — o painel
+// sempre mostra a leitura do dia mais recente, ignorando os outros dias. Pra
+// esse caso ('eu lanço todo dia e quero que some'), 'daily' continua
+// disponível como entry_frequency (cadência mais fina) de qualquer frequência
+// mais larga — ali sim os lançamentos somam de verdade (gatilho em
+// 0026_kpi_lifecycle.sql). Reforçado no banco por uma constraint (migração
+// 0030) — nenhuma tela nova pode reintroduzir o problema por engano.
+//
 // Ordem em que as frequências aparecem em qualquer seletor — da mais fina pra
 // mais larga. Um único lugar pra isso; nenhuma tela lista `Object.keys` e
 // arrisca uma ordem diferente da outra.
-export const FREQUENCIES: KpiFrequency[] = ['daily', 'weekly', 'biweekly', 'monthly', 'quarterly', 'yearly']
+export const FREQUENCIES: KpiFrequency[] = ['weekly', 'biweekly', 'monthly', 'quarterly', 'yearly']
 
 /** Cadências que cabem como entry_frequency dentro de cada frequency — só as
  *  mais finas que ela fazem sentido (não dá pra "lançar por ano" uma meta

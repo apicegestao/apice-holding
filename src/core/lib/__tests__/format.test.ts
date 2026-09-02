@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { attainmentRatio, formatNumberInput, formatValue, labelPeriod, parseNumberInput, periodBounds } from '../format'
+import { FINER_FREQUENCIES, FREQUENCIES } from '../../types'
 
 describe('parseNumberInput', () => {
   it('lê o formato brasileiro com milhar e decimal', () => {
@@ -120,5 +121,22 @@ describe('periodBounds quinzenal', () => {
 describe('labelPeriod', () => {
   it('rotula a quinzena pela data de início', () => {
     expect(labelPeriod('2024-01-15', 'biweekly')).toBe('quinz. 15/01')
+  })
+})
+
+// Regressão do bug relatado: KPI criado com frequency='daily' nunca soma
+// lançamentos de dias diferentes (o período de um dia É um único dia — não
+// tem entry_frequency mais fina possível pra somar nele). 'daily' só pode
+// ser a cadência principal do KPI se alguém reintroduzir a opção aqui; o
+// banco também trava isso com uma constraint (migração 0030).
+describe("'daily' não pode ser frequência principal de KPI", () => {
+  it('não aparece entre as opções de frequência principal', () => {
+    expect(FREQUENCIES).not.toContain('daily')
+  })
+
+  it('continua disponível como cadência de lançamento (entry_frequency) de toda frequência restante', () => {
+    for (const frequency of FREQUENCIES) {
+      expect(FINER_FREQUENCIES[frequency]).toContain('daily')
+    }
   })
 })
