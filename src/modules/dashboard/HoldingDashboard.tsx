@@ -28,6 +28,7 @@ import {
 import { supabase } from '../../core/lib/supabase'
 import { formatValue, isOnTarget, relativeDays } from '../../core/lib/format'
 import { useAuth } from '../../core/auth/AuthProvider'
+import { useChartTheme } from '../../core/theme/ThemeProvider'
 import { Badge, Card, EmptyState, Loading, PageHeader } from '../../core/ui'
 import TaskFormModal from '../tasks/TaskFormModal'
 import {
@@ -45,6 +46,7 @@ const OPEN_STATUSES: TaskStatus[] = ['todo', 'doing', 'blocked']
 
 export default function HoldingDashboard() {
   const { profile, memberships } = useAuth()
+  const chart = useChartTheme()
   const [snapshots, setSnapshots] = useState<CompanySnapshot[]>([])
   const [kpis, setKpis] = useState<KpiLatestValue[]>([])
   const [goals, setGoals] = useState<Goal[]>([])
@@ -183,47 +185,47 @@ export default function HoldingDashboard() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Empresas</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-content-soft">Empresas</p>
               <p className="mt-2 text-2xl font-semibold">{operating.length}</p>
-              <p className="text-xs text-slate-500">no grupo</p>
+              <p className="text-xs text-content-soft">no grupo</p>
             </div>
             <div className="card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
                 KPIs na meta
               </p>
-              <p className="mt-2 text-2xl font-semibold text-emerald-600">
+              <p className="mt-2 text-2xl font-semibold text-emerald-600 dark:text-emerald-400">
                 {totals.kpisOnTarget}
-                <span className="text-base font-normal text-slate-400">
+                <span className="text-base font-normal text-content-faint">
                   /{totals.kpisOnTarget + totals.kpisOffTarget}
                 </span>
               </p>
-              <p className="text-xs text-slate-500">indicadores com meta definida</p>
+              <p className="text-xs text-content-soft">indicadores com meta definida</p>
             </div>
             <div className="card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
                 Metas em risco
               </p>
               <p
                 className={`mt-2 text-2xl font-semibold ${
-                  totals.goalsAtRisk ? 'text-amber-600' : 'text-ink-900'
+                  totals.goalsAtRisk ? 'text-amber-600 dark:text-amber-400' : 'text-content'
                 }`}
               >
                 {totals.goalsAtRisk}
               </p>
-              <p className="text-xs text-slate-500">de {totals.goalsActive} em andamento</p>
+              <p className="text-xs text-content-soft">de {totals.goalsActive} em andamento</p>
             </div>
             <div className="card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
                 Minhas tarefas vencidas
               </p>
               <p
                 className={`mt-2 text-2xl font-semibold ${
-                  myOverdue.length ? 'text-rose-600' : 'text-emerald-600'
+                  myOverdue.length ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
                 }`}
               >
                 {myOverdue.length}
               </p>
-              <p className="text-xs text-slate-500">de {myTasks.length} em aberto</p>
+              <p className="text-xs text-content-soft">de {myTasks.length} em aberto</p>
             </div>
           </div>
 
@@ -247,20 +249,28 @@ export default function HoldingDashboard() {
                   >
                     <XAxis
                       dataKey="empresa"
-                      tick={{ fontSize: 11, fill: '#64748B' }}
-                      axisLine={{ stroke: '#E2E8F0' }}
+                      tick={{ fontSize: 11, fill: chart.tick }}
+                      axisLine={{ stroke: chart.axis }}
                       tickLine={false}
                     />
                     <YAxis
                       unit="%"
-                      tick={{ fontSize: 11, fill: '#94A3B8' }}
+                      tick={{ fontSize: 11, fill: chart.tick }}
                       axisLine={false}
                       tickLine={false}
                       width={46}
                     />
                     <Tooltip
-                      cursor={{ fill: 'rgba(148,163,184,.12)' }}
-                      contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: '#E2E8F0' }}
+                      cursor={{ fill: 'rgb(148 163 184 / .14)' }}
+                      contentStyle={{
+                        fontSize: 12,
+                        borderRadius: 8,
+                        background: chart.tooltipBg,
+                        borderColor: chart.tooltipBorder,
+                        color: chart.tooltipText,
+                      }}
+                      itemStyle={{ color: chart.tooltipText }}
+                      labelStyle={{ color: chart.tooltipText }}
                       formatter={(value: number) => [`${value}% do alvo`, 'Realizado']}
                       labelFormatter={(label: string) => {
                         const row = attainment.find((item) => item.empresa === label)
@@ -269,9 +279,9 @@ export default function HoldingDashboard() {
                     />
                     <ReferenceLine
                       y={100}
-                      stroke="#94A3B8"
+                      stroke={chart.reference}
                       strokeDasharray="4 4"
-                      label={{ value: 'meta', position: 'right', fontSize: 10, fill: '#94A3B8' }}
+                      label={{ value: 'meta', position: 'right', fontSize: 10, fill: chart.tick }}
                     />
                     <Bar dataKey="atingimento" radius={[4, 4, 0, 0]} maxBarSize={64}>
                       {attainment.map((row) => (
@@ -281,7 +291,7 @@ export default function HoldingDashboard() {
                         dataKey="atingimento"
                         position="top"
                         formatter={(value: number) => `${value}%`}
-                        style={{ fontSize: 11, fill: '#475569' }}
+                        style={{ fontSize: 11, fill: chart.label }}
                       />
                     </Bar>
                   </BarChart>
@@ -297,7 +307,7 @@ export default function HoldingDashboard() {
             actions={
               <button
                 type="button"
-                className="text-xs text-brand-600 hover:underline"
+                className="text-xs text-brand-text hover:underline"
                 onClick={() => setCreatingTask(true)}
               >
                 nova tarefa
@@ -310,7 +320,7 @@ export default function HoldingDashboard() {
                 description="Nenhuma tarefa sua pendente em nenhuma empresa do grupo."
               />
             ) : (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-line">
                 {myTasks.slice(0, 12).map((task) => {
                   const late = task.due_date && task.due_date < today
                   return (
@@ -325,10 +335,10 @@ export default function HoldingDashboard() {
                         className="min-w-0 flex-1 text-left"
                         onClick={() => setEditingTask(task)}
                       >
-                        <span className="block truncate text-sm font-medium text-ink-900">
+                        <span className="block truncate text-sm font-medium text-content">
                           {task.title}
                         </span>
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-content-soft">
                           {companyName(task.company_id)} · {TASK_STATUS_LABEL[task.status]} ·{' '}
                           {TASK_PRIORITY_LABEL[task.priority]}
                         </span>
@@ -372,11 +382,11 @@ export default function HoldingDashboard() {
                       <div>
                         <Link
                           to={`/empresa/${snapshot.company_id}`}
-                          className="text-sm font-semibold text-ink-900 hover:text-brand-600"
+                          className="text-sm font-semibold text-content hover:text-brand-text"
                         >
                           {snapshot.company_name}
                         </Link>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-content-soft">
                           {snapshot.members_total} pessoa(s) com acesso
                         </p>
                       </div>
@@ -389,22 +399,22 @@ export default function HoldingDashboard() {
                   </div>
 
                   <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-                    <div className="rounded-lg bg-slate-50 py-2">
+                    <div className="rounded-lg bg-hover py-2">
                       <p className="text-lg font-semibold">
                         {snapshot.kpis_on_target}
-                        <span className="text-xs font-normal text-slate-400">
+                        <span className="text-xs font-normal text-content-faint">
                           /{Number(snapshot.kpis_on_target) + Number(snapshot.kpis_off_target)}
                         </span>
                       </p>
-                      <p className="text-[11px] text-slate-500">KPIs na meta</p>
+                      <p className="text-[11px] text-content-soft">KPIs na meta</p>
                     </div>
-                    <div className="rounded-lg bg-slate-50 py-2">
+                    <div className="rounded-lg bg-hover py-2">
                       <p className="text-lg font-semibold">{snapshot.goals_active}</p>
-                      <p className="text-[11px] text-slate-500">metas ativas</p>
+                      <p className="text-[11px] text-content-soft">metas ativas</p>
                     </div>
-                    <div className="rounded-lg bg-slate-50 py-2">
+                    <div className="rounded-lg bg-hover py-2">
                       <p className="text-lg font-semibold">{snapshot.tasks_open}</p>
-                      <p className="text-[11px] text-slate-500">tarefas abertas</p>
+                      <p className="text-[11px] text-content-soft">tarefas abertas</p>
                     </div>
                   </div>
 
@@ -417,10 +427,10 @@ export default function HoldingDashboard() {
                             key={kpi.kpi_id}
                             className="flex items-center justify-between gap-2 text-sm"
                           >
-                            <span className="min-w-0 truncate text-slate-600">{kpi.name}</span>
+                            <span className="min-w-0 truncate text-content-muted">{kpi.name}</span>
                             <span
                               className={`shrink-0 font-medium ${
-                                status === false ? 'text-rose-600' : 'text-ink-900'
+                                status === false ? 'text-rose-600 dark:text-rose-400' : 'text-content'
                               }`}
                             >
                               {formatValue(Number(kpi.value), kpi.unit)}
@@ -451,7 +461,7 @@ export default function HoldingDashboard() {
             <Card
               title="Insights da holding"
               actions={
-                <Link to="/holding/insights" className="text-xs text-brand-600 hover:underline">
+                <Link to="/holding/insights" className="text-xs text-brand-text hover:underline">
                   ver todos
                 </Link>
               }
@@ -462,7 +472,7 @@ export default function HoldingDashboard() {
                     <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
                     <div>
                       <p className="text-sm font-medium">{insight.title}</p>
-                      <p className="text-sm text-slate-600">{insight.body}</p>
+                      <p className="text-sm text-content-muted">{insight.body}</p>
                     </div>
                   </li>
                 ))}

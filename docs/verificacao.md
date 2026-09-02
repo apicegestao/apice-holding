@@ -135,3 +135,29 @@ ida-e-volta valor → texto formatado → valor.
 
 As 16 rotas e os 2 modais foram percorridos de novo, no computador e a 390 px,
 sem erro de console e sem rolagem lateral.
+
+---
+
+## 8. Temas claro, escuro e automático
+
+**Contraste conferido por script**, não a olho: `npm run check:contrast` lê os
+tokens dos dois temas em `src/index.css` e calcula a razão de contraste WCAG de
+cada par que importa — texto principal, secundário, rótulos, placeholder, texto
+do botão, link e bordas, sobre cartão, página e menu.
+
+Os 24 pares (12 por tema) passam. Uma reprovação real apareceu no caminho: a
+borda de campo do tema claro ficou em 1,60:1 contra o mínimo de 1,60 — o tom foi
+escurecido para 1,76:1.
+
+**Navegação nos três modos**, com o mock do Supabase: 17 rotas em cada um,
+conferindo que a classe `dark` foi realmente aplicada e qual cor de fundo o
+`body` assumiu.
+
+| Modo | Resultado |
+| --- | --- |
+| Claro | 17/17, fundo `rgb(246, 247, 249)`, sem erro de console |
+| Escuro | 17/17, fundo `rgb(13, 14, 19)`, sem erro de console |
+| Automático com sistema escuro | 17/17, escuro aplicado sozinho |
+
+**Celular no tema escuro**: as 17 rotas e os 2 modais a 390 px, sem rolagem
+horizontal e sem erro.

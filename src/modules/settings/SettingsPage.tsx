@@ -133,15 +133,15 @@ export default function SettingsPage() {
                   }}
                   className={`rounded-lg border px-3 py-2.5 text-left text-sm transition ${
                     provider === item.value
-                      ? 'border-brand-500 bg-brand-50'
-                      : 'border-slate-300 hover:bg-slate-50'
+                      ? 'border-brand-500 bg-brand/10'
+                      : 'border-line-strong hover:bg-hover'
                   }`}
                 >
-                  <span className="flex items-center gap-1.5 font-medium text-ink-900">
-                    {provider === item.value && <Sparkles className="h-3.5 w-3.5 text-brand-600" />}
+                  <span className="flex items-center gap-1.5 font-medium text-content">
+                    {provider === item.value && <Sparkles className="h-3.5 w-3.5 text-brand-text" />}
                     {item.label}
                   </span>
-                  <span className="mt-0.5 block text-xs text-slate-500">{item.hint}</span>
+                  <span className="mt-0.5 block text-xs text-content-soft">{item.hint}</span>
                 </button>
               ))}
             </div>
@@ -250,7 +250,7 @@ export default function SettingsPage() {
             Salvar
           </button>
         </div>
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-content-soft">
           O usuário é obrigado a trocar no primeiro login, então essa senha nunca fica valendo por
           muito tempo.
         </p>

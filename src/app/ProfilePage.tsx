@@ -80,11 +80,11 @@ export default function ProfilePage() {
 
       <Card title="Meus acessos" description="Empresas liberadas para este usuário e o papel em cada uma.">
         {isSuperAdmin && (
-          <p className="mb-3 text-sm text-slate-600">
+          <p className="mb-3 text-sm text-content-muted">
             Você é <strong>administrador da holding</strong> — acessa todas as empresas do grupo.
           </p>
         )}
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-line">
           {memberships.map(({ company, role }) => (
             <li key={company.id} className="flex items-center justify-between gap-3 py-2.5">
               <span className="flex items-center gap-2 text-sm">

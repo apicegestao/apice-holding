@@ -39,7 +39,7 @@ export default function KpiSuggestions({
   return (
     <div className="space-y-3">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-content-faint" />
         <input
           className="input pl-9"
           placeholder="Buscar indicador…"
@@ -54,8 +54,8 @@ export default function KpiSuggestions({
           onClick={() => setCategory('')}
           className={`chip border ${
             category === ''
-              ? 'border-brand-500 bg-brand-100 text-brand-800'
-              : 'border-slate-300 bg-white text-slate-600'
+              ? 'border-brand-500 bg-brand/15 text-brand-text'
+              : 'border-line-strong bg-surface text-content-muted'
           }`}
         >
           Todas
@@ -67,8 +67,8 @@ export default function KpiSuggestions({
             onClick={() => setCategory(item)}
             className={`chip border ${
               category === item
-                ? 'border-brand-500 bg-brand-100 text-brand-800'
-                : 'border-slate-300 bg-white text-slate-600'
+                ? 'border-brand-500 bg-brand/15 text-brand-text'
+                : 'border-line-strong bg-surface text-content-muted'
             }`}
           >
             {item}
@@ -77,7 +77,7 @@ export default function KpiSuggestions({
       </div>
 
       {results.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
+        <p className="rounded-lg border border-dashed border-line-strong px-4 py-8 text-center text-sm text-content-soft">
           Nenhuma sugestão com esse termo. Você pode criar o indicador do zero na outra aba.
         </p>
       ) : (
@@ -93,32 +93,32 @@ export default function KpiSuggestions({
                   onClick={() => onToggle(template)}
                   className={`flex w-full gap-2.5 rounded-lg border p-3 text-left transition ${
                     added
-                      ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-60'
+                      ? 'cursor-not-allowed border-line bg-hover opacity-60'
                       : on
-                        ? 'border-brand-500 bg-brand-50'
-                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                        ? 'border-brand-500 bg-brand/10'
+                        : 'border-line hover:border-line-strong hover:bg-hover'
                   }`}
                 >
                   <span
                     className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${
-                      on ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 bg-white'
+                      on ? 'border-brand-600 bg-brand-600 text-white' : 'border-line-strong bg-surface'
                     }`}
                   >
                     {on && <Check className="h-3 w-3" />}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium text-ink-900">
+                    <span className="block text-sm font-medium text-content">
                       {template.name}
                       {added && (
-                        <span className="ml-1.5 text-xs font-normal text-slate-400">
+                        <span className="ml-1.5 text-xs font-normal text-content-faint">
                           já cadastrado
                         </span>
                       )}
                     </span>
-                    <span className="mt-0.5 block text-xs text-slate-500">
+                    <span className="mt-0.5 block text-xs text-content-soft">
                       {template.description}
                     </span>
-                    <span className="mt-1 block text-[11px] text-slate-400">
+                    <span className="mt-1 block text-[11px] text-content-faint">
                       {template.category} · {FREQUENCY_LABEL[template.frequency]} ·{' '}
                       {template.direction === 'up' ? 'quanto maior, melhor' : 'quanto menor, melhor'}
                       {unitAffix(template.unit).prefix && ` · em ${unitAffix(template.unit).prefix}`}

@@ -28,12 +28,12 @@ function AuditTable({ logs, people }: { logs: AuditLog[]; people: Profile[] }) {
     id ? (people.find((person) => person.id === id)?.full_name ?? 'usuário removido') : 'sistema'
 
   return (
-    <ul className="divide-y divide-slate-100">
+    <ul className="divide-y divide-line">
       {logs.map((log) => (
         <li key={log.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm">
-          <span className="text-slate-400">{formatDateTime(log.created_at)}</span>
+          <span className="text-content-faint">{formatDateTime(log.created_at)}</span>
           <strong className="font-medium">{actorName(log.actor_id)}</strong>
-          <span className="text-slate-600">{ACTION_LABEL[log.action] ?? log.action}</span>
+          <span className="text-content-muted">{ACTION_LABEL[log.action] ?? log.action}</span>
           {log.entity_id && (
             <Badge>
               {log.entity}: {people.find((p) => p.id === log.entity_id)?.full_name ?? log.entity_id}

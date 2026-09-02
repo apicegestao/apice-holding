@@ -22,6 +22,7 @@ import {
 import { supabase } from '../../core/lib/supabase'
 import { formatValue, isOnTarget, labelPeriod, periodBounds } from '../../core/lib/format'
 import { useCompany } from '../../core/company/CompanyProvider'
+import { useChartTheme } from '../../core/theme/ThemeProvider'
 import {
   Badge,
   Card,
@@ -65,6 +66,7 @@ const emptyKpi = {
 export default function KpisPage() {
   const { company, canWrite } = useCompany()
   const { notify } = useToast()
+  const chart = useChartTheme()
 
   const [kpis, setKpis] = useState<Kpi[]>([])
   const [values, setValues] = useState<KpiValue[]>([])
@@ -248,7 +250,7 @@ export default function KpisPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title={`KPIs · ${company.name}`}
-        subtitle="Indicadores desta empresa. Os marcados como consolidados aparecem no painel da holding."
+        subtitle="Indicadores desta empresa. Todos entram no painel consolidado da holding."
         actions={
           canWrite && (
             <button type="button" className="btn-primary" onClick={openCreate}>
@@ -293,8 +295,8 @@ export default function KpisPage() {
               <Card key={kpi.id} className={kpi.is_active ? '' : 'opacity-60'}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-ink-900">{kpi.name}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="truncate text-sm font-semibold text-content">{kpi.name}</p>
+                    <p className="text-xs text-content-soft">
                       {kpi.category ? `${kpi.category} · ` : ''}
                       {FREQUENCY_LABEL[kpi.frequency]}
                     </p>
@@ -302,7 +304,7 @@ export default function KpisPage() {
                   <div className="flex shrink-0 gap-1">
                     <button
                       type="button"
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                       title="Histórico"
                       onClick={() => setHistoryFor(kpi)}
                     >
@@ -312,7 +314,7 @@ export default function KpisPage() {
                       <>
                         <button
                           type="button"
-                          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                           title="Editar"
                           onClick={() => openEdit(kpi)}
                         >
@@ -320,7 +322,7 @@ export default function KpisPage() {
                         </button>
                         <button
                           type="button"
-                          className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                           title="Excluir"
                           onClick={() => setRemovingKpi(kpi)}
                         >
@@ -333,10 +335,10 @@ export default function KpisPage() {
 
                 <div className="mt-3 flex items-end justify-between gap-2">
                   <div>
-                    <p className="text-2xl font-semibold text-ink-900">
+                    <p className="text-2xl font-semibold text-content">
                       {latest ? formatValue(Number(latest.value), kpi.unit) : '—'}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-content-soft">
                       {latest ? labelPeriod(latest.period_start, kpi.frequency) : 'sem lançamento'}
                       {kpi.target_value !== null && (
                         <> · meta {formatValue(kpi.target_value, kpi.unit)}</>
@@ -352,7 +354,7 @@ export default function KpisPage() {
                     {delta !== null && (
                       <span
                         className={`flex items-center gap-0.5 text-xs font-medium ${
-                          improving ? 'text-emerald-600' : 'text-rose-600'
+                          improving ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
                         }`}
                       >
                         {improving ? (
@@ -375,12 +377,20 @@ export default function KpisPage() {
                         <Tooltip
                           formatter={(value: number) => formatValue(value, kpi.unit)}
                           labelFormatter={(label: string) => label}
-                          contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                          contentStyle={{
+                            fontSize: 12,
+                            borderRadius: 8,
+                            background: chart.tooltipBg,
+                            borderColor: chart.tooltipBorder,
+                            color: chart.tooltipText,
+                          }}
+                          itemStyle={{ color: chart.tooltipText }}
+                          labelStyle={{ color: chart.tooltipText }}
                         />
                         {kpi.target_value !== null && (
                           <ReferenceLine
                             y={kpi.target_value}
-                            stroke="#94A3B8"
+                            stroke={chart.reference}
                             strokeDasharray="4 4"
                           />
                         )}
@@ -451,8 +461,8 @@ export default function KpisPage() {
               onClick={() => setCreateMode('suggestions')}
               className={`rounded-lg border px-3 py-2 text-sm transition ${
                 createMode === 'suggestions'
-                  ? 'border-brand-500 bg-brand-50 font-medium text-brand-700'
-                  : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                  ? 'border-brand-500 bg-brand/10 font-medium text-brand-text'
+                  : 'border-line-strong text-content-muted hover:bg-hover'
               }`}
             >
               Usar sugestões
@@ -462,8 +472,8 @@ export default function KpisPage() {
               onClick={() => setCreateMode('custom')}
               className={`rounded-lg border px-3 py-2 text-sm transition ${
                 createMode === 'custom'
-                  ? 'border-brand-500 bg-brand-50 font-medium text-brand-700'
-                  : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                  ? 'border-brand-500 bg-brand/10 font-medium text-brand-text'
+                  : 'border-line-strong text-content-muted hover:bg-hover'
               }`}
             >
               Criar o meu
@@ -761,6 +771,7 @@ function HistoryModal({
   onChanged: () => Promise<void>
 }) {
   const { notify } = useToast()
+  const chart = useChartTheme()
   const chartData = series.map((item) => ({
     label: labelPeriod(item.period_start, kpi.frequency),
     value: Number(item.value),
@@ -785,17 +796,25 @@ function HistoryModal({
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} width={70} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: chart.tick }} />
+                <YAxis tick={{ fontSize: 11, fill: chart.tick }} width={70} />
                 <Tooltip
                   formatter={(value: number) => formatValue(value, kpi.unit)}
-                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                  contentStyle={{
+                    fontSize: 12,
+                    borderRadius: 8,
+                    background: chart.tooltipBg,
+                    borderColor: chart.tooltipBorder,
+                    color: chart.tooltipText,
+                  }}
+                  itemStyle={{ color: chart.tooltipText }}
+                  labelStyle={{ color: chart.tooltipText }}
                 />
                 {kpi.target_value !== null && (
-                  <ReferenceLine y={kpi.target_value} stroke="#94A3B8" strokeDasharray="4 4" />
+                  <ReferenceLine y={kpi.target_value} stroke={chart.reference} strokeDasharray="4 4" />
                 )}
-                <Line type="monotone" dataKey="value" stroke="#0EA5E9" strokeWidth={2} />
+                <Line type="monotone" dataKey="value" stroke="rgb(var(--brand))" strokeWidth={2} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -803,7 +822,7 @@ function HistoryModal({
           <div className="-mx-1 mt-5 overflow-x-auto px-1">
           <table className="w-full min-w-[30rem] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-content-soft">
                 <th className="py-2">Período</th>
                 <th className="py-2">Valor</th>
                 <th className="py-2">Origem</th>
@@ -813,18 +832,18 @@ function HistoryModal({
             </thead>
             <tbody>
               {[...series].reverse().map((item) => (
-                <tr key={item.id} className="border-b border-slate-50">
+                <tr key={item.id} className="border-b border-line">
                   <td className="py-2">{labelPeriod(item.period_start, kpi.frequency)}</td>
                   <td className="py-2 font-medium">{formatValue(Number(item.value), kpi.unit)}</td>
-                  <td className="py-2 text-xs text-slate-500">
+                  <td className="py-2 text-xs text-content-soft">
                     {item.source === 'integration' ? 'integração' : 'manual'}
                   </td>
-                  <td className="py-2 text-xs text-slate-500">{item.note ?? '—'}</td>
+                  <td className="py-2 text-xs text-content-soft">{item.note ?? '—'}</td>
                   {canWrite && (
                     <td className="py-2 text-right">
                       <button
                         type="button"
-                        className="rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        className="rounded-md p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                         onClick={() => void removeValue(item.id)}
                         aria-label="Remover lançamento"
                       >

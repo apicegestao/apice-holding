@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "sync:functions": "node scripts/sync-edge-shared.mjs"
+    "sync:functions": "node scripts/sync-edge-shared.mjs",
+    "check:contrast": "node scripts/check-contrast.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

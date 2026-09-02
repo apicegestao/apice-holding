@@ -2,39 +2,87 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Cores por token, não por classe solta. Cada tema redefine as variáveis e o
+  resto do sistema continua escrevendo bg-surface, text-content, border-line.
+  Os pares são conferidos contra a WCAG por scripts/check-contrast.mjs.
+*/
 @layer base {
+  :root {
+    --app: 246 247 249;
+    --surface: 255 255 255;
+    --elevated: 255 255 255;
+    --line: 226 230 236;
+    --line-strong: 189 196 207;
+    --field: 255 255 255;
+    --hover: 240 242 246;
+
+    --text: 20 20 28;
+    --text-muted: 71 85 105;
+    --text-soft: 90 100 118;
+    --text-faint: 122 132 149;
+
+    --brand: 196 60 22;
+    --brand-text: 159 47 17;
+    --on-brand: 255 255 255;
+
+    color-scheme: light;
+  }
+
+  .dark {
+    --app: 13 14 19;
+    --surface: 24 25 33;
+    --elevated: 32 33 43;
+    --line: 51 53 66;
+    --line-strong: 76 79 95;
+    --field: 32 33 43;
+    --hover: 44 46 59;
+
+    --text: 237 239 245;
+    --text-muted: 178 183 198;
+    --text-soft: 163 169 185;
+    --text-faint: 140 146 163;
+
+    --brand: 222 76 34;
+    --brand-text: 240 137 100;
+    --on-brand: 26 12 6;
+
+    color-scheme: dark;
+  }
+
   html,
   body,
   #root {
     height: 100%;
   }
+
   body {
-    @apply bg-slate-50 text-ink-900 antialiased;
+    @apply bg-app text-content antialiased;
     font-feature-settings: 'cv02', 'cv03', 'cv04';
   }
 }
 
 @layer components {
   .card {
-    @apply rounded-xl border border-slate-200 bg-white shadow-card;
+    @apply rounded-xl border border-line bg-surface shadow-card;
   }
   .label {
-    @apply mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500;
+    @apply mb-1 block text-xs font-medium uppercase tracking-wide text-content-soft;
   }
   .input {
-    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition
-           placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20
-           disabled:cursor-not-allowed disabled:bg-slate-100;
+    @apply w-full rounded-lg border border-line-strong bg-field px-3 py-2 text-sm text-content outline-none
+           transition placeholder:text-content-faint focus:border-brand-500
+           focus:ring-2 focus:ring-brand-500/25 disabled:cursor-not-allowed disabled:bg-hover;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium
            transition disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-700;
+    @apply btn bg-brand text-on-brand hover:brightness-110;
   }
   .btn-ghost {
-    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+    @apply btn border border-line-strong bg-surface text-content-muted hover:bg-hover;
   }
   .btn-danger {
     @apply btn bg-rose-600 text-white hover:bg-rose-700;

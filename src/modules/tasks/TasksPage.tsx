@@ -129,7 +129,7 @@ export default function TasksPage() {
         subtitle="Quem faz, o quê e até quando — com lembrete automático."
         actions={
           <>
-            <label className="flex items-center gap-1.5 text-sm text-slate-600">
+            <label className="flex items-center gap-1.5 text-sm text-content-muted">
               <input
                 type="checkbox"
                 checked={onlyMine}
@@ -137,7 +137,7 @@ export default function TasksPage() {
               />
               Só as minhas
             </label>
-            <label className="flex items-center gap-1.5 text-sm text-slate-600">
+            <label className="flex items-center gap-1.5 text-sm text-content-muted">
               <input
                 type="checkbox"
                 checked={showDone}
@@ -169,13 +169,13 @@ export default function TasksPage() {
           {columns.map(({ status, items }) => (
             <div key={status} className="flex flex-col gap-3">
               <div className="flex items-center justify-between px-1">
-                <h2 className="text-sm font-semibold text-ink-900">
+                <h2 className="text-sm font-semibold text-content">
                   {TASK_STATUS_LABEL[status]}
-                  <span className="ml-1.5 text-xs font-normal text-slate-400">{items.length}</span>
+                  <span className="ml-1.5 text-xs font-normal text-content-faint">{items.length}</span>
                 </h2>
                 <button
                   type="button"
-                  className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  className="rounded-md p-1 text-content-faint hover:bg-hover hover:text-content"
                   onClick={() => setCreating(status)}
                   aria-label={`Nova tarefa em ${TASK_STATUS_LABEL[status]}`}
                 >
@@ -184,7 +184,7 @@ export default function TasksPage() {
               </div>
 
               {items.length === 0 && (
-                <p className="hidden rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-400 md:block">
+                <p className="hidden rounded-lg border border-dashed border-line px-3 py-6 text-center text-xs text-content-faint md:block">
                   vazio
                 </p>
               )}
@@ -202,12 +202,12 @@ export default function TasksPage() {
                 return (
                   <article key={task.id} className="card p-3">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium text-ink-900">{task.title}</p>
+                      <p className="text-sm font-medium text-content">{task.title}</p>
                       {editable && (
                         <div className="flex shrink-0 gap-0.5">
                           <button
                             type="button"
-                            className="rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                            className="rounded p-1 text-content-faint hover:bg-hover hover:text-content-muted"
                             onClick={() => setEditing(task)}
                             aria-label="Editar"
                           >
@@ -216,7 +216,7 @@ export default function TasksPage() {
                           {(mine || canWrite) && (
                             <button
                               type="button"
-                              className="rounded p-1 text-slate-300 hover:bg-rose-50 hover:text-rose-600"
+                              className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                               onClick={() => setRemoving(task)}
                               aria-label="Excluir"
                             >
@@ -228,7 +228,7 @@ export default function TasksPage() {
                     </div>
 
                     {task.description && (
-                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">{task.description}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-content-soft">{task.description}</p>
                     )}
 
                     <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
@@ -263,12 +263,12 @@ export default function TasksPage() {
 
                     <div className="mt-3 flex items-center justify-between gap-2">
                       <span
-                        className="flex items-center gap-1.5 text-xs text-slate-500"
+                        className="flex items-center gap-1.5 text-xs text-content-soft"
                         title={assignee?.email}
                       >
                         {assignee ? (
                           <>
-                            <span className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[9px] font-semibold text-slate-600">
+                            <span className="grid h-5 w-5 place-items-center rounded-full bg-hover text-[9px] font-semibold text-content-muted">
                               {initials(assignee.full_name || assignee.email)}
                             </span>
                             <span className="max-w-24 truncate">{assignee.full_name}</span>
@@ -282,7 +282,7 @@ export default function TasksPage() {
 
                       {editable && (
                         <select
-                          className="rounded border border-slate-200 bg-white px-1.5 py-1 text-xs"
+                          className="rounded border border-line bg-surface px-1.5 py-1 text-xs"
                           value={task.status}
                           onChange={(event) =>
                             void changeStatus(task, event.target.value as TaskStatus)

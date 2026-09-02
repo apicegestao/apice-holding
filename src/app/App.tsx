@@ -34,7 +34,7 @@ function NoAccess() {
     <div className="flex min-h-full items-center justify-center p-6">
       <div className="card max-w-md p-6 text-center">
         <h1 className="text-lg font-semibold">Nenhuma empresa liberada</h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-content-muted">
           O acesso de <strong>{profile?.email}</strong> ainda não foi vinculado a nenhuma empresa.
           Peça ao administrador da holding para liberar.
         </p>
@@ -114,6 +114,14 @@ export default function App() {
           element={
             <HoldingOnly>
               <UsersPage scope="holding" />
+            </HoldingOnly>
+          }
+        />
+        <Route
+          path="/holding/mapa-mental"
+          element={
+            <HoldingOnly>
+              <MindMapPage scope="holding" />
             </HoldingOnly>
           }
         />

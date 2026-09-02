@@ -283,24 +283,24 @@ export default function IntegrationsPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Cable className="h-4 w-4 text-slate-400" />
-                      <h3 className="text-sm font-semibold text-ink-900">{integration.name}</h3>
+                      <Cable className="h-4 w-4 text-content-faint" />
+                      <h3 className="text-sm font-semibold text-content">{integration.name}</h3>
                       <Badge tone={statusTone(integration.last_status)}>
                         {integration.last_status === 'idle' ? 'nunca rodou' : integration.last_status}
                       </Badge>
                       {!integration.is_active && <Badge tone="amber">pausada</Badge>}
                     </div>
-                    <p className="mt-1 break-all text-xs text-slate-500">
+                    <p className="mt-1 break-all text-xs text-content-soft">
                       {integration.http_method} {integration.base_url}
                     </p>
-                    <p className="mt-0.5 text-xs text-slate-500">
+                    <p className="mt-0.5 text-xs text-content-soft">
                       {integration.sync_interval_minutes
                         ? `Sincroniza a cada ${integration.sync_interval_minutes} min`
                         : 'Sincronização manual'}
                       {integration.last_run_at && <> · última: {formatDateTime(integration.last_run_at)}</>}
                     </p>
                     {integration.last_error && (
-                      <p className="mt-1 text-xs text-rose-600">{integration.last_error}</p>
+                      <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{integration.last_error}</p>
                     )}
                   </div>
 
@@ -320,7 +320,7 @@ export default function IntegrationsPage() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                       onClick={() => openEdit(integration)}
                       aria-label="Editar"
                     >
@@ -328,7 +328,7 @@ export default function IntegrationsPage() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                      className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                       onClick={() => setRemoving(integration)}
                       aria-label="Excluir"
                     >
@@ -337,28 +337,28 @@ export default function IntegrationsPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 border-t border-slate-100 pt-3">
+                <div className="mt-3 border-t border-line pt-3">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                    <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
                       Campos ligados a KPIs
                     </p>
                     <button
                       type="button"
-                      className="text-xs text-brand-600 hover:underline"
+                      className="text-xs text-brand-text hover:underline"
                       onClick={() => setMappingFor(integration)}
                     >
                       configurar
                     </button>
                   </div>
                   {links.length === 0 ? (
-                    <p className="mt-1 text-xs text-slate-400">
+                    <p className="mt-1 text-xs text-content-faint">
                       Nenhum campo mapeado — a integração ainda não alimenta nada.
                     </p>
                   ) : (
                     <ul className="mt-2 space-y-1">
                       {links.map((mapping) => (
-                        <li key={mapping.id} className="text-xs text-slate-600">
-                          <code className="rounded bg-slate-100 px-1">{mapping.json_path}</code>
+                        <li key={mapping.id} className="text-xs text-content-muted">
+                          <code className="rounded bg-hover px-1">{mapping.json_path}</code>
                           {' → '}
                           {kpis.find((kpi) => kpi.id === mapping.kpi_id)?.name ?? 'KPI removido'}
                           {' · '}
@@ -379,7 +379,7 @@ export default function IntegrationsPage() {
           <div className="-mx-1 overflow-x-auto px-1">
           <table className="w-full min-w-[34rem] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-content-soft">
                 <th className="py-2">Quando</th>
                 <th className="py-2">Integração</th>
                 <th className="py-2">Origem</th>
@@ -389,12 +389,12 @@ export default function IntegrationsPage() {
             </thead>
             <tbody>
               {runs.map((run) => (
-                <tr key={run.id} className="border-b border-slate-50">
+                <tr key={run.id} className="border-b border-line">
                   <td className="py-2 text-xs">{formatDateTime(run.started_at)}</td>
                   <td className="py-2 text-xs">
                     {integrations.find((item) => item.id === run.integration_id)?.name ?? '—'}
                   </td>
-                  <td className="py-2 text-xs text-slate-500">
+                  <td className="py-2 text-xs text-content-soft">
                     {run.trigger_source === 'cron' ? 'agendada' : 'manual'}
                   </td>
                   <td className="py-2">
@@ -662,20 +662,20 @@ function MappingModal({
     >
       <div className="space-y-4">
         {mappings.length > 0 && (
-          <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+          <ul className="divide-y divide-line rounded-lg border border-line">
             {mappings.map((mapping) => (
               <li key={mapping.id} className="flex items-center justify-between gap-2 px-3 py-2">
                 <span className="min-w-0 text-xs">
-                  <code className="rounded bg-slate-100 px-1">{mapping.json_path}</code> →{' '}
+                  <code className="rounded bg-hover px-1">{mapping.json_path}</code> →{' '}
                   {kpis.find((kpi) => kpi.id === mapping.kpi_id)?.name ?? 'KPI removido'}
-                  <span className="block text-slate-400">
+                  <span className="block text-content-faint">
                     {PERIOD_LABEL[mapping.period_mode]}
                     {Number(mapping.multiplier) !== 1 && ` · ×${mapping.multiplier}`}
                   </span>
                 </span>
                 <button
                   type="button"
-                  className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                  className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                   onClick={() => void remove(mapping.id)}
                   aria-label="Remover"
                 >
@@ -687,11 +687,11 @@ function MappingModal({
         )}
 
         {kpis.length === 0 ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-content-soft">
             Cadastre pelo menos um KPI nesta empresa para poder mapear campos.
           </p>
         ) : (
-          <div className="space-y-3 rounded-lg border border-dashed border-slate-300 p-3">
+          <div className="space-y-3 rounded-lg border border-dashed border-line-strong p-3">
             <Field label="KPI que recebe o valor">
               <select className="input" value={kpiId} onChange={(event) => setKpiId(event.target.value)}>
                 {kpis.map((kpi) => (

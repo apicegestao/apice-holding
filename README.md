@@ -137,14 +137,33 @@ O código dos provedores mora em `supabase/functions/_shared/providers.ts`.
 Cada Edge Function é publicada sozinha, então rode `npm run sync:functions`
 depois de editar esse arquivo — ele copia para dentro de cada função.
 
+## Temas
+
+Claro, escuro e **automático** (segue o sistema operacional em tempo real). A
+escolha fica no navegador de cada pessoa, no menu do usuário.
+
+As cores não são classes soltas: cada tema define um conjunto de tokens em
+`src/index.css` (`--surface`, `--text`, `--line`…) e o resto do sistema escreve
+`bg-surface`, `text-content`, `border-line`. Trocar de tema é trocar os valores
+das variáveis, não caçar `dark:` espalhado pelo código.
+
+Contraste é verificado por script, não no olho: `npm run check:contrast` mede
+cada par de cor dos dois temas contra a WCAG e falha se algum ficar abaixo do
+mínimo. Rode sempre que mexer num token.
+
+Os gráficos recebem cor por valor, não por classe — `useChartTheme()` entrega a
+paleta certa para o tema atual.
+
 ## A marca
 
 Todo o sistema aponta para `public/logo-apice.svg` — trocar esse arquivo,
 mantendo o nome, atualiza login, cabeçalho e favicon de uma vez.
 
-A marca é transparente e desenhada para fundo claro — por isso o cabeçalho e o
-painel do login são claros. Em fundo escuro, o componente `Logo` aceita a
-propriedade `framed`, que a envolve numa moldura branca.
+A marca é transparente: o "A" em azul (`#2E31B0`) e a seta em laranja
+(`#E2521E`). No tema escuro ela recebe um leve ganho de brilho por CSS, para o
+azul não sumir no fundo quase preto — assim continua sendo um arquivo só.
+O componente `Logo` também aceita `framed`, que a envolve numa moldura branca
+quando precisar ir sobre uma superfície colorida.
 
 ## Integrações com outros sistemas
 

@@ -78,14 +78,14 @@ export default function ChangePasswordPage({ firstAccess = false }: { firstAcces
       <div className="flex min-h-full items-center justify-center p-6">
         <div className="card w-full max-w-sm p-6">
           <h1 className="text-lg font-semibold">Defina sua senha</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-content-soft">
             Este é o primeiro acesso de <strong>{profile?.email}</strong>. Troque a senha padrão
             para continuar.
           </p>
           <div className="mt-5">{form}</div>
           <button
             type="button"
-            className="mt-4 w-full text-xs text-slate-500 hover:underline"
+            className="mt-4 w-full text-xs text-content-soft hover:underline"
             onClick={() => void signOut()}
           >
             Sair

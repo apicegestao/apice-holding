@@ -14,12 +14,16 @@ import {
   LogOut,
   Network,
   ScrollText,
+  Monitor,
+  Moon,
   Settings,
   Sparkles,
+  Sun,
   Target,
   Users,
 } from 'lucide-react'
 import { useAuth } from '../core/auth/AuthProvider'
+import { useTheme, type ThemeChoice } from '../core/theme/ThemeProvider'
 import { Logo } from '../core/ui/Logo'
 import { supabase } from '../core/lib/supabase'
 import { formatDateTime, initials } from '../core/lib/format'
@@ -27,8 +31,15 @@ import { ROLE_LABEL, type Notification } from '../core/types'
 
 type NavItem = { to: string; label: string; icon: typeof Gauge; end?: boolean }
 
+const THEMES: { value: ThemeChoice; label: string; icon: typeof Sun }[] = [
+  { value: 'light', label: 'Claro', icon: Sun },
+  { value: 'dark', label: 'Escuro', icon: Moon },
+  { value: 'system', label: 'Automático', icon: Monitor },
+]
+
 export default function AppLayout() {
   const { profile, memberships, isSuperAdmin, signOut } = useAuth()
+  const { theme, setTheme } = useTheme()
   const { companyId } = useParams<{ companyId: string }>()
   const location = useLocation()
   const navigate = useNavigate()
@@ -71,9 +82,10 @@ export default function AppLayout() {
   const navItems = useMemo<NavItem[]>(() => {
     if (onHolding) {
       return [
-        { to: '/holding', label: 'Painel da holding', icon: LayoutGrid, end: true },
+        { to: '/holding', label: 'Painel da Holding', icon: LayoutGrid, end: true },
         { to: '/holding/empresas', label: 'Empresas', icon: Building2 },
         { to: '/holding/usuarios', label: 'Usuários', icon: Users },
+        { to: '/holding/mapa-mental', label: 'Mapa mental', icon: Network },
         { to: '/holding/insights', label: 'Insights de IA', icon: Sparkles },
         { to: '/holding/auditoria', label: 'Auditoria', icon: ScrollText },
         { to: '/holding/configuracoes', label: 'Configurações', icon: Settings },
@@ -106,7 +118,7 @@ export default function AppLayout() {
   return (
     <div className="flex min-h-full flex-col">
       {/* ------------------------------------------------------------ topo */}
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-slate-50 text-ink-900">
+      <header className="sticky top-0 z-40 border-b border-line bg-surface text-content">
         <div className="flex items-center justify-between gap-4 px-4 py-2.5 sm:px-6">
           <button type="button" onClick={() => navigate('/')} className="text-left">
             <Logo size={34} withWordmark subtitle="Gestão do grupo" />
@@ -120,7 +132,7 @@ export default function AppLayout() {
                   setBellOpen((open) => !open)
                   setMenuOpen(false)
                 }}
-                className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-ink-900"
+                className="relative rounded-lg p-2 text-content-soft hover:bg-hover hover:text-content"
                 aria-label="Notificações"
               >
                 <Bell className="h-4 w-4" />
@@ -131,14 +143,14 @@ export default function AppLayout() {
                 )}
               </button>
               {bellOpen && (
-                <div className="absolute right-0 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white text-ink-900 shadow-card">
-                  <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <div className="absolute right-0 mt-2 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-line bg-elevated text-content shadow-card">
+                  <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-content-soft">
                       Notificações
                     </span>
                     <button
                       type="button"
-                      className="text-xs text-brand-600 hover:underline"
+                      className="text-xs text-brand-text hover:underline"
                       onClick={() => void markAllRead()}
                     >
                       Marcar como lidas
@@ -146,7 +158,7 @@ export default function AppLayout() {
                   </div>
                   <div className="max-h-80 overflow-y-auto">
                     {notifications.length === 0 && (
-                      <p className="px-4 py-6 text-center text-sm text-slate-500">
+                      <p className="px-4 py-6 text-center text-sm text-content-soft">
                         Nada por aqui ainda.
                       </p>
                     )}
@@ -158,13 +170,13 @@ export default function AppLayout() {
                           setBellOpen(false)
                           if (item.link) navigate(item.link)
                         }}
-                        className={`block w-full border-b border-slate-50 px-4 py-3 text-left hover:bg-slate-50 ${
-                          item.read_at ? '' : 'bg-brand-50/50'
+                        className={`block w-full border-b border-line px-4 py-3 text-left hover:bg-hover ${
+                          item.read_at ? '' : 'bg-brand/10'
                         }`}
                       >
                         <p className="text-sm font-medium">{item.title}</p>
-                        {item.body && <p className="text-xs text-slate-500">{item.body}</p>}
-                        <p className="mt-0.5 text-[11px] text-slate-400">
+                        {item.body && <p className="text-xs text-content-soft">{item.body}</p>}
+                        <p className="mt-0.5 text-[11px] text-content-faint">
                           {formatDateTime(item.created_at)}
                         </p>
                       </button>
@@ -181,28 +193,28 @@ export default function AppLayout() {
                   setMenuOpen((open) => !open)
                   setBellOpen(false)
                 }}
-                className="flex items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 hover:bg-slate-100"
+                className="flex items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 hover:bg-hover"
               >
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-brand-500 text-xs font-semibold">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-brand/100 text-xs font-semibold">
                   {initials(profile?.full_name || profile?.email || '?')}
                 </span>
                 <span className="hidden text-sm sm:block">{profile?.full_name}</span>
-                <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                <ChevronDown className="h-3.5 w-3.5 text-content-faint" />
               </button>
               {menuOpen && (
-                <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white text-ink-900 shadow-card">
-                  <div className="border-b border-slate-100 px-4 py-3">
+                <div className="absolute right-0 mt-2 w-[17rem] overflow-hidden rounded-xl border border-line bg-elevated text-content shadow-card">
+                  <div className="border-b border-line px-4 py-3">
                     <p className="text-sm font-medium">{profile?.full_name}</p>
-                    <p className="text-xs text-slate-500">{profile?.email}</p>
+                    <p className="text-xs text-content-soft">{profile?.email}</p>
                     {isSuperAdmin && (
-                      <p className="mt-1 text-[11px] font-medium text-brand-600">
+                      <p className="mt-1 text-[11px] font-medium text-brand-text">
                         Administrador da holding
                       </p>
                     )}
                   </div>
                   <button
                     type="button"
-                    className="block w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50"
+                    className="block w-full px-4 py-2.5 text-left text-sm hover:bg-hover"
                     onClick={() => {
                       setMenuOpen(false)
                       navigate('/perfil')
@@ -212,7 +224,7 @@ export default function AppLayout() {
                   </button>
                   <button
                     type="button"
-                    className="block w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50"
+                    className="block w-full px-4 py-2.5 text-left text-sm hover:bg-hover"
                     onClick={() => {
                       setMenuOpen(false)
                       navigate('/trocar-senha')
@@ -220,9 +232,31 @@ export default function AppLayout() {
                   >
                     Trocar senha
                   </button>
+                  <div className="border-t border-line px-4 py-3">
+                    <p className="label">Tema</p>
+                    <div className="grid grid-cols-3 gap-1">
+                      {THEMES.map((item) => (
+                        <button
+                          key={item.value}
+                          type="button"
+                          onClick={() => setTheme(item.value)}
+                          title={item.label}
+                          className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] transition ${
+                            theme === item.value
+                              ? 'border-brand-500 bg-brand/10 font-medium text-brand-text'
+                              : 'border-line-strong text-content-muted hover:bg-hover'
+                          }`}
+                        >
+                          <item.icon className="h-3.5 w-3.5" />
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 border-t border-slate-100 px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50"
+                    className="flex w-full items-center gap-2 border-t border-line px-4 py-2.5 text-left text-sm text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
                     onClick={() => void signOut()}
                   >
                     <LogOut className="h-4 w-4" /> Sair
@@ -241,8 +275,8 @@ export default function AppLayout() {
               className={() =>
                 `flex shrink-0 items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-sm transition ${
                   onHolding
-                    ? 'border-brand-500 font-semibold text-ink-900'
-                    : 'border-transparent text-slate-500 hover:text-ink-900'
+                    ? 'border-brand-500 font-semibold text-content'
+                    : 'border-transparent text-content-soft hover:text-content'
                 }`
               }
             >
@@ -259,8 +293,8 @@ export default function AppLayout() {
                 title={`${company.name} — ${ROLE_LABEL[role]}`}
                 className={`flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-sm transition ${
                   active
-                    ? 'border-brand-500 font-semibold text-ink-900'
-                    : 'border-transparent text-slate-500 hover:text-ink-900'
+                    ? 'border-brand-500 font-semibold text-content'
+                    : 'border-transparent text-content-soft hover:text-content'
                 }`}
               >
                 <span
@@ -274,7 +308,7 @@ export default function AppLayout() {
           {isSuperAdmin && (
             <NavLink
               to="/holding/empresas"
-              className="flex shrink-0 items-center gap-1 border-b-2 border-transparent px-3 py-2.5 text-sm text-slate-500 hover:text-ink-900"
+              className="flex shrink-0 items-center gap-1 border-b-2 border-transparent px-3 py-2.5 text-sm text-content-soft hover:text-content"
             >
               + Empresa
             </NavLink>
@@ -285,7 +319,7 @@ export default function AppLayout() {
       {/* -------------------------------------------------------- conteúdo */}
       <div className="flex flex-1 flex-col lg:flex-row">
         {navItems.length > 0 && (
-          <aside className="shrink-0 border-b border-slate-200 bg-white lg:w-60 lg:border-b-0 lg:border-r">
+          <aside className="shrink-0 border-b border-line bg-surface lg:w-60 lg:border-b-0 lg:border-r">
             <nav className="flex gap-1 overflow-x-auto p-3 lg:flex-col lg:overflow-visible">
               {navItems.map((item) => (
                 <NavLink
@@ -295,8 +329,8 @@ export default function AppLayout() {
                   className={({ isActive }) =>
                     `flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
                       isActive
-                        ? 'bg-brand-50 font-medium text-brand-700'
-                        : 'text-slate-600 hover:bg-slate-100'
+                        ? 'bg-brand/10 font-medium text-brand-text'
+                        : 'text-content-muted hover:bg-hover'
                     }`
                   }
                 >

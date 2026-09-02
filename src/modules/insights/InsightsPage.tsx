@@ -59,22 +59,22 @@ function InsightList({
                 <Badge tone={severityTone(insight.severity)}>
                   {SEVERITY_LABEL[insight.severity]}
                 </Badge>
-                <h3 className="text-sm font-semibold text-ink-900">{insight.title}</h3>
+                <h3 className="text-sm font-semibold text-content">{insight.title}</h3>
               </div>
-              <p className="mt-2 text-sm text-slate-600">{insight.body}</p>
+              <p className="mt-2 text-sm text-content-muted">{insight.body}</p>
               {insight.recommendation && (
-                <p className="mt-2 rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-800">
+                <p className="mt-2 rounded-lg bg-brand/10 px-3 py-2 text-sm text-brand-text">
                   <strong>O que fazer:</strong> {insight.recommendation}
                 </p>
               )}
-              <p className="mt-2 text-xs text-slate-400">
+              <p className="mt-2 text-xs text-content-faint">
                 {formatDateTime(insight.generated_at)}
                 {insight.model && ` · ${insight.model}`}
               </p>
             </div>
             <button
               type="button"
-              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
               title="Arquivar"
               onClick={() => onArchive(insight)}
             >

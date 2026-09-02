@@ -45,10 +45,10 @@ function TemporaryPassword({ value, onClose }: { value: string; onClose: () => v
         </button>
       }
     >
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-content-muted">
         Passe esta senha para o usuário. No primeiro login o sistema obriga a troca.
       </p>
-      <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center font-mono text-lg">
+      <p className="mt-3 rounded-lg border border-line bg-hover px-4 py-3 text-center font-mono text-lg">
         {value}
       </p>
     </Modal>
@@ -196,7 +196,7 @@ function CreateUserModal({
         </Field>
 
         {allowSuperAdmin && (
-          <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+          <label className="flex items-start gap-2 rounded-lg border border-line bg-hover p-3 text-sm">
             <input
               type="checkbox"
               className="mt-0.5"
@@ -205,7 +205,7 @@ function CreateUserModal({
             />
             <span>
               <strong>Administrador da holding</strong>
-              <span className="block text-xs text-slate-500">
+              <span className="block text-xs text-content-soft">
                 Enxerga e edita todas as empresas do grupo. Use com parcimônia.
               </span>
             </span>
@@ -302,20 +302,20 @@ function CompanyUsers() {
             description="Cadastre o e-mail da pessoa para liberar o acesso a esta empresa."
           />
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {rows.map(({ member, user }) => (
               <li key={user.id} className="flex flex-wrap items-center gap-3 py-3">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-hover text-xs font-semibold text-content-muted">
                   {initials(user.full_name || user.email)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-ink-900">
+                  <p className="truncate text-sm font-medium text-content">
                     {user.full_name}
                     {user.id === profile?.id && (
-                      <span className="ml-1.5 text-xs font-normal text-slate-400">(você)</span>
+                      <span className="ml-1.5 text-xs font-normal text-content-faint">(você)</span>
                     )}
                   </p>
-                  <p className="truncate text-xs text-slate-500">{user.email}</p>
+                  <p className="truncate text-xs text-content-soft">{user.email}</p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -355,7 +355,7 @@ function CompanyUsers() {
                   <div className="flex gap-1">
                     <button
                       type="button"
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                       title="Resetar senha"
                       onClick={() => setPending({ kind: 'reset', user })}
                     >
@@ -363,7 +363,7 @@ function CompanyUsers() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                      className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                       title="Remover desta empresa"
                       onClick={() => setPending({ kind: 'remove', user })}
                     >
@@ -523,24 +523,24 @@ function HoldingUsers() {
         ) : filtered.length === 0 ? (
           <EmptyState title="Nenhum usuário encontrado" />
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {filtered.map((user) => {
               const userCompanies = members.filter((item) => item.user_id === user.id)
               const isSelf = user.id === profile?.id
               return (
                 <li key={user.id} className="py-3">
                   <div className="flex flex-wrap items-center gap-3">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-hover text-xs font-semibold text-content-muted">
                       {initials(user.full_name || user.email)}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-ink-900">
+                      <p className="truncate text-sm font-medium text-content">
                         {user.full_name}
                         {isSelf && (
-                          <span className="ml-1.5 text-xs font-normal text-slate-400">(você)</span>
+                          <span className="ml-1.5 text-xs font-normal text-content-faint">(você)</span>
                         )}
                       </p>
-                      <p className="truncate text-xs text-slate-500">
+                      <p className="truncate text-xs text-content-soft">
                         {user.email} · último acesso {formatDateTime(user.last_login_at)}
                       </p>
                     </div>
@@ -555,7 +555,7 @@ function HoldingUsers() {
                       <div className="flex gap-1">
                         <button
                           type="button"
-                          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                           title={
                             user.is_super_admin
                               ? 'Tirar admin da holding'
@@ -578,7 +578,7 @@ function HoldingUsers() {
                         </button>
                         <button
                           type="button"
-                          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                           title="Resetar senha"
                           onClick={() => setPending({ kind: 'reset', user })}
                         >
@@ -586,7 +586,7 @@ function HoldingUsers() {
                         </button>
                         <button
                           type="button"
-                          className="rounded-md p-1.5 text-slate-400 hover:bg-amber-50 hover:text-amber-600"
+                          className="rounded-md p-1.5 text-content-faint hover:bg-amber-500/10 hover:text-amber-600 dark:text-amber-400"
                           title={user.is_active ? 'Inativar' : 'Reativar'}
                           onClick={() =>
                             user.is_active
@@ -601,7 +601,7 @@ function HoldingUsers() {
                         </button>
                         <button
                           type="button"
-                          className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                           title="Excluir cadastro"
                           onClick={() => setPending({ kind: 'delete', user })}
                         >
@@ -613,7 +613,7 @@ function HoldingUsers() {
 
                   <div className="mt-2 flex flex-wrap gap-1.5 pl-12">
                     {userCompanies.length === 0 && !user.is_super_admin && (
-                      <span className="text-xs text-slate-400">Sem empresa vinculada</span>
+                      <span className="text-xs text-content-faint">Sem empresa vinculada</span>
                     )}
                     {userCompanies.map((membership) => (
                       <Badge key={membership.company_id} tone={roleTone(membership.role)}>

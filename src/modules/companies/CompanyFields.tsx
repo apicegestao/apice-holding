@@ -6,13 +6,13 @@ import { SECTORS } from '../../core/catalog'
 
 export const COMPANY_PALETTE = [
   '#DE4C22',
-  '#2B2FA0',
+  '#2E31B0',
   '#0EA5E9',
   '#10B981',
   '#F59E0B',
   '#8B5CF6',
   '#EC4899',
-  '#334155',
+  '#64748B',
 ]
 
 export type CompanyFormState = {
@@ -157,7 +157,7 @@ export function CompanyFields({
               type="button"
               onClick={() => setForm((c) => ({ ...c, color }))}
               className={`h-8 w-8 rounded-full border-2 transition ${
-                form.color === color ? 'scale-110 border-ink-900' : 'border-transparent'
+                form.color === color ? 'scale-110 border-content' : 'border-transparent'
               }`}
               style={{ backgroundColor: color }}
               aria-label={`Cor ${color}`}

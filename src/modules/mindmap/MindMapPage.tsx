@@ -23,16 +23,15 @@ import {
   Spinner,
   useToast,
 } from '../../core/ui'
-import type { MindMap, MindMapNode } from '../../core/types'
+import type { Company, MindMap, MindMapNode } from '../../core/types'
 
 const NODE_WIDTH = 190
 const NODE_HEIGHT = 62
-const PALETTE = ['#0EA5E9', '#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#0F172A']
+const PALETTE = ['#2E31B0', '#DE4C22', '#0EA5E9', '#10B981', '#F59E0B', '#8B5CF6', '#64748B']
 
 type Transform = { x: number; y: number; scale: number }
 
-export default function MindMapPage() {
-  const { company, canWrite } = useCompany()
+function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boolean }) {
   const { profile } = useAuth()
   const { notify } = useToast()
 
@@ -394,14 +393,14 @@ export default function MindMapPage() {
             </div>
 
             {canWrite && (
-              <p className="absolute bottom-3 left-3 z-10 hidden text-[11px] text-slate-400 sm:block">
+              <p className="absolute bottom-3 left-3 z-10 hidden text-[11px] text-content-faint sm:block">
                 Arraste o fundo para mover · arraste um nó para reposicionar
               </p>
             )}
 
             <div
               ref={viewportRef}
-              className="h-full min-h-[22rem] w-full cursor-grab touch-none select-none sm:min-h-[35rem] bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:20px_20px] active:cursor-grabbing"
+              className="h-full min-h-[22rem] w-full cursor-grab touch-none select-none sm:min-h-[35rem] bg-[radial-gradient(rgb(var(--line))_1px,transparent_1px)] [background-size:20px_20px] active:cursor-grabbing"
               onPointerDown={onCanvasPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
@@ -431,7 +430,7 @@ export default function MindMapPage() {
                   <div
                     key={node.id}
                     onPointerDown={(event) => onNodePointerDown(event, node)}
-                    className={`absolute rounded-xl border-2 bg-white px-3 py-2 shadow-card transition-shadow ${
+                    className={`absolute rounded-xl border-2 bg-surface px-3 py-2 shadow-card transition-shadow ${
                       selectedId === node.id ? 'ring-2 ring-offset-2' : ''
                     } ${canWrite ? 'cursor-move' : 'cursor-default'}`}
                     style={{
@@ -442,9 +441,9 @@ export default function MindMapPage() {
                       borderColor: node.color,
                     }}
                   >
-                    <p className="text-sm font-medium leading-snug text-ink-900">{node.label}</p>
+                    <p className="text-sm font-medium leading-snug text-content">{node.label}</p>
                     {node.notes && (
-                      <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">{node.notes}</p>
+                      <p className="mt-0.5 line-clamp-2 text-[11px] text-content-soft">{node.notes}</p>
                     )}
                   </div>
                 ))}
@@ -497,7 +496,7 @@ export default function MindMapPage() {
                         disabled={!canWrite}
                         onClick={() => void patchNode(selected.id, { color })}
                         className={`h-7 w-7 rounded-full border-2 ${
-                          selected.color === color ? 'border-ink-900' : 'border-transparent'
+                          selected.color === color ? 'border-content' : 'border-transparent'
                         }`}
                         style={{ backgroundColor: color }}
                         aria-label={`Cor ${color}`}
@@ -507,7 +506,7 @@ export default function MindMapPage() {
                 </Field>
 
                 {canWrite && (
-                  <div className="space-y-2 border-t border-slate-100 pt-3">
+                  <div className="space-y-2 border-t border-line pt-3">
                     <button
                       type="button"
                       className="btn-ghost w-full"
@@ -533,8 +532,8 @@ export default function MindMapPage() {
                 )}
               </div>
             ) : (
-              <div className="card p-4 text-sm text-slate-500">
-                <p className="font-medium text-ink-900">Nenhum nó selecionado</p>
+              <div className="card p-4 text-sm text-content-soft">
+                <p className="font-medium text-content">Nenhum nó selecionado</p>
                 <p className="mt-1">
                   Clique em um nó para editar o texto, mudar a cor, ramificar ou transformar em
                   tarefa.
@@ -548,7 +547,7 @@ export default function MindMapPage() {
             {canWrite && activeMapId && (
               <button
                 type="button"
-                className="mt-3 w-full text-xs text-rose-600 hover:underline"
+                className="mt-3 w-full text-xs text-rose-600 dark:text-rose-400 hover:underline"
                 onClick={() => setRemovingMap(maps.find((map) => map.id === activeMapId) ?? null)}
               >
                 Excluir este mapa
@@ -611,6 +610,32 @@ export default function MindMapPage() {
       />
     </div>
   )
+}
+
+// O mapa da holding é o mapa da empresa controladora: mesma tabela, mesma RLS.
+function CompanyMindMap() {
+  const { company, canWrite } = useCompany()
+  return <MindMapBoard company={company} canWrite={canWrite} />
+}
+
+function HoldingMindMap() {
+  const { memberships, isSuperAdmin } = useAuth()
+  const holding = memberships.find((item) => item.company.is_holding)?.company
+
+  if (!holding) {
+    return (
+      <EmptyState
+        title="Empresa controladora não encontrada"
+        description="Cadastre a empresa marcada como holding para usar o mapa do grupo."
+      />
+    )
+  }
+
+  return <MindMapBoard company={holding} canWrite={isSuperAdmin} />
+}
+
+export default function MindMapPage({ scope = 'company' }: { scope?: 'company' | 'holding' }) {
+  return scope === 'holding' ? <HoldingMindMap /> : <CompanyMindMap />
 }
 
 // --------------------------------------------------------- nó vira tarefa

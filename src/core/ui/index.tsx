@@ -27,8 +27,8 @@ export function PageHeader({
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-xl font-semibold text-ink-900">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
+        <h1 className="text-xl font-semibold text-content">{title}</h1>
+        {subtitle && <p className="mt-1 text-sm text-content-soft">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -51,10 +51,10 @@ export function Card({
   return (
     <section className={`card ${className}`}>
       {(title || actions) && (
-        <header className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div>
-            {title && <h2 className="text-sm font-semibold text-ink-900">{title}</h2>}
-            {description && <p className="mt-0.5 text-xs text-slate-500">{description}</p>}
+            {title && <h2 className="text-sm font-semibold text-content">{title}</h2>}
+            {description && <p className="mt-0.5 text-xs text-content-soft">{description}</p>}
           </div>
           {actions && <div className="flex items-center gap-2">{actions}</div>}
         </header>
@@ -83,7 +83,7 @@ export function Field({
     <>
       <span className="label">{label}</span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
+      {hint && <span className="mt-1 block text-xs text-content-faint">{hint}</span>}
     </>
   )
 
@@ -106,7 +106,7 @@ export function Badge({
   children: ReactNode
 }) {
   const tones: Record<string, string> = {
-    slate: 'bg-slate-100 text-slate-700',
+    slate: 'bg-hover text-content',
     green: 'bg-emerald-100 text-emerald-700',
     amber: 'bg-amber-100 text-amber-800',
     red: 'bg-rose-100 text-rose-700',
@@ -122,7 +122,7 @@ export function Spinner({ className = '' }: { className?: string }) {
 
 export function Loading({ label = 'Carregando…' }: { label?: string }) {
   return (
-    <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
+    <div className="flex items-center gap-2 py-10 text-sm text-content-soft">
       <Spinner /> {label}
     </div>
   )
@@ -138,9 +138,9 @@ export function EmptyState({
   action?: ReactNode
 }) {
   return (
-    <div className="rounded-lg border border-dashed border-slate-300 px-6 py-10 text-center">
-      <p className="text-sm font-medium text-ink-900">{title}</p>
-      {description && <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">{description}</p>}
+    <div className="rounded-lg border border-dashed border-line-strong px-6 py-10 text-center">
+      <p className="text-sm font-medium text-content">{title}</p>
+      {description && <p className="mx-auto mt-1 max-w-md text-sm text-content-soft">{description}</p>}
       {action && <div className="mt-4 flex justify-center">{action}</div>}
     </div>
   )
@@ -149,7 +149,7 @@ export function EmptyState({
 export function ErrorText({ children }: { children: ReactNode }) {
   if (!children) return null
   return (
-    <p className="flex items-start gap-1.5 text-sm text-rose-600">
+    <p className="flex items-start gap-1.5 text-sm text-rose-600 dark:text-rose-400">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <span>{children}</span>
     </p>
@@ -186,17 +186,17 @@ export function Modal({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-950/40 p-4 sm:p-8">
-      <div className={`card w-full ${width} my-auto`}>
-        <header className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-950/50 p-4 backdrop-blur-[2px] sm:p-8">
+      <div className={`card w-full ${width} my-auto bg-elevated`}>
+        <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div>
-            <h2 className="text-sm font-semibold text-ink-900">{title}</h2>
-            {description && <p className="mt-0.5 text-xs text-slate-500">{description}</p>}
+            <h2 className="text-sm font-semibold text-content">{title}</h2>
+            {description && <p className="mt-0.5 text-xs text-content-soft">{description}</p>}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-md p-1 text-content-faint hover:bg-hover hover:text-content-muted"
             aria-label="Fechar"
           >
             <X className="h-4 w-4" />
@@ -204,7 +204,7 @@ export function Modal({
         </header>
         <div className="px-5 py-4">{children}</div>
         {footer && (
-          <footer className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
+          <footer className="flex justify-end gap-2 border-t border-line px-5 py-3">
             {footer}
           </footer>
         )}
@@ -255,7 +255,7 @@ export function ConfirmDialog({
         </>
       }
     >
-      <div className="text-sm text-slate-600">{message}</div>
+      <div className="text-sm text-content-muted">{message}</div>
     </Modal>
   )
 }
@@ -287,10 +287,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={toast.id}
             className={`pointer-events-auto flex items-start gap-2 rounded-lg border px-4 py-3 text-sm shadow-card ${
               toast.kind === 'error'
-                ? 'border-rose-200 bg-rose-50 text-rose-800'
+                ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-200'
                 : toast.kind === 'info'
-                  ? 'border-sky-200 bg-sky-50 text-sky-800'
-                  : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                  ? 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200'
             }`}
           >
             {toast.kind === 'error' ? (

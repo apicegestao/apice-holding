@@ -24,25 +24,25 @@ export default function LoginPage() {
 
   return (
     <div className="grid min-h-full lg:grid-cols-2">
-      <div className="hidden flex-col justify-between border-r border-slate-200 bg-gradient-to-br from-brand-50 via-white to-slate-100 p-10 lg:flex">
+      <div className="hidden flex-col justify-between border-r border-line bg-gradient-to-br from-brand-50 via-white to-slate-100 p-10 lg:flex">
         <Logo size={48} withWordmark />
         <div className="max-w-md">
-          <h1 className="text-3xl font-semibold leading-tight text-ink-900">
+          <h1 className="text-3xl font-semibold leading-tight text-content">
             Uma visão só, para todas as empresas do grupo.
           </h1>
-          <p className="mt-4 text-slate-600">
+          <p className="mt-4 text-content-muted">
             KPIs, metas, tarefas e mapas mentais de cada empresa, isolados entre si — e
             consolidados no painel da holding.
           </p>
         </div>
-        <p className="text-xs text-slate-400">Acesso restrito a usuários cadastrados pelo admin.</p>
+        <p className="text-xs text-content-faint">Acesso restrito a usuários cadastrados pelo admin.</p>
       </div>
 
       <div className="flex items-center justify-center p-6">
         <form onSubmit={submit} className="card w-full max-w-sm p-6">
           <Logo size={44} className="mb-4 lg:hidden" />
           <h2 className="text-lg font-semibold">Entrar</h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-content-soft">
             Use o e-mail cadastrado pelo administrador.
           </p>
 
@@ -76,7 +76,7 @@ export default function LoginPage() {
             </button>
           </div>
 
-          <p className="mt-5 border-t border-slate-100 pt-4 text-xs text-slate-500">
+          <p className="mt-5 border-t border-line pt-4 text-xs text-content-soft">
             Primeiro acesso? Use a senha padrão informada pelo administrador — o sistema pede a
             troca em seguida. Esqueceu a senha? O administrador reseta para você.
           </p>

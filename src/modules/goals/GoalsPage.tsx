@@ -222,14 +222,14 @@ export default function GoalsPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-semibold text-ink-900">{goal.title}</h3>
+                      <h3 className="text-sm font-semibold text-content">{goal.title}</h3>
                       <Badge tone={statusTone(goal.status)}>{GOAL_STATUS_LABEL[goal.status]}</Badge>
                       {late && <Badge tone="red">prazo estourado</Badge>}
                     </div>
                     {goal.description && (
-                      <p className="mt-1 text-sm text-slate-600">{goal.description}</p>
+                      <p className="mt-1 text-sm text-content-muted">{goal.description}</p>
                     )}
-                    <p className="mt-1.5 text-xs text-slate-500">
+                    <p className="mt-1.5 text-xs text-content-soft">
                       {ownerName(goal.owner_id)} · prazo {formatDate(goal.due_date)}
                       {goal.due_date && <> ({relativeDays(goal.due_date)})</>}
                     </p>
@@ -241,7 +241,7 @@ export default function GoalsPage() {
                         <p className="text-lg font-semibold">
                           {formatValue(Number(goal.current_value), goal.unit)}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-content-soft">
                           de {formatValue(target, goal.unit)}
                         </p>
                       </div>
@@ -250,7 +250,7 @@ export default function GoalsPage() {
                       <div className="flex gap-1">
                         <button
                           type="button"
-                          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                           onClick={() => openEdit(goal)}
                           aria-label="Editar"
                         >
@@ -258,7 +258,7 @@ export default function GoalsPage() {
                         </button>
                         <button
                           type="button"
-                          className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                           onClick={() => setRemoving(goal)}
                           aria-label="Excluir"
                         >
@@ -271,15 +271,15 @@ export default function GoalsPage() {
 
                 {progress !== null && (
                   <div className="mt-3">
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-2 overflow-hidden rounded-full bg-hover">
                       <div
                         className={`h-full rounded-full ${
-                          progress >= 100 ? 'bg-emerald-500' : 'bg-brand-500'
+                          progress >= 100 ? 'bg-emerald-500' : 'bg-brand/100'
                         }`}
                         style={{ width: `${progress}%` }}
                       />
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">{progress}% do alvo</p>
+                    <p className="mt-1 text-xs text-content-soft">{progress}% do alvo</p>
                   </div>
                 )}
               </Card>

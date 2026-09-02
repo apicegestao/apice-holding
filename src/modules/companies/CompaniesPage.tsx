@@ -168,8 +168,8 @@ export default function CompaniesPage() {
                     <Building2 className="h-5 w-5" />
                   </span>
                   <div>
-                    <p className="font-medium text-ink-900">{company.name}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="font-medium text-content">{company.name}</p>
+                    <p className="text-xs text-content-soft">
                       {company.sector || 'Sem setor definido'}
                     </p>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -181,7 +181,7 @@ export default function CompaniesPage() {
                 <div className="flex gap-1">
                   <button
                     type="button"
-                    className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                    className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                     onClick={() => openEdit(company)}
                     aria-label="Editar"
                   >
@@ -190,7 +190,7 @@ export default function CompaniesPage() {
                   {!company.is_holding && (
                     <button
                       type="button"
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                      className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                       onClick={() => setRemoving(company)}
                       aria-label="Excluir"
                     >
@@ -200,7 +200,7 @@ export default function CompaniesPage() {
                 </div>
               </div>
               {company.description && (
-                <p className="mt-3 text-sm text-slate-600">{company.description}</p>
+                <p className="mt-3 text-sm text-content-muted">{company.description}</p>
               )}
               <div className="mt-4 flex gap-2">
                 <Link to={`/empresa/${company.id}`} className="btn-ghost">

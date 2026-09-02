@@ -351,8 +351,8 @@ export default function TaskFormModal({
                 onClick={() => setForm((c) => ({ ...c, visibility: item }))}
                 className={`rounded-lg border px-3 py-2 text-sm transition ${
                   form.visibility === item
-                    ? 'border-brand-500 bg-brand-50 font-medium text-brand-700'
-                    : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                    ? 'border-brand-500 bg-brand/10 font-medium text-brand-text'
+                    : 'border-line-strong text-content-muted hover:bg-hover'
                 }`}
               >
                 {VISIBILITY_LABEL[item]}
@@ -362,7 +362,7 @@ export default function TaskFormModal({
         </Field>
 
         {form.visibility === 'shared' && (
-          <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="space-y-3 rounded-lg border border-line bg-hover p-3">
             <div>
               <p className="label">Empresas</p>
               <div className="flex flex-wrap gap-1.5">
@@ -375,8 +375,8 @@ export default function TaskFormModal({
                       onClick={() => setShareCompanies((list) => toggle(list, company.id))}
                       className={`chip border ${
                         on
-                          ? 'border-brand-500 bg-brand-100 text-brand-800'
-                          : 'border-slate-300 bg-white text-slate-600'
+                          ? 'border-brand-500 bg-brand/15 text-brand-text'
+                          : 'border-line-strong bg-surface text-content-muted'
                       }`}
                     >
                       <span
@@ -393,7 +393,7 @@ export default function TaskFormModal({
             <div>
               <p className="label">Pessoas</p>
               {shareablePeople.length === 0 ? (
-                <p className="text-xs text-slate-500">Nenhuma outra pessoa cadastrada ainda.</p>
+                <p className="text-xs text-content-soft">Nenhuma outra pessoa cadastrada ainda.</p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {shareablePeople.map((person) => {
@@ -405,8 +405,8 @@ export default function TaskFormModal({
                         onClick={() => setSharePeople((list) => toggle(list, person.id))}
                         className={`chip border ${
                           on
-                            ? 'border-accent-500 bg-accent-100 text-accent-700'
-                            : 'border-slate-300 bg-white text-slate-600'
+                            ? 'border-accent-500 bg-accent-500/15 text-accent-600 dark:text-accent-300'
+                            : 'border-line-strong bg-surface text-content-muted'
                         }`}
                       >
                         {person.full_name}

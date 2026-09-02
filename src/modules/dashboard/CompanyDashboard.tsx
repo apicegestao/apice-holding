@@ -29,19 +29,19 @@ function StatTile({
   icon: typeof Target
 }) {
   const tones: Record<string, string> = {
-    slate: 'text-ink-900',
-    green: 'text-emerald-600',
-    amber: 'text-amber-600',
-    red: 'text-rose-600',
+    slate: 'text-content',
+    green: 'text-emerald-600 dark:text-emerald-400',
+    amber: 'text-amber-600 dark:text-amber-400',
+    red: 'text-rose-600 dark:text-rose-400',
   }
   return (
     <div className="card p-4">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</span>
-        <Icon className="h-4 w-4 text-slate-300" />
+        <span className="text-xs font-medium uppercase tracking-wide text-content-soft">{label}</span>
+        <Icon className="h-4 w-4 text-content-faint" />
       </div>
       <p className={`mt-2 text-2xl font-semibold ${tones[tone]}`}>{value}</p>
-      {hint && <p className="mt-0.5 text-xs text-slate-500">{hint}</p>}
+      {hint && <p className="mt-0.5 text-xs text-content-soft">{hint}</p>}
     </div>
   )
 }
@@ -155,7 +155,7 @@ export default function CompanyDashboard() {
           title="Indicadores"
           description="Último valor apurado de cada KPI."
           actions={
-            <Link to={`/empresa/${company.id}/kpis`} className="text-xs text-brand-600 hover:underline">
+            <Link to={`/empresa/${company.id}/kpis`} className="text-xs text-brand-text hover:underline">
               ver todos
             </Link>
           }
@@ -175,8 +175,8 @@ export default function CompanyDashboard() {
               {kpis.slice(0, 8).map((kpi) => {
                 const status = isOnTarget(Number(kpi.value), kpi.target_value, kpi.direction)
                 return (
-                  <div key={kpi.kpi_id} className="rounded-lg border border-slate-200 p-3">
-                    <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <div key={kpi.kpi_id} className="rounded-lg border border-line p-3">
+                    <p className="truncate text-xs font-medium uppercase tracking-wide text-content-soft">
                       {kpi.name}
                     </p>
                     <div className="mt-1 flex items-end justify-between gap-2">
@@ -189,7 +189,7 @@ export default function CompanyDashboard() {
                         </Badge>
                       )}
                     </div>
-                    <p className="mt-0.5 text-[11px] text-slate-400">
+                    <p className="mt-0.5 text-[11px] text-content-faint">
                       {labelPeriod(kpi.period_start, kpi.frequency)}
                       {kpi.target_value !== null && (
                         <> · meta {formatValue(kpi.target_value, kpi.unit)}</>
@@ -208,14 +208,14 @@ export default function CompanyDashboard() {
             actions={
               <Link
                 to={`/empresa/${company.id}/tarefas`}
-                className="text-xs text-brand-600 hover:underline"
+                className="text-xs text-brand-text hover:underline"
               >
                 ver tarefas
               </Link>
             }
           >
             {upcoming.length === 0 ? (
-              <p className="text-sm text-slate-500">Nenhuma tarefa com prazo definido.</p>
+              <p className="text-sm text-content-soft">Nenhuma tarefa com prazo definido.</p>
             ) : (
               <ul className="space-y-2.5">
                 {upcoming.map((task) => {
@@ -224,7 +224,7 @@ export default function CompanyDashboard() {
                     <li key={task.id} className="flex items-start justify-between gap-2">
                       <span className="min-w-0 text-sm">
                         <span className="block truncate">{task.title}</span>
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-content-faint">
                           {TASK_PRIORITY_LABEL[task.priority]}
                         </span>
                       </span>
@@ -241,14 +241,14 @@ export default function CompanyDashboard() {
             actions={
               <Link
                 to={`/empresa/${company.id}/metas`}
-                className="text-xs text-brand-600 hover:underline"
+                className="text-xs text-brand-text hover:underline"
               >
                 ver metas
               </Link>
             }
           >
             {goals.length === 0 ? (
-              <p className="text-sm text-slate-500">Nenhuma meta em aberto.</p>
+              <p className="text-sm text-content-soft">Nenhuma meta em aberto.</p>
             ) : (
               <ul className="space-y-3">
                 {goals.map((goal) => {
@@ -265,9 +265,9 @@ export default function CompanyDashboard() {
                         </Badge>
                       </div>
                       {progress !== null && (
-                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-hover">
                           <div
-                            className="h-full rounded-full bg-brand-500"
+                            className="h-full rounded-full bg-brand/100"
                             style={{ width: `${progress}%` }}
                           />
                         </div>
@@ -287,7 +287,7 @@ export default function CompanyDashboard() {
           actions={
             <Link
               to={`/empresa/${company.id}/insights`}
-              className="text-xs text-brand-600 hover:underline"
+              className="text-xs text-brand-text hover:underline"
             >
               ver todos
             </Link>
@@ -299,7 +299,7 @@ export default function CompanyDashboard() {
                 <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
                 <div>
                   <p className="text-sm font-medium">{insight.title}</p>
-                  <p className="text-sm text-slate-600">{insight.body}</p>
+                  <p className="text-sm text-content-muted">{insight.body}</p>
                 </div>
               </li>
             ))}

@@ -17,8 +17,8 @@ export function Logo({
   tone?: 'dark' | 'light'
   framed?: boolean
 }) {
-  const wordColor = tone === 'light' ? 'text-white' : 'text-ink-900'
-  const subColor = tone === 'light' ? 'text-slate-400' : 'text-slate-500'
+  const wordColor = tone === 'light' ? 'text-white' : 'text-content'
+  const subColor = tone === 'light' ? 'text-content-faint' : 'text-content-soft'
   const padding = Math.max(4, Math.round(size * 0.16))
 
   const mark = (
@@ -28,7 +28,7 @@ export function Logo({
       width={size}
       height={size}
       style={{ width: size, height: size }}
-      className="block object-contain"
+      className="block object-contain dark:[filter:brightness(1.45)_saturate(1.05)]"
     />
   )
 
@@ -36,7 +36,7 @@ export function Logo({
     <span className={`flex items-center gap-3 ${className}`}>
       {framed ? (
         <span
-          className="inline-flex shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm"
+          className="inline-flex shrink-0 items-center justify-center rounded-xl border border-line bg-surface shadow-sm"
           style={{ padding }}
         >
           {mark}
