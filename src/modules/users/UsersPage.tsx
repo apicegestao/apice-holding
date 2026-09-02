@@ -326,7 +326,7 @@ function CompanyUsers() {
 
                 {isAdmin && user.id !== profile?.id ? (
                   <select
-                    className="input w-auto py-1.5 text-xs"
+                    className="input w-auto py-1.5 text-base sm:text-xs"
                     value={member.role}
                     disabled={busy}
                     onChange={(event) =>

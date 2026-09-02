@@ -224,18 +224,25 @@ como rede de segurança contra qualquer flex item que esqueça o `min-w-0`.
 Dropdowns (notificações, perfil, seletor de empresa) fecham ao clicar fora
 — hook `useClickOutside` compartilhado — e, no celular, o painel de
 notificações usa posição fixa própria em vez de ficar ancorado ao botão, pra
-nunca ficar espremido contra a barra de troca de empresa. O roteiro de
-verificação está em `docs/verificacao.md`.
+nunca ficar espremido contra a barra de troca de empresa.
+
+Todo campo de formulário (`.input`) tem pelo menos 16px no celular — abaixo
+disso o Safari do iOS dá zoom sozinho ao focar o campo, e como as trocas de
+tela são navegação de SPA (sem recarregar a página), o zoom fica grudado na
+tela seguinte. É por isso que o tamanho normal de campo no sistema é 16px
+no celular e só encolhe (`sm:text-sm`) a partir do desktop — nunca o
+contrário. O roteiro de verificação está em `docs/verificacao.md`.
 
 ## Testes automatizados (desktop + celular)
 
-`e2e/` tem uma suíte do Playwright (72 testes) que roda a mesma bateria em
+`e2e/` tem uma suíte do Playwright (120 testes) que roda a mesma bateria em
 dois formatos (`playwright.config.ts`, projetos "Desktop" e "Mobile 390")
 contra o Supabase simulado — sem rede de verdade. Ela cobre rolagem lateral
 em todas as rotas, o KPI sem lançamento continuar visível, os gráficos
 comparativos, o seletor de empresa certo em cada formato, dropdowns
-fechando ao clicar fora e os totais de orçamento calculados corretamente.
-`.github/workflows/ci.yml` roda essa
+fechando ao clicar fora, os totais de orçamento calculados corretamente e —
+em todas as rotas, mais a tela de login — nenhum campo de formulário abrindo
+com zoom no celular. `.github/workflows/ci.yml` roda essa
 suíte (mais build, testes unitários e contraste) em todo push e pull request,
 para que um recurso novo chegue nos dois formatos sem precisar ser pedido de
 novo.

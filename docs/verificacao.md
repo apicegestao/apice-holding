@@ -523,3 +523,47 @@ Organizar com as três opções, "Editar nó" abrindo o modal, e a regressão de
 rolagem lateral com subtarefa de título longo sem espaço — desktop e mobile
 (390px), todas passando. Migrações `0021` e `0022` aplicadas em produção;
 `get_advisors` conferido sem novo alerta.
+
+---
+
+## 16. Tela inicial abrindo com zoom no celular após o login
+
+**Causa raiz.** Todo campo de formulário (`.input`, componente compartilhado
+por tudo que é `<input>`/`<select>`/`<textarea>` no sistema) usava
+`text-sm` (14px). Abaixo de 16px, o Safari do iOS dá zoom sozinho ao focar
+um campo de texto — e como o login e a tela seguinte são a mesma página (o
+React Router troca de rota sem recarregar), o zoom aplicado ao focar
+e-mail/senha no login fica "grudado" na tela seguinte, exatamente o
+sintoma relatado.
+
+**Correção.** `.input` passou a ser `text-base` (16px) até o breakpoint
+`sm`, só encolhendo para `text-sm` (14px) a partir do desktop — como é a
+única classe usada por todo campo do sistema, a correção vale para
+qualquer formulário, atual ou futuro, sem precisar lembrar de repetir em
+cada tela. Auditoria em todo o `src/` achou mais 6 lugares que já
+sobrescreviam o tamanho da fonte por cima do `.input` (iriam continuar
+pequenos mesmo com a correção da classe base) e 3 campos que nem usavam
+`.input` — todos ganharam `text-base sm:text-xs`/`sm:text-sm` (16px no
+celular, tamanho compacto original a partir do desktop): seletor de
+situação do item de orçamento, dois campos JSON de integração e o caminho
+de mapeamento, seletor de papel de usuário, o campo de renomear nó do mapa
+mental, e os dois seletores de situação da tarefa no quadro kanban (empresa
+e holding).
+
+Deliberadamente **não** usado `maximum-scale`/`user-scalable=no` no
+`<meta name="viewport">` — bloquear o zoom manual quebraria a acessibilidade
+para quem precisa ampliar a tela (WCAG 1.4.4). A correção certa é nunca
+disparar o zoom automático, não impedir o zoom de verdade.
+
+**Verificação:** novo helper `checkNoTinyFormFields` em `e2e/` mede o
+`font-size` computado de todo `input`/`select`/`textarea` visível (menos
+tipos que abrem controle nativo, como checkbox) e falha se algum ficar
+abaixo de 16px. Rodado em duas frentes: uma varredura em **todas as rotas**
+do sistema (só no projeto "Mobile 390" — no desktop o tamanho compacto é
+esperado) e três telas que só existem depois de interagir (tela de login,
+formulário de tarefa, item de orçamento dentro do modal de detalhe) — onde
+o bug relatado de fato mora, já que login e vários campos afetados ficam
+dentro de modais. `npm run build`, `npm run test` (9/9) e
+`npm run check:contrast` (24/24) limpos. `npm run test:e2e` subiu de 72 para
+**120 testes** (a varredura roda uma vez por rota), todos passando nos dois
+formatos.

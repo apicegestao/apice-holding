@@ -744,7 +744,7 @@ function MindMapBoard({ company, canWrite }: { company: Company; canWrite: boole
                     {editingNodeId === node.id ? (
                       <input
                         autoFocus
-                        className="w-full rounded border border-line-strong bg-elevated px-1.5 py-1 text-sm text-content"
+                        className="w-full rounded border border-line-strong bg-elevated px-1.5 py-1 text-base sm:text-sm text-content"
                         value={node.label}
                         onFocus={(event) => event.currentTarget.select()}
                         onPointerDown={(event) => event.stopPropagation()}

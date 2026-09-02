@@ -479,7 +479,7 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
                             <td className="py-2 pr-2 text-xs text-content-soft">{item.category}</td>
                             <td className="py-2 pr-2">
                               <select
-                                className="input py-1 text-xs"
+                                className="input py-1 text-base sm:text-xs"
                                 disabled={!canWrite}
                                 value={item.status}
                                 onChange={(event) => void patchItem(item.id, { status: event.target.value as BudgetItemStatus })}

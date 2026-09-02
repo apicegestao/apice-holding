@@ -69,10 +69,16 @@
   .label {
     @apply mb-1 block text-xs font-medium uppercase tracking-wide text-content-soft;
   }
+  /* text-base (16px) até "sm", só encolhendo pra text-sm (14px) do desktop
+     em diante: abaixo de 16px, o Safari do iOS dá zoom sozinho ao focar o
+     campo — e como o login e a tela seguinte são a mesma página (troca de
+     rota do SPA, sem recarregar), esse zoom fica "grudado" na tela
+     seguinte. Vale pra todo input/select/textarea do sistema por herdarem
+     esta classe — é o único lugar que precisa garantir isso. */
   .input {
-    @apply w-full rounded-lg border border-line-strong bg-field px-3 py-2 text-sm text-content outline-none
+    @apply w-full rounded-lg border border-line-strong bg-field px-3 py-2 text-base text-content outline-none
            transition placeholder:text-content-faint focus:border-brand-500
-           focus:ring-2 focus:ring-brand-500/25 disabled:cursor-not-allowed disabled:bg-hover;
+           focus:ring-2 focus:ring-brand-500/25 disabled:cursor-not-allowed disabled:bg-hover sm:text-sm;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium

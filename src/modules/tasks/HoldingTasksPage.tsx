@@ -311,7 +311,7 @@ export default function HoldingTasksPage() {
                           </span>
 
                           <select
-                            className="rounded border border-line bg-surface px-1.5 py-1 text-xs"
+                            className="rounded border border-line bg-surface px-1.5 py-1 text-base sm:text-xs"
                             value={task.status}
                             onChange={(event) => void changeStatus(task, event.target.value as TaskStatus)}
                           >

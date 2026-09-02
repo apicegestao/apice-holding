@@ -536,7 +536,7 @@ export default function IntegrationsPage() {
 
           <Field label="Cabeçalhos extras (JSON)">
             <textarea
-              className="input min-h-16 font-mono text-xs"
+              className="input min-h-16 font-mono text-base sm:text-xs"
               value={form.headers}
               onChange={(event) => setForm((c) => ({ ...c, headers: event.target.value }))}
             />
@@ -545,7 +545,7 @@ export default function IntegrationsPage() {
           {form.http_method === 'POST' && (
             <Field label="Corpo da requisição (JSON)">
               <textarea
-                className="input min-h-20 font-mono text-xs"
+                className="input min-h-20 font-mono text-base sm:text-xs"
                 value={form.request_body}
                 onChange={(event) => setForm((c) => ({ ...c, request_body: event.target.value }))}
               />
@@ -708,7 +708,7 @@ function MappingModal({
               hint='Use ponto e colchete, como em "dados.totais[0].receita".'
             >
               <input
-                className="input font-mono text-xs"
+                className="input font-mono text-base sm:text-xs"
                 value={jsonPath}
                 onChange={(event) => setJsonPath(event.target.value)}
                 placeholder="dados.faturamento_mes"

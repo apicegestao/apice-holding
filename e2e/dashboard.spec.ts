@@ -3,7 +3,34 @@
 // 390px) — assim qualquer recurso novo entra automaticamente na cobertura
 // dos dois formatos, sem depender de alguém lembrar de testar o celular.
 import { expect, test } from '@playwright/test'
-import { COMPANY_ID, COMPANY_ID_2, login, ROUTES, USER_ID } from './fixtures'
+import { COMPANY_ID, COMPANY_ID_2, login, mockSupabase, ROUTES, USER_ID } from './fixtures'
+
+// Todo input/select/textarea precisa ter pelo menos 16px no celular — abaixo
+// disso o Safari do iOS dá zoom sozinho ao focar o campo, e como as trocas de
+// tela são navegação de SPA (sem recarregar a página), o zoom fica grudado na
+// tela seguinte. Um helper só, usado em toda parte que precisa conferir isso.
+// Caixa de seleção, rádio, cor, faixa e arquivo abrem um controle nativo do
+// sistema (não um cursor de texto) — só esses tipos de <input> ficam de fora,
+// porque só quem aceita texto digitado é que o Safari dá zoom ao focar.
+const NON_TEXT_INPUT_TYPES = new Set(['checkbox', 'radio', 'range', 'color', 'file', 'button', 'submit', 'reset'])
+
+const checkNoTinyFormFields = async (page: import('@playwright/test').Page) => {
+  const tiny = await page.evaluate((skipTypes) => {
+    const problems: string[] = []
+    document.querySelectorAll('input, select, textarea').forEach((el) => {
+      const type = (el as HTMLInputElement).type
+      if (skipTypes.includes(type)) return
+      const rect = el.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) return // não visível, não conta
+      const size = parseFloat(getComputedStyle(el).fontSize)
+      if (size < 16) {
+        problems.push(`${el.tagName.toLowerCase()}(${size}px): ${el.outerHTML.slice(0, 80)}`)
+      }
+    })
+    return problems
+  }, [...NON_TEXT_INPUT_TYPES])
+  expect(tiny, tiny.join('\n')).toEqual([])
+}
 
 test.describe('painel', () => {
   test.beforeEach(async ({ page }) => {
@@ -21,6 +48,16 @@ test.describe('painel', () => {
         return { scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth }
       })
       expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1)
+    })
+  }
+
+  // Nenhum campo pode abrir com zoom no celular (ver checkNoTinyFormFields).
+  for (const [path, label] of ROUTES) {
+    test(`nenhum campo abre com zoom no celular — ${label}`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== 'Mobile 390', 'só faz sentido no celular')
+      await page.goto(path)
+      await page.waitForLoadState('networkidle')
+      await checkNoTinyFormFields(page)
     })
   }
 
@@ -280,5 +317,39 @@ test.describe('orçamentos', () => {
     await page.getByText('Imersão 2027', { exact: true }).click()
     await page.getByRole('button', { name: 'Excluir' }).click()
     await expect(page.getByText('Excluir orçamento?')).toBeVisible()
+  })
+})
+
+// Item: nenhuma tela pode abrir com zoom aplicado no celular — o caso
+// relatado foi logo após o login, mas o mesmo bug (input abaixo de 16px)
+// pode se esconder dentro de qualquer modal, então além da varredura por
+// rota acima, confere também telas que só aparecem depois de interagir:
+// a própria tela de login (antes de entrar), o formulário de tarefa e o
+// item de orçamento dentro do modal de detalhe.
+test.describe('sem zoom automático no celular', () => {
+  test('tela de login', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'Mobile 390', 'só faz sentido no celular')
+    await mockSupabase(page)
+    await page.goto('/login')
+    await checkNoTinyFormFields(page)
+  })
+
+  test('formulário de tarefa', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'Mobile 390', 'só faz sentido no celular')
+    await login(page)
+    await page.goto(`/empresa/${COMPANY_ID}/tarefas`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Editar' }).first().click()
+    await page.waitForTimeout(300)
+    await checkNoTinyFormFields(page)
+  })
+
+  test('item de orçamento dentro do modal de detalhe', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'Mobile 390', 'só faz sentido no celular')
+    await login(page)
+    await page.goto(`/empresa/${COMPANY_ID_2}/orcamentos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByText('Imersão 2027', { exact: true }).click()
+    await checkNoTinyFormFields(page)
   })
 })
