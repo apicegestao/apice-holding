@@ -320,7 +320,9 @@ export default function HoldingTasksPage() {
                                 <span className="grid h-5 w-5 place-items-center rounded-full bg-hover text-[9px] font-semibold text-content-muted">
                                   {initials(assignee.full_name || assignee.email)}
                                 </span>
-                                <span className="max-w-24 truncate">{assignee.full_name}</span>
+                                <span className="max-w-32 truncate" title={assignee.full_name}>
+                                  {assignee.full_name}
+                                </span>
                               </>
                             ) : (
                               <>

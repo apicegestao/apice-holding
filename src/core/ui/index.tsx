@@ -164,7 +164,11 @@ export function ProgressBar({
   return (
     <div>
       <div className={`mb-1.5 flex items-end gap-2 ${label ? 'justify-between' : 'justify-end'}`}>
-        {label && <span className="min-w-0 truncate text-xs text-content-soft">{label}</span>}
+        {label && (
+          <span className="min-w-0 truncate text-xs text-content-soft" title={label}>
+            {label}
+          </span>
+        )}
         <span className={`shrink-0 text-sm font-semibold leading-none tabular-nums ${tone.text}`}>{pct}%</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-hover shadow-inner">

@@ -153,7 +153,7 @@ function NotesBoard({ companyId, companyName }: { companyId: string; companyName
               {filtered.map((note) => (
                 <Card key={note.id} className="flex flex-col p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="min-w-0 truncate text-sm font-semibold text-content">{note.title}</p>
+                    <p className="min-w-0 break-words text-sm font-semibold text-content">{note.title}</p>
                     <div className="flex shrink-0 gap-1">
                       <button
                         type="button"
@@ -176,7 +176,7 @@ function NotesBoard({ companyId, companyName }: { companyId: string; companyName
                   {note.body && (
                     <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-xs text-content-soft">{note.body}</p>
                   )}
-                  <p className="mt-auto pt-3 text-[11px] text-content-faint">
+                  <p className="mt-auto pt-3 text-xs text-content-faint">
                     Atualizada {formatDateTime(note.updated_at)}
                   </p>
                 </Card>

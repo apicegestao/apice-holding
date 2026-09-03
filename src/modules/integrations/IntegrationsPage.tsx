@@ -377,6 +377,9 @@ export default function IntegrationsPage() {
 
       {runs.length > 0 && (
         <Card title="Execuções recentes">
+          <p className="mb-1 text-xs text-content-faint sm:hidden">
+            Arraste a tabela para o lado para ver todas as colunas.
+          </p>
           <div className="-mx-1 overflow-x-auto px-1">
           <table className="w-full min-w-[34rem] text-sm">
             <thead>

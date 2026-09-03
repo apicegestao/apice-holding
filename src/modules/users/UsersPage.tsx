@@ -309,13 +309,13 @@ function CompanyUsers() {
                   {initials(user.full_name || user.email)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-content">
+                  <p className="truncate text-sm font-medium text-content" title={user.full_name}>
                     {user.full_name}
                     {user.id === profile?.id && (
                       <span className="ml-1.5 text-xs font-normal text-content-faint">(você)</span>
                     )}
                   </p>
-                  <p className="truncate text-xs text-content-soft">{user.email}</p>
+                  <p className="break-all text-xs text-content-soft">{user.email}</p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -534,14 +534,15 @@ function HoldingUsers() {
                       {initials(user.full_name || user.email)}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-content">
+                      <p className="truncate text-sm font-medium text-content" title={user.full_name}>
                         {user.full_name}
                         {isSelf && (
                           <span className="ml-1.5 text-xs font-normal text-content-faint">(você)</span>
                         )}
                       </p>
-                      <p className="truncate text-xs text-content-soft">
-                        {user.email} · último acesso {formatDateTime(user.last_login_at)}
+                      <p className="text-xs text-content-soft">
+                        <span className="break-all">{user.email}</span> · último acesso{' '}
+                        {formatDateTime(user.last_login_at)}
                       </p>
                     </div>
 

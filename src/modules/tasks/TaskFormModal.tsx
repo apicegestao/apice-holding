@@ -549,7 +549,7 @@ export default function TaskFormModal({
 
         {/* ------------------------------------------------- quem enxerga */}
         <Field asGroup label="Quem enxerga esta tarefa" hint={VISIBILITY_HINT[form.visibility]}>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {VISIBILITIES.map((item) => (
               <button
                 key={item}
@@ -681,9 +681,10 @@ export default function TaskFormModal({
               {checklist.length > 0 && (
                 <ul className="mt-2 space-y-1.5">
                   {checklist.map((item) => (
-                    <li key={item.id} className="flex items-center gap-2">
+                    <li key={item.id} className="flex items-start gap-2">
                       <input
                         type="checkbox"
+                        className="mt-1 shrink-0"
                         checked={item.done}
                         onChange={() => void toggleChecklistItem(item)}
                       />
@@ -701,7 +702,7 @@ export default function TaskFormModal({
                       ) : (
                         <button
                           type="button"
-                          className={`min-w-0 flex-1 truncate text-left text-sm ${item.done ? 'text-content-faint line-through' : 'text-content'}`}
+                          className={`min-w-0 flex-1 break-words py-0.5 text-left text-sm ${item.done ? 'text-content-faint line-through' : 'text-content'}`}
                           onClick={() => setEditingChecklistId(item.id)}
                           title="Editar subtarefa"
                         >
@@ -710,7 +711,7 @@ export default function TaskFormModal({
                       )}
                       <button
                         type="button"
-                        className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
+                        className="mt-0.5 shrink-0 rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                         onClick={() => checklistDelete.ask(item)}
                         aria-label="Remover subtarefa"
                       >
@@ -754,7 +755,7 @@ export default function TaskFormModal({
                     const editing = editingCommentId === comment.id
                     return (
                       <li key={comment.id} className="flex items-start gap-2">
-                        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-hover text-[10px] font-semibold text-content-muted">
+                        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-hover text-xs font-semibold text-content-muted">
                           {initials(author?.full_name || author?.email || '?')}
                         </span>
                         <div className="min-w-0 flex-1">
@@ -771,7 +772,7 @@ export default function TaskFormModal({
                           ) : (
                             <p className="whitespace-pre-wrap text-sm text-content">{comment.body}</p>
                           )}
-                          <p className="mt-0.5 text-[11px] text-content-faint">
+                          <p className="mt-0.5 text-xs text-content-faint">
                             {author?.full_name ?? 'Alguém'} · {formatDateTime(comment.created_at)}
                             {editing && (
                               <>

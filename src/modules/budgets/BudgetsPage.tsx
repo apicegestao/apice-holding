@@ -352,7 +352,7 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
                 className="card min-w-0 p-4 text-left transition hover:border-brand-500"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <p className="min-w-0 truncate text-sm font-semibold text-content">{budget.title}</p>
+                  <p className="min-w-0 break-words text-sm font-semibold text-content">{budget.title}</p>
                   <Badge tone={STATUS_TONE[budget.status]}>{BUDGET_STATUS_LABEL[budget.status]}</Badge>
                 </div>
                 {budget.event_date && (
@@ -462,8 +462,12 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
                 {items.length === 0 ? (
                   <p className="mt-1 text-sm text-content-soft">Nenhum item lançado ainda.</p>
                 ) : (
-                  <div className="-mx-1 mt-2 overflow-x-auto px-1">
-                    <table className="w-full min-w-[42rem] text-left text-sm">
+                  <>
+                  <p className="mb-1 mt-2 text-xs text-content-faint sm:hidden">
+                    Arraste a tabela para o lado para ver todas as colunas.
+                  </p>
+                  <div className="-mx-1 overflow-x-auto px-1">
+                    <table className="w-full min-w-[44rem] text-left text-sm">
                       <thead>
                         <tr className="border-b border-line text-xs uppercase tracking-wide text-content-faint">
                           <th className="py-2 pr-2">Item</th>
@@ -478,8 +482,8 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
                       <tbody>
                         {items.map((item) => (
                           <tr key={item.id} className="border-b border-line align-top">
-                            <td className="max-w-[12rem] py-2 pr-2">
-                              <p className="truncate font-medium text-content">{item.title}</p>
+                            <td className="max-w-[16rem] py-2 pr-2">
+                              <p className="break-words font-medium text-content">{item.title}</p>
                               {item.vendor && <p className="truncate text-xs text-content-soft">{item.vendor}</p>}
                             </td>
                             <td className="py-2 pr-2 text-xs text-content-soft">{item.category}</td>
@@ -531,6 +535,7 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
                       </tbody>
                     </table>
                   </div>
+                  </>
                 )}
 
                 {canWrite && (
@@ -601,7 +606,10 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
                     {withoutDate} item(ns) sem data prevista entram nos totais acima, mas não aparecem aqui.
                   </p>
                 )}
-                <div className="-mx-1 mt-2 overflow-x-auto px-1">
+                <p className="mb-1 mt-2 text-xs text-content-faint sm:hidden">
+                  Arraste a tabela para o lado para ver todas as colunas.
+                </p>
+                <div className="-mx-1 overflow-x-auto px-1">
                   <table className="w-full min-w-[32rem] text-left text-sm">
                     <thead>
                       <tr className="border-b border-line text-xs uppercase tracking-wide text-content-faint">
