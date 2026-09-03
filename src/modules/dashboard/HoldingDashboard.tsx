@@ -21,7 +21,7 @@ import {
 import {
   Bar,
   BarChart,
-  Legend,
+  Cell,
   LabelList,
   Line,
   LineChart,
@@ -34,11 +34,13 @@ import {
 import { supabase } from '../../core/lib/supabase'
 import {
   attainmentRatio,
+  formatCompact,
   formatDate,
   formatValue,
   isOnTarget,
   relativeDays,
 } from '../../core/lib/format'
+import { buildChildrenByParent } from '../../core/lib/kpiRollup'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
 import {
@@ -57,7 +59,9 @@ import {
   TASK_STATUS_LABEL,
   type CompanySnapshot,
   type Insight,
+  type KpiLatestValue,
   type MetaLatestValue,
+  type Product,
   type Task,
   type TaskStatus,
 } from '../../core/types'
@@ -66,10 +70,14 @@ const OPEN_STATUSES: TaskStatus[] = ['todo', 'doing', 'blocked']
 
 // Ponto colorido do gráfico "Metas x realizado" — mesma cor da empresa que
 // já aparece em todo canto do sistema (aba, tarja do card…), só que agora
-// ligados por uma linha em vez de barras separadas.
+// ligados por uma linha em vez de barras separadas. O raio cresce com a
+// quantidade de metas usadas na média (payload.metas) — uma segunda
+// informação (volume) no mesmo ponto, sem precisar de outro gráfico ao lado
+// só para "quantas metas cada empresa tem".
 function attainmentDot(props: any) {
   const { cx, cy, payload, index } = props
-  return <circle key={`dot-${index}`} cx={cx} cy={cy} r={5} fill={payload.cor} stroke="#fff" strokeWidth={1.5} />
+  const r = 4 + Math.min(payload.metas ?? 1, 8)
+  return <circle key={`dot-${index}`} cx={cx} cy={cy} r={r} fill={payload.cor} stroke="#fff" strokeWidth={1.5} />
 }
 
 export default function HoldingDashboard() {
@@ -78,6 +86,8 @@ export default function HoldingDashboard() {
   const chart = useChartTheme()
   const [snapshots, setSnapshots] = useState<CompanySnapshot[]>([])
   const [metas, setMetas] = useState<MetaLatestValue[]>([])
+  const [kpiValues, setKpiValues] = useState<KpiLatestValue[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
   const [loading, setLoading] = useState(true)
@@ -86,23 +96,31 @@ export default function HoldingDashboard() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [snapshotResult, metaResult, taskResult, insightResult] = await Promise.all([
-      supabase.rpc('company_snapshots'),
-      supabase.from('meta_latest_values').select('*').is('archived_at', null),
-      // A RLS já entrega só o que enxergo; aqui reduzo ao que é meu.
-      supabase
-        .from('tasks')
-        .select('*')
-        .or(`assignee_id.eq.${profile?.id},created_by.eq.${profile?.id}`)
-        .order('due_date', { ascending: true, nullsFirst: false }),
-      supabase
-        .from('insights')
-        .select('*')
-        .eq('scope', 'holding')
-        .eq('is_archived', false)
-        .order('generated_at', { ascending: false })
-        .limit(4),
-    ])
+    const [snapshotResult, metaResult, kpiValueResult, productResult, taskResult, insightResult] =
+      await Promise.all([
+        supabase.rpc('company_snapshots'),
+        supabase.from('meta_latest_values').select('*').is('archived_at', null),
+        // Mesmo padrão acima (sem filtro de empresa, a RLS já entrega só o
+        // que enxergo): é a fonte do ranking "Faturamento por produto" —
+        // meta_latest_values só traz indicador COM alvo, e um indicador de
+        // produto/turma que só soma filhos (ver kpiRollup.ts) costuma não
+        // ter alvo próprio nenhum, então não apareceria ali.
+        supabase.from('kpi_latest_values').select('*').is('archived_at', null),
+        supabase.from('products').select('*').eq('is_active', true),
+        // A RLS já entrega só o que enxergo; aqui reduzo ao que é meu.
+        supabase
+          .from('tasks')
+          .select('*')
+          .or(`assignee_id.eq.${profile?.id},created_by.eq.${profile?.id}`)
+          .order('due_date', { ascending: true, nullsFirst: false }),
+        supabase
+          .from('insights')
+          .select('*')
+          .eq('scope', 'holding')
+          .eq('is_archived', false)
+          .order('generated_at', { ascending: false })
+          .limit(4),
+      ])
 
     setSnapshots((snapshotResult.data as CompanySnapshot[]) ?? [])
     // Alvo agora existe em todo nível (empresa/produto/turma — ver tela de
@@ -110,6 +128,8 @@ export default function HoldingDashboard() {
     // empresa inteira, de propósito — mesma decisão já aplicada em
     // company_snapshots() (o RPC por trás dos totais deste painel).
     setMetas(((metaResult.data as MetaLatestValue[]) ?? []).filter((meta) => meta.product_id === null))
+    setKpiValues((kpiValueResult.data as KpiLatestValue[]) ?? [])
+    setProducts((productResult.data as Product[]) ?? [])
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
     setLoading(false)
@@ -200,28 +220,68 @@ export default function HoldingDashboard() {
   )
 
   // ------------------------------------------------- metas no alvo por empresa
-  // Comparação entre empresas, mas por SAÚDE da meta (no alvo / fora /
-  // sem lançamento ainda), não pelo valor bruto — que nem faria sentido
-  // somar entre empresas com metas de unidades diferentes.
-  const kpiHealth = useMemo(
-    () =>
-      operating
-        .map((company) => {
-          const total = Number(company.kpis_total)
-          if (total === 0) return null
-          const naMeta = Number(company.kpis_on_target)
-          const fora = Number(company.kpis_off_target)
-          return {
-            empresa: company.company_name,
-            naMeta,
-            fora,
-            semLancamento: Math.max(0, total - naMeta - fora),
-            total,
-          }
-        })
-        .filter((row): row is NonNullable<typeof row> => row !== null),
-    [operating],
-  )
+  // Antes era um gráfico de barras empilhadas só seu, comparando empresas —
+  // mas isso já é basicamente a mesma pergunta do "Metas x realizado" acima
+  // (quantas metas estão indo bem, por empresa). Em vez de repetir o
+  // comparativo, cada cartão de empresa abaixo ganha sua própria barrinha
+  // (no alvo / fora / sem lançamento), no lugar exato onde a pessoa já está
+  // olhando os detalhes daquela empresa — mapa por company_id, montado uma
+  // vez, pra não refazer a conta a cada cartão renderizado.
+  const kpiHealthByCompany = useMemo(() => {
+    const map = new Map<string, { naMeta: number; fora: number; semLancamento: number; total: number }>()
+    for (const company of operating) {
+      const total = Number(company.kpis_total)
+      if (total === 0) continue
+      const naMeta = Number(company.kpis_on_target)
+      const fora = Number(company.kpis_off_target)
+      map.set(company.company_id, { naMeta, fora, semLancamento: Math.max(0, total - naMeta - fora), total })
+    }
+    return map
+  }, [operating])
+
+  // ------------------------------------------------- faturamento por produto
+  // A pergunta que nenhum gráfico daqui respondia: dentro do grupo inteiro,
+  // quais produtos/frentes trazem mais faturamento? Isso não existe em
+  // lugar nenhum hoje — cada painel de empresa mostra os produtos DELA, mas
+  // nunca um ranking comparando entre empresas.
+  //
+  // Só dá pra somar valores de indicadores com a MESMA unidade — por isso
+  // moeda (currency) apenas, igual à razão de todo outro gráfico deste
+  // painel comparar por atingimento (%) em vez de valor bruto.
+  //
+  // Um indicador com filhos nunca lança valor direto (ver kpiRollup.ts):
+  // o "Faturamento" da empresa some seus produtos, e cada produto soma suas
+  // turmas. Por isso a soma certa não é "todo indicador com product_id", e
+  // sim só as FOLHAS (quem não é pai de mais ninguém neste mesmo conjunto)
+  // — soma de folhas é sempre igual ao valor efetivo da raiz, sem precisar
+  // saber qual é a raiz nem se ela chegou a lançar algo por conta própria.
+  const productRevenue = useMemo(() => {
+    const currencyRows = kpiValues.filter((row) => row.unit === 'currency')
+    const childrenByParent = buildChildrenByParent(currencyRows)
+    const leaves = currencyRows.filter((row) => !childrenByParent.has(row.kpi_id))
+
+    const totalByProduct = new Map<string, number>()
+    for (const row of leaves) {
+      if (!row.product_id) continue
+      totalByProduct.set(row.product_id, (totalByProduct.get(row.product_id) ?? 0) + Number(row.value))
+    }
+
+    return products
+      .map((product) => {
+        const valor = totalByProduct.get(product.id)
+        if (!valor) return null
+        return {
+          id: product.id,
+          produto: product.name,
+          empresa: companyName(product.company_id),
+          cor: companyColor(product.company_id),
+          valor,
+        }
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null)
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 8)
+  }, [kpiValues, products, companyName, companyColor])
 
   // ------------------------------------------------- saúde geral por empresa
   // Uma única barra por empresa, pra bater o olho e já saber como ela anda —
@@ -480,7 +540,7 @@ export default function HoldingDashboard() {
           {/* ------------------------------------------- metas x realizado */}
           <Card
             title="Metas x realizado"
-            description="Quanto do alvo já foi entregue, na média das metas de cada empresa. A linha marca os 100%."
+            description="Quanto do alvo já foi entregue, na média das metas de cada empresa. O tamanho do ponto cresce com a quantidade de metas na conta — a linha marca os 100%."
           >
             {attainment.length === 0 ? (
               <EmptyState
@@ -542,32 +602,46 @@ export default function HoldingDashboard() {
             )}
           </Card>
 
-          {/* ------------------------------------------- metas no alvo por empresa */}
+          {/* ------------------------------------------- faturamento por produto —
+              o comparativo "no alvo / fora / sem lançamento" que morava aqui
+              como gráfico próprio virou uma barrinha compacta dentro de cada
+              cartão de empresa, logo abaixo (mesma informação, sem repetir a
+              pergunta do gráfico "Metas x realizado" acima). No lugar entra
+              uma pergunta nova: quais produtos, de qualquer empresa do
+              grupo, mais faturam — do maior pro menor. */}
           <Card
-            title="Metas no alvo por empresa"
-            description="Quantas metas de cada empresa estão no alvo, fora dele ou ainda sem lançamento."
+            title="Faturamento por produto no grupo"
+            description="Soma do faturamento de cada produto — turmas/edições incluídas — em todas as empresas. Cor da barra = empresa dona do produto. Do maior pro menor."
           >
-            {kpiHealth.length === 0 ? (
+            {productRevenue.length === 0 ? (
               <EmptyState
-                title="Nenhuma meta cadastrada ainda"
-                description="Cadastre metas nas empresas para comparar aqui."
+                title="Nenhum produto com faturamento lançado ainda"
+                description="Lance o primeiro valor de faturamento de um produto para ver o ranking do grupo aqui."
               />
             ) : (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={kpiHealth} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap="35%">
+                  <BarChart
+                    data={productRevenue}
+                    layout="vertical"
+                    margin={{ top: 8, right: 44, bottom: 0, left: 0 }}
+                  >
                     <XAxis
-                      dataKey="empresa"
-                      tick={{ fontSize: 11, fill: chart.tick }}
-                      axisLine={{ stroke: chart.axis }}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      allowDecimals={false}
+                      type="number"
                       tick={{ fontSize: 11, fill: chart.tick }}
                       axisLine={false}
                       tickLine={false}
-                      width={32}
+                      tickFormatter={(value: number) => formatCompact(value, 'currency')}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="produto"
+                      tick={{ fontSize: 11, fill: chart.tick }}
+                      axisLine={{ stroke: chart.axis }}
+                      tickLine={false}
+                      width={100}
+                      interval={0}
+                      tickFormatter={(value: string) => (value.length > 14 ? `${value.slice(0, 13)}…` : value)}
                     />
                     <Tooltip
                       cursor={{ fill: 'rgb(148 163 184 / .14)' }}
@@ -580,22 +654,22 @@ export default function HoldingDashboard() {
                       }}
                       itemStyle={{ color: chart.tooltipText }}
                       labelStyle={{ color: chart.tooltipText }}
+                      formatter={(value: number, _name, item: any) => [
+                        formatValue(value, 'currency'),
+                        item.payload.empresa,
+                      ]}
                     />
-                    <Legend
-                      wrapperStyle={{ fontSize: 12, color: chart.label }}
-                      formatter={(value: string) => (
-                        <span style={{ color: chart.label }}>{value}</span>
-                      )}
-                    />
-                    <Bar dataKey="naMeta" name="No alvo" stackId="kpis" fill="#10B981" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="fora" name="Fora do alvo" stackId="kpis" fill="#F43F5E" />
-                    <Bar
-                      dataKey="semLancamento"
-                      name="Sem lançamento"
-                      stackId="kpis"
-                      fill="#94A3B8"
-                      radius={[4, 4, 0, 0]}
-                    />
+                    <Bar dataKey="valor" radius={[0, 4, 4, 0]} maxBarSize={26}>
+                      {productRevenue.map((row) => (
+                        <Cell key={row.id} fill={row.cor} />
+                      ))}
+                      <LabelList
+                        dataKey="valor"
+                        position="right"
+                        formatter={(value: number) => formatCompact(value, 'currency')}
+                        style={{ fontSize: 11, fill: chart.label }}
+                      />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -609,6 +683,7 @@ export default function HoldingDashboard() {
             {byUrgency.map((snapshot) => {
               const companyMetas = metas.filter((meta) => meta.company_id === snapshot.company_id)
               const health = companyHealth.get(snapshot.company_id) ?? null
+              const targetSplit = kpiHealthByCompany.get(snapshot.company_id) ?? null
               const status = companyStatus(snapshot)
               return (
                 <Card key={snapshot.company_id}>
@@ -653,7 +728,40 @@ export default function HoldingDashboard() {
                     </div>
                   )}
 
-                  <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+                  {/* Barrinha compacta no alvo/fora/sem lançamento — o que
+                      antes só dava pra ver no gráfico "Metas no alvo por
+                      empresa" lá em cima, agora mora junto do resto dos
+                      números desta empresa. */}
+                  {targetSplit !== null && (
+                    <div className="mt-3">
+                      <div className="flex h-1.5 overflow-hidden rounded-full bg-hover">
+                        {targetSplit.naMeta > 0 && (
+                          <div
+                            className="bg-emerald-500"
+                            style={{ width: `${(targetSplit.naMeta / targetSplit.total) * 100}%` }}
+                          />
+                        )}
+                        {targetSplit.fora > 0 && (
+                          <div
+                            className="bg-rose-500"
+                            style={{ width: `${(targetSplit.fora / targetSplit.total) * 100}%` }}
+                          />
+                        )}
+                        {targetSplit.semLancamento > 0 && (
+                          <div
+                            className="bg-slate-300 dark:bg-slate-600"
+                            style={{ width: `${(targetSplit.semLancamento / targetSplit.total) * 100}%` }}
+                          />
+                        )}
+                      </div>
+                      <p className="mt-1 text-[11px] text-content-faint">
+                        {targetSplit.naMeta} no alvo · {targetSplit.fora} fora · {targetSplit.semLancamento} sem
+                        lançamento
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-center sm:grid-cols-3">
                     <div className="rounded-lg bg-hover py-2">
                       <p className="text-lg font-semibold">
                         {snapshot.kpis_on_target}
@@ -661,15 +769,15 @@ export default function HoldingDashboard() {
                           /{Number(snapshot.kpis_on_target) + Number(snapshot.kpis_off_target)}
                         </span>
                       </p>
-                      <p className="text-[11px] text-content-soft">Metas no alvo</p>
+                      <p className="text-xs text-content-soft">Metas no alvo</p>
                     </div>
                     <div className="rounded-lg bg-hover py-2">
                       <p className="text-lg font-semibold">{snapshot.goals_active}</p>
-                      <p className="text-[11px] text-content-soft">alvos ativos</p>
+                      <p className="text-xs text-content-soft">alvos ativos</p>
                     </div>
-                    <div className="rounded-lg bg-hover py-2">
+                    <div className="col-span-2 rounded-lg bg-hover py-2 sm:col-span-1">
                       <p className="text-lg font-semibold">{snapshot.tasks_open}</p>
-                      <p className="text-[11px] text-content-soft">tarefas abertas</p>
+                      <p className="text-xs text-content-soft">tarefas abertas</p>
                     </div>
                   </div>
 
