@@ -995,6 +995,10 @@ export default function KpisPage() {
           series={seriesByKpi.get(metaModalFor.kpi.id) ?? []}
           checkpoints={metaModalFor.meta ? checkpointsByMeta.get(metaModalFor.meta.id) ?? [] : []}
           hasChildren={(childrenByParent.get(metaModalFor.kpi.id) ?? []).length > 0}
+          childCount={(childrenByParent.get(metaModalFor.kpi.id) ?? []).length}
+          childAlvos={(childrenByParent.get(metaModalFor.kpi.id) ?? [])
+            .map((child) => (metasByKpi.get(child.id) ?? [])[0])
+            .filter((m): m is Meta => m != null)}
           onClose={() => setMetaModalFor(null)}
           onSaved={load}
         />
@@ -1351,6 +1355,8 @@ export function MetaFormModal({
   series,
   checkpoints,
   hasChildren,
+  childCount,
+  childAlvos,
   onClose,
   onSaved,
 }: {
@@ -1364,6 +1370,15 @@ export function MetaFormModal({
   // verdade, não um cronograma abstrato); repartir por período junto
   // criaria duas respostas desencontradas pra mesma pergunta.
   hasChildren: boolean
+  // Total de produto(s)/turma(s) vinculados, com ou sem alvo definido —
+  // usado só pra avisar quando a soma abaixo é parcial (nem todo filho tem
+  // alvo ainda), nunca pra esconder ou travar o campo.
+  childCount: number
+  // Alvo (mais recente) de cada filho que já tem um — ver botão "Usar soma
+  // dos filhos" abaixo. Continua sendo um preenchimento manual e pontual,
+  // não um vínculo permanente: depois de clicado, os campos viram normais,
+  // editáveis, e não se atualizam sozinhos se um filho mudar depois.
+  childAlvos: Meta[]
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
@@ -1379,6 +1394,20 @@ export function MetaFormModal({
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+
+  // Soma dos alvos já definidos nos filhos + o prazo mais distante entre
+  // eles — só usados quando a pessoa clica em "Usar soma dos filhos"
+  // (nunca sozinhos): ver debate na conversa sobre por que isso não é
+  // automático nem obrigatório (perde a flexibilidade de planejar de cima
+  // pra baixo, e uma soma parcial silenciosa é pior que não ter soma).
+  const childrenSum = useMemo(() => {
+    const withTarget = childAlvos.filter((m) => m.target_value != null)
+    if (!withTarget.length) return null
+    const sum = withTarget.reduce((acc, m) => acc + Number(m.target_value), 0)
+    const dueDates = childAlvos.map((m) => m.due_date).filter((d): d is string => Boolean(d))
+    const maxDue = dueDates.length ? dueDates.reduce((a, b) => (a > b ? a : b)) : null
+    return { sum, maxDue, definedCount: withTarget.length }
+  }, [childAlvos])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -1488,6 +1517,27 @@ export function MetaFormModal({
             onChange={(target_value) => setForm((c) => ({ ...c, target_value }))}
           />
         </Field>
+        {/* Preenchimento manual e pontual — nunca automático nem travado — pra
+            não obrigar a digitar de novo um número que já existe embaixo
+            (produto/turma). Um clique só; depois disso o campo é um alvo
+            normal, e continua editável mesmo que os filhos mudem depois. */}
+        {childrenSum && (
+          <button
+            type="button"
+            className="-mt-2 flex items-center gap-1.5 text-xs text-brand-text hover:underline"
+            onClick={() =>
+              setForm((c) => ({
+                ...c,
+                target_value: childrenSum.sum,
+                due_date: childrenSum.maxDue ?? c.due_date,
+              }))
+            }
+          >
+            <Layers className="h-3.5 w-3.5 shrink-0" />
+            Usar soma d{kpi.product_id ? 'as turmas' : 'os produtos'} vinculados: {formatValue(childrenSum.sum, kpi.unit)}
+            {childrenSum.definedCount < childCount && ` (só ${childrenSum.definedCount} de ${childCount} já tem alvo)`}
+          </button>
+        )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Prazo">
             <input

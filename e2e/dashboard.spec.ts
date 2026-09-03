@@ -940,6 +940,30 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await expect(dialog.getByRole('heading', { name: /Editar alvo/ })).toBeVisible()
     await expect(dialog.getByText('Repartir por período')).not.toBeVisible()
   })
+
+  // Pedido explícito: em vez de forçar o alvo do produto a SER sempre a
+  // soma das turmas (perde o planejamento de cima pra baixo e a soma pode
+  // ficar parcial em silêncio), um botão explícito preenche o alvo com a
+  // soma de quem já tem — continua editável depois, não trava.
+  test('"Usar soma das turmas vinculados" preenche alvo e prazo sem travar o campo', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_PRODUCT}`)
+    await page.waitForLoadState('networkidle')
+
+    await page.getByRole('button', { name: /R\$\s?400\.000,00/ }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: /Editar alvo/ })).toBeVisible()
+
+    const useSumButton = dialog.getByRole('button', { name: /Usar soma das turmas vinculados/ })
+    await expect(useSumButton).toContainText('R$ 35.000,00')
+    await useSumButton.click()
+
+    await expect(dialog.getByLabel('Alvo')).toHaveValue('35.000,00')
+    await expect(dialog.locator('input[type=date]')).toHaveValue('2026-09-17')
+
+    // Continua editável — o clique só preencheu, não travou o campo.
+    await dialog.getByLabel('Alvo').fill('99.999,00')
+    await expect(dialog.getByLabel('Alvo')).toHaveValue('99.999,00')
+  })
 })
 
 // Item: nenhuma tela pode abrir com zoom aplicado no celular — o caso
