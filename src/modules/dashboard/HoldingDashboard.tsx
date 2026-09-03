@@ -57,7 +57,7 @@ import {
   TASK_STATUS_LABEL,
   type CompanySnapshot,
   type Insight,
-  type KpiLatestValue,
+  type MetaLatestValue,
   type Task,
   type TaskStatus,
 } from '../../core/types'
@@ -77,7 +77,7 @@ export default function HoldingDashboard() {
   const { notify } = useToast()
   const chart = useChartTheme()
   const [snapshots, setSnapshots] = useState<CompanySnapshot[]>([])
-  const [kpis, setKpis] = useState<KpiLatestValue[]>([])
+  const [metas, setMetas] = useState<MetaLatestValue[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
   const [loading, setLoading] = useState(true)
@@ -86,9 +86,9 @@ export default function HoldingDashboard() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [snapshotResult, kpiResult, taskResult, insightResult] = await Promise.all([
+    const [snapshotResult, metaResult, taskResult, insightResult] = await Promise.all([
       supabase.rpc('company_snapshots'),
-      supabase.from('kpi_latest_values').select('*').is('archived_at', null),
+      supabase.from('meta_latest_values').select('*').is('archived_at', null),
       // A RLS já entrega só o que enxergo; aqui reduzo ao que é meu.
       supabase
         .from('tasks')
@@ -105,7 +105,7 @@ export default function HoldingDashboard() {
     ])
 
     setSnapshots((snapshotResult.data as CompanySnapshot[]) ?? [])
-    setKpis((kpiResult.data as KpiLatestValue[]) ?? [])
+    setMetas((metaResult.data as MetaLatestValue[]) ?? [])
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
     setLoading(false)
@@ -154,30 +154,30 @@ export default function HoldingDashboard() {
   )
 
   // ------------------------------------------------- metas x realizado
-  // Um KPI com prazo é a meta. Metas de empresas diferentes usam unidades
-  // diferentes, então somar reais com percentuais não diria nada — o que
-  // compara é o atingimento, com a linha de 100% como referência. Direção
-  // "menor é melhor" inverte a razão pro mesmo sentido de "acima é melhor".
+  // Metas de empresas diferentes usam unidades diferentes, então somar
+  // reais com percentuais não diria nada — o que compara é o atingimento,
+  // com a linha de 100% como referência. Direção "menor é melhor" inverte a
+  // razão pro mesmo sentido de "acima é melhor".
   const attainment = useMemo(
     () =>
       operating
         .map((company) => {
-          const list = kpis.filter(
-            (kpi) =>
-              kpi.company_id === company.company_id &&
-              kpi.due_date !== null &&
-              kpi.target_value !== null &&
-              Number(kpi.target_value) !== 0 &&
-              kpi.status !== 'missed',
+          const list = metas.filter(
+            (meta) =>
+              meta.company_id === company.company_id &&
+              meta.due_date !== null &&
+              meta.target_value !== null &&
+              Number(meta.target_value) !== 0 &&
+              meta.status !== 'missed',
           )
           if (!list.length) return null
 
-          const percentages = list.map((kpi) => {
+          const percentages = list.map((meta) => {
             const ratio =
-              kpi.direction === 'up'
-                ? Number(kpi.value) / Number(kpi.target_value)
-                : Number(kpi.value) > 0
-                  ? Number(kpi.target_value) / Number(kpi.value)
+              meta.direction === 'up'
+                ? Number(meta.value) / Number(meta.target_value)
+                : Number(meta.value) > 0
+                  ? Number(meta.target_value) / Number(meta.value)
                   : 3
             return Math.max(0, Math.min(ratio, 3) * 100)
           })
@@ -192,7 +192,7 @@ export default function HoldingDashboard() {
           }
         })
         .filter((row): row is NonNullable<typeof row> => row !== null),
-    [operating, kpis],
+    [operating, metas],
   )
 
   // ------------------------------------------------- KPIs na meta por empresa
@@ -221,23 +221,23 @@ export default function HoldingDashboard() {
 
   // ------------------------------------------------- saúde geral por empresa
   // Uma única barra por empresa, pra bater o olho e já saber como ela anda —
-  // média do atingimento de TODO KPI com meta (não só os com prazo, como o
-  // gráfico "Metas x realizado" acima, que é sobre metas, não sobre saúde
-  // geral do indicador do dia a dia).
+  // média do atingimento de TODA meta com alvo (não só as com prazo, como o
+  // gráfico "Metas x realizado" acima, que é sobre metas específicas, não
+  // sobre a saúde geral do dia a dia).
   const companyHealth = useMemo(() => {
     const map = new Map<string, number | null>()
     for (const company of operating) {
-      const ratios = kpis
+      const ratios = metas
         .filter(
-          (kpi) =>
-            kpi.company_id === company.company_id && kpi.target_value !== null && Number(kpi.target_value) !== 0,
+          (meta) =>
+            meta.company_id === company.company_id && meta.target_value !== null && Number(meta.target_value) !== 0,
         )
-        .map((kpi) => attainmentRatio(Number(kpi.value), kpi.target_value, kpi.direction))
+        .map((meta) => attainmentRatio(Number(meta.value), meta.target_value, meta.direction))
         .filter((ratio): ratio is number => ratio !== null)
       map.set(company.company_id, ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null)
     }
     return map
-  }, [operating, kpis])
+  }, [operating, metas])
 
   // Vencida pesa mais que em risco, que pesa mais que só fora da meta — é a
   // ordem em que um dono do grupo ia querer olhar as empresas primeiro.
@@ -264,17 +264,17 @@ export default function HoldingDashboard() {
   )
 
   // Saúde do grupo inteiro — a mesma conta da saúde por empresa, só que
-  // média entre TODO KPI com meta de TODA empresa operacional.
+  // média entre TODA meta com alvo de TODA empresa operacional.
   const groupHealth = useMemo(() => {
-    const ratios = kpis
-      .filter((kpi) => kpi.target_value !== null && Number(kpi.target_value) !== 0)
-      .map((kpi) => attainmentRatio(Number(kpi.value), kpi.target_value, kpi.direction))
+    const ratios = metas
+      .filter((meta) => meta.target_value !== null && Number(meta.target_value) !== 0)
+      .map((meta) => attainmentRatio(Number(meta.value), meta.target_value, meta.direction))
       .filter((ratio): ratio is number => ratio !== null)
     return {
       ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
       medidos: ratios.length,
     }
-  }, [kpis])
+  }, [metas])
 
   const myTasks = useMemo(
     () => tasks.filter((task) => OPEN_STATUSES.includes(task.status)),
@@ -322,7 +322,7 @@ export default function HoldingDashboard() {
               <ProgressBar
                 ratio={groupHealth.ratio}
                 label="Saúde geral do grupo"
-                caption={`média de atingimento em ${groupHealth.medidos} indicador(es) com meta definida, em todas as empresas`}
+                caption={`média de atingimento em ${groupHealth.medidos} meta(s) com alvo definido, em todas as empresas`}
               />
             </div>
           )}
@@ -340,7 +340,7 @@ export default function HoldingDashboard() {
               </div>,
               <div key="kpis" className="card p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
-                  KPIs na meta
+                  Metas na meta
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-emerald-600 dark:text-emerald-400">
                   {totals.kpisOnTarget}
@@ -348,7 +348,7 @@ export default function HoldingDashboard() {
                     /{totals.kpisOnTarget + totals.kpisOffTarget}
                   </span>
                 </p>
-                <p className="text-xs text-content-soft">indicadores com meta definida</p>
+                <p className="text-xs text-content-soft">metas com alvo definido</p>
               </div>,
               <div key="metas" className="card p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
@@ -540,8 +540,8 @@ export default function HoldingDashboard() {
 
           {/* ------------------------------------------- KPIs na meta por empresa */}
           <Card
-            title="KPIs na meta por empresa"
-            description="Quantos indicadores de cada empresa estão na meta, fora dela ou ainda sem lançamento."
+            title="Metas na meta por empresa"
+            description="Quantas metas de cada empresa estão na meta, fora dela ou ainda sem lançamento."
           >
             {kpiHealth.length === 0 ? (
               <EmptyState
@@ -603,7 +603,7 @@ export default function HoldingDashboard() {
               metas em risco, KPI fora), não em ordem alfabética */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {byUrgency.map((snapshot) => {
-              const companyKpis = kpis.filter((kpi) => kpi.company_id === snapshot.company_id)
+              const companyMetas = metas.filter((meta) => meta.company_id === snapshot.company_id)
               const health = companyHealth.get(snapshot.company_id) ?? null
               const status = companyStatus(snapshot)
               return (
@@ -657,7 +657,7 @@ export default function HoldingDashboard() {
                           /{Number(snapshot.kpis_on_target) + Number(snapshot.kpis_off_target)}
                         </span>
                       </p>
-                      <p className="text-[11px] text-content-soft">KPIs na meta</p>
+                      <p className="text-[11px] text-content-soft">Metas na meta</p>
                     </div>
                     <div className="rounded-lg bg-hover py-2">
                       <p className="text-lg font-semibold">{snapshot.goals_active}</p>
@@ -669,27 +669,27 @@ export default function HoldingDashboard() {
                     </div>
                   </div>
 
-                  {companyKpis.length > 0 && (
+                  {companyMetas.length > 0 && (
                     <ul className="mt-4 space-y-2">
-                      {companyKpis.slice(0, 4).map((kpi) => {
-                        const status = isOnTarget(Number(kpi.value), kpi.target_value, kpi.direction)
-                        const ratio = attainmentRatio(Number(kpi.value), kpi.target_value, kpi.direction)
+                      {companyMetas.slice(0, 4).map((meta) => {
+                        const status = isOnTarget(Number(meta.value), meta.target_value, meta.direction)
+                        const ratio = attainmentRatio(Number(meta.value), meta.target_value, meta.direction)
                         const caption =
-                          kpi.target_value !== null
-                            ? `${formatValue(Number(kpi.value), kpi.unit)} de ${formatValue(kpi.target_value, kpi.unit)}`
+                          meta.target_value !== null
+                            ? `${formatValue(Number(meta.value), meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
                             : undefined
                         return (
-                          <li key={kpi.kpi_id}>
+                          <li key={meta.meta_id}>
                             <Link
-                              to={`/empresa/${snapshot.company_id}/kpis?kpi=${kpi.kpi_id}`}
+                              to={`/empresa/${snapshot.company_id}/kpis?kpi=${meta.kpi_id}`}
                               className="block rounded-md -mx-1.5 px-1.5 py-1 transition hover:bg-hover"
                             >
                               <div className="flex items-center justify-between gap-2 text-sm">
                                 <span className="min-w-0 truncate text-content-muted">
-                                  {kpi.name}
-                                  {kpi.due_date && (
+                                  {meta.name}
+                                  {meta.due_date && (
                                     <span className="ml-1.5 text-[11px] text-content-faint">
-                                      · prazo {formatDate(kpi.due_date)}
+                                      · prazo {formatDate(meta.due_date)}
                                     </span>
                                   )}
                                 </span>
@@ -698,7 +698,7 @@ export default function HoldingDashboard() {
                                     status === false ? 'text-rose-600 dark:text-rose-400' : 'text-content'
                                   }`}
                                 >
-                                  {formatValue(Number(kpi.value), kpi.unit)}
+                                  {formatValue(Number(meta.value), meta.unit)}
                                 </span>
                               </div>
                               {ratio !== null && (

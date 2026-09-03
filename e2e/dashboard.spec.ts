@@ -89,14 +89,14 @@ test.describe('painel', () => {
   test('gráficos comparativos aparecem no painel da empresa', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}`)
     await page.waitForLoadState('networkidle')
-    await expect(page.getByText('KPIs: realizado x meta')).toBeVisible()
+    await expect(page.getByText('Metas: realizado x alvo')).toBeVisible()
     await expect(page.getByText('Tarefas por situação')).toBeVisible()
   })
 
   test('gráfico comparativo entre empresas aparece no painel da holding', async ({ page }) => {
     await page.goto('/holding')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByText('KPIs na meta por empresa')).toBeVisible()
+    await expect(page.getByText('Metas na meta por empresa')).toBeVisible()
   })
 
   // Item 3: no celular a troca de empresa é um menu suspenso; no desktop

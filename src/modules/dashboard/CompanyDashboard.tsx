@@ -44,7 +44,10 @@ import {
   type GoalStatus,
   type Insight,
   type Kpi,
+  type KpiDirection,
   type KpiLatestValue,
+  type KpiUnit,
+  type Meta,
   type Product,
   type ProductEdition,
   type Profile,
@@ -62,10 +65,11 @@ const TASK_STATUS_COLOR: Record<TaskStatus, string> = {
   canceled: '#CBD5E1',
 }
 
-// Ponto colorido do gráfico "KPIs: realizado x meta" — verde na meta,
+// Ponto colorido do gráfico "Metas: realizado x alvo" — verde na meta,
 // vermelho fora dela, mesmo critério de cor do resto do sistema. O eixo X é
-// categórico (um KPI por ponto, não uma linha do tempo), mas a linha ligando
-// os pontos deixa mais fácil comparar visualmente do que barras separadas.
+// categórico (uma meta por ponto, não uma linha do tempo), mas a linha
+// ligando os pontos deixa mais fácil comparar visualmente do que barras
+// separadas.
 function attainmentDot(props: any) {
   const { cx, cy, payload, index } = props
   return (
@@ -81,24 +85,39 @@ function attainmentDot(props: any) {
   )
 }
 
-/** Um KPI ativo, com o último valor lançado quando existir. Sem lançamento
- *  ainda é um KPI de verdade — ele não deve desaparecer do painel por isso.
- *  Quando tem due_date, é também a meta: mesma linha, sem cadastro duplicado. */
+/** Um KPI (indicador) ativo, com o último valor lançado quando existir. Sem
+ *  lançamento ainda é um indicador de verdade — ele não deve desaparecer do
+ *  painel por isso. Só medição: meta é outra coisa, ver `MetaRow`. */
 type KpiRow = {
   kpi_id: string
   name: string
-  unit: Kpi['unit']
-  direction: Kpi['direction']
+  unit: KpiUnit
+  direction: KpiDirection
   frequency: Kpi['frequency']
-  target_value: number | null
   value: number | null
   period_start: string | null
-  due_date: string | null
-  owner_id: string | null
-  status: GoalStatus
   product_id: string | null
   product_edition_id: string | null
   parent_kpi_id: string | null
+}
+
+/** Uma meta, já com o nome/unidade/direção do indicador que ela mede e o
+ *  valor de verdade dele (`effectiveValue` — soma os filhos quando o
+ *  indicador tem sub-produtos). Várias linhas podem repetir o mesmo
+ *  kpi_id — um indicador pode ter mais de uma meta ao mesmo tempo. */
+type MetaRow = {
+  meta_id: string
+  kpi_id: string
+  name: string
+  unit: KpiUnit
+  direction: KpiDirection
+  product_id: string | null
+  product_edition_id: string | null
+  target_value: number | null
+  due_date: string | null
+  owner_id: string | null
+  status: GoalStatus
+  value: number | null
 }
 
 function StatTile({
@@ -133,26 +152,27 @@ function StatTile({
 }
 
 /** Nome da meta + "valor de meta" + barrinha — uma frente pode ter várias
- *  metas ao mesmo tempo (dela mesma e de cada edição/turma), então o
- *  cartão de produto lista mais de uma em vez de escolher só uma "de
- *  capa". `editionName` distingue metas de mesmo nome em turmas diferentes
- *  (ex. "Faturamento" da Turma 12 e da Turma 13). */
-function ProductMetaLine({ kpi, value, editionName }: { kpi: KpiRow; value: number | null; editionName?: string }) {
-  const ratio = value !== null ? attainmentRatio(value, kpi.target_value, kpi.direction) : null
+ *  metas ao mesmo tempo (dela mesma e de cada edição/turma, e cada
+ *  indicador pode ter mais de uma meta também), então o cartão de produto
+ *  lista mais de uma em vez de escolher só uma "de capa". `editionName`
+ *  distingue metas de mesmo nome em turmas diferentes (ex. "Faturamento"
+ *  da Turma 12 e da Turma 13). */
+function ProductMetaLine({ meta, editionName }: { meta: MetaRow; editionName?: string }) {
+  const ratio = meta.value !== null ? attainmentRatio(meta.value, meta.target_value, meta.direction) : null
   return (
     <div>
       <p className="truncate text-xs font-medium text-content-soft">
-        {kpi.name}
+        {meta.name}
         {editionName && <span className="font-normal text-content-faint"> · {editionName}</span>}
       </p>
       <p className="mt-0.5 text-xs text-content-faint">
-        {value === null
+        {meta.value === null
           ? 'sem lançamento ainda'
-          : kpi.target_value !== null
-            ? `${formatValue(value, kpi.unit)} de ${formatValue(kpi.target_value, kpi.unit)}`
-            : formatValue(value, kpi.unit)}
+          : meta.target_value !== null
+            ? `${formatValue(meta.value, meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
+            : formatValue(meta.value, meta.unit)}
       </p>
-      {value !== null && kpi.target_value !== null && (
+      {meta.value !== null && meta.target_value !== null && (
         <div className="mt-1">
           <ProgressBar ratio={ratio} />
         </div>
@@ -167,6 +187,7 @@ export default function CompanyDashboard() {
   const { notify } = useToast()
   const [kpiDefs, setKpiDefs] = useState<Kpi[]>([])
   const [kpiValues, setKpiValues] = useState<KpiLatestValue[]>([])
+  const [metas, setMetas] = useState<Meta[]>([])
   const [people, setPeople] = useState<Profile[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
@@ -176,7 +197,7 @@ export default function CompanyDashboard() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [kpiDefResult, kpiValueResult, memberResult, taskResult, insightResult, productResult, editionResult] =
+    const [kpiDefResult, kpiValueResult, metaResult, memberResult, taskResult, insightResult, productResult, editionResult] =
       await Promise.all([
         supabase
           .from('kpis')
@@ -186,6 +207,7 @@ export default function CompanyDashboard() {
           .is('archived_at', null)
           .order('display_order'),
         supabase.from('kpi_latest_values').select('*').eq('company_id', company.id).is('archived_at', null),
+        supabase.from('metas').select('*').eq('company_id', company.id).is('archived_at', null),
         supabase.from('company_members').select('user_id').eq('company_id', company.id),
         supabase.from('tasks').select('*').eq('company_id', company.id),
         isAdmin
@@ -208,6 +230,7 @@ export default function CompanyDashboard() {
 
     setKpiDefs((kpiDefResult.data as Kpi[]) ?? [])
     setKpiValues((kpiValueResult.data as KpiLatestValue[]) ?? [])
+    setMetas((metaResult.data as Meta[]) ?? [])
     setPeople((profileRows as Profile[]) ?? [])
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
@@ -231,8 +254,9 @@ export default function CompanyDashboard() {
     void load()
   }, [load])
 
-  // Todo KPI ativo entra aqui — com lançamento ou não. É essa lista que fecha
-  // o buraco de "cadastrei o indicador e ele nunca apareceu no painel".
+  // Todo indicador ativo entra aqui — com lançamento ou não. É essa lista
+  // que fecha o buraco de "cadastrei o indicador e ele nunca apareceu no
+  // painel". Só medição — meta é outra lista (metaRows, abaixo).
   const kpiRows = useMemo<KpiRow[]>(
     () =>
       kpiDefs.map((def) => {
@@ -243,12 +267,8 @@ export default function CompanyDashboard() {
           unit: def.unit,
           direction: def.direction,
           frequency: def.frequency,
-          target_value: latest?.target_value ?? def.target_value,
           value: latest ? Number(latest.value) : null,
           period_start: latest?.period_start ?? null,
-          due_date: def.due_date,
-          owner_id: def.owner_id,
-          status: def.status,
           product_id: def.product_id,
           product_edition_id: def.product_edition_id,
           parent_kpi_id: def.parent_kpi_id,
@@ -267,56 +287,78 @@ export default function CompanyDashboard() {
     [childrenByParent, kpiRowById],
   )
 
+  // Cada meta ganha o nome/unidade/direção do indicador que ela mede e o
+  // valor de verdade dele (soma incluída) — um indicador pode aparecer em
+  // mais de uma linha aqui (uma por meta que ele tem).
+  const metaRows = useMemo<MetaRow[]>(
+    () =>
+      metas
+        .map((meta) => {
+          const kpi = kpiRowById.get(meta.kpi_id)
+          if (!kpi) return null
+          return {
+            meta_id: meta.id,
+            kpi_id: meta.kpi_id,
+            name: kpi.name,
+            unit: kpi.unit,
+            direction: kpi.direction,
+            product_id: kpi.product_id,
+            product_edition_id: kpi.product_edition_id,
+            target_value: meta.target_value,
+            due_date: meta.due_date,
+            owner_id: meta.owner_id,
+            status: meta.status,
+            value: effectiveValue(meta.kpi_id),
+          }
+        })
+        .filter((row): row is MetaRow => row !== null),
+    [metas, kpiRowById, effectiveValue],
+  )
+
   // Saúde de cada produto: mesma conta da saúde geral da empresa (média do
-  // attainmentRatio dos KPIs com meta), restrita aos KPIs daquela frente —
-  // mais quantas tarefas dela estão abertas. `metas` é TODA meta do produto
-  // — a dele mesmo e a de cada edição —, não só uma "de capa" escolhida a
-  // dedo: uma turma pode ter várias metas ao mesmo tempo (vendas de
-  // ingresso, faturamento, cancelamentos…) e todas precisam aparecer.
+  // attainmentRatio das metas com alvo), restrita às metas daquela frente —
+  // mais quantas tarefas dela estão abertas. `metas` aqui é TODA meta do
+  // produto — a dele mesmo e a de cada edição —, não só uma "de capa"
+  // escolhida a dedo: uma turma pode ter várias metas ao mesmo tempo
+  // (vendas de ingresso, faturamento, cancelamentos…) e todas precisam
+  // aparecer.
   const productStats = useMemo(() => {
     const map = new Map<
       string,
-      { ratio: number | null; open: number; metas: { kpi: KpiRow; value: number | null; editionName?: string }[] }
+      { ratio: number | null; open: number; metas: { meta: MetaRow; editionName?: string }[] }
     >()
     for (const product of products) {
-      // Indicadores "do produto como um todo" (sem edição) e os de cada
-      // turma dele — juntos formam a lista completa de metas do cartão.
-      const productLevel = kpiRows.filter((row) => row.product_id === product.id && !row.product_edition_id)
-      const productEditions = editions.filter((edition) => edition.product_id === product.id)
-      const withTarget = kpiRows.filter(
-        (row) => row.product_id === product.id && row.target_value !== null && Number(row.target_value) !== 0,
-      )
+      const productMetas = metaRows.filter((row) => row.product_id === product.id)
+      const withTarget = productMetas.filter((row) => row.target_value !== null && Number(row.target_value) !== 0)
       const ratios = withTarget
-        .map((row) => attainmentRatio(effectiveValue(row.kpi_id), row.target_value, row.direction))
+        .map((row) => attainmentRatio(row.value, row.target_value, row.direction))
         .filter((ratio): ratio is number => ratio !== null)
       const open = tasks.filter(
         (task) => task.product_id === product.id && ['todo', 'doing', 'blocked'].includes(task.status),
       )
-      const metas = [
-        ...productLevel.map((kpi) => ({ kpi, value: effectiveValue(kpi.kpi_id) })),
-        ...productEditions.flatMap((edition) =>
-          kpiRows
-            .filter((row) => row.product_edition_id === edition.id)
-            .map((kpi) => ({ kpi, value: effectiveValue(kpi.kpi_id), editionName: edition.name })),
-        ),
-      ]
+      const metasList = productMetas.map((row) => ({
+        meta: row,
+        editionName: row.product_edition_id
+          ? editions.find((edition) => edition.id === row.product_edition_id)?.name
+          : undefined,
+      }))
       map.set(product.id, {
         ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
         open: open.length,
-        metas,
+        metas: metasList,
       })
     }
     return map
-  }, [products, editions, kpiRows, tasks, effectiveValue])
+  }, [products, editions, metaRows, tasks])
 
-  // Um KPI com prazo é também uma meta — mesma linha, sem cadastro à parte.
-  const metas = useMemo(
+  // Metas em aberto — pra bater o olho no cartão "Metas" sem entrar em KPIs.
+  const openMetas = useMemo(
     () =>
-      kpiRows
+      metaRows
         .filter((row) => row.due_date !== null && !['achieved', 'missed'].includes(row.status))
         .sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1))
         .slice(0, 6),
-    [kpiRows],
+    [metaRows],
   )
   const ownerName = (id: string | null) =>
     id ? (people.find((person) => person.id === id)?.full_name ?? '—') : 'Sem responsável'
@@ -325,16 +367,15 @@ export default function CompanyDashboard() {
     const open = tasks.filter((task) => ['todo', 'doing', 'blocked'].includes(task.status))
     const today = new Date().toISOString().slice(0, 10)
     const overdue = open.filter((task) => task.due_date && task.due_date < today)
-    const withValue = kpiRows.filter((row) => row.value !== null)
+    const withValue = metaRows.filter((row) => row.value !== null && row.target_value !== null)
     const onTarget = withValue.filter(
       (row) => isOnTarget(row.value!, row.target_value, row.direction) === true,
     )
     const offTarget = withValue.filter(
       (row) => isOnTarget(row.value!, row.target_value, row.direction) === false,
     )
-    const noValue = kpiRows.length - withValue.length
-    return { open, overdue, onTarget, offTarget, noValue }
-  }, [tasks, kpiRows])
+    return { open, overdue, onTarget, offTarget }
+  }, [tasks, metaRows])
 
   const upcoming = useMemo(
     () =>
@@ -345,12 +386,12 @@ export default function CompanyDashboard() {
     [stats.open],
   )
 
-  // Saúde geral: a média do atingimento de todo KPI com meta definida — um
+  // Saúde geral: a média do atingimento de toda meta com alvo definido — um
   // único número pra bater o olho e já saber como a empresa anda, antes de
-  // entrar cartão por cartão. Só conta KPI com meta; sem meta não tem o que
-  // medir atingimento.
+  // entrar cartão por cartão. Só conta meta com alvo; sem alvo não tem o
+  // que medir atingimento.
   const overallHealth = useMemo(() => {
-    const ratios = kpiRows
+    const ratios = metaRows
       .filter((row) => row.target_value !== null && Number(row.target_value) !== 0)
       .map((row) => attainmentRatio(row.value, row.target_value, row.direction))
       .filter((ratio): ratio is number => ratio !== null)
@@ -358,36 +399,39 @@ export default function CompanyDashboard() {
       ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
       medidos: ratios.length,
     }
-  }, [kpiRows])
+  }, [metaRows])
 
-  // Comparação entre indicadores desta empresa: % do alvo atingido. Unidades
+  // Comparação entre metas desta empresa: % do alvo atingido. Unidades
   // diferentes (R$, %, dias) não podem virar barra na mesma escala — só o
-  // atingimento é comparável entre KPIs distintos.
+  // atingimento é comparável entre metas distintas.
   //
-  // Num KPI "up" (maior é melhor), atingimento = valor / meta. Num KPI "down"
+  // Numa meta "up" (maior é melhor), atingimento = valor / alvo. Numa "down"
   // (menor é melhor, ex. churn), a mesma conta inverteria o sentido — por isso
-  // usamos meta / valor, que também sobe acima de 100% quando o resultado é
-  // melhor que a meta. Limitamos a 300% só para o gráfico não esticar demais
+  // usamos alvo / valor, que também sobe acima de 100% quando o resultado é
+  // melhor que o alvo. Limitamos a 300% só para o gráfico não esticar demais
   // quando o valor está próximo de zero.
-  const kpiAttainment = useMemo(
-    () =>
-      kpiRows
-        .filter((row) => row.value !== null && row.target_value !== null && row.target_value !== 0)
-        .map((row) => {
-          const ratio =
-            row.direction === 'up'
-              ? row.value! / row.target_value!
-              : row.value! > 0
-                ? row.target_value! / row.value!
-                : 3
-          return {
-            nome: row.name,
-            atingimento: Math.round(Math.min(ratio, 3) * 100),
-            naMeta: isOnTarget(row.value!, row.target_value, row.direction) === true,
-          }
-        }),
-    [kpiRows],
-  )
+  const kpiAttainment = useMemo(() => {
+    const seenNames = new Map<string, number>()
+    return metaRows
+      .filter((row) => row.value !== null && row.target_value !== null && row.target_value !== 0)
+      .map((row) => {
+        const ratio =
+          row.direction === 'up'
+            ? row.value! / row.target_value!
+            : row.value! > 0
+              ? row.target_value! / row.value!
+              : 3
+        // Duas metas do mesmo indicador (ex. meta mensal e anual) teriam o
+        // mesmo rótulo no eixo — numera a partir da segunda pra distinguir.
+        const seen = seenNames.get(row.name) ?? 0
+        seenNames.set(row.name, seen + 1)
+        return {
+          nome: seen > 0 ? `${row.name} (${seen + 1})` : row.name,
+          atingimento: Math.round(Math.min(ratio, 3) * 100),
+          naMeta: isOnTarget(row.value!, row.target_value, row.direction) === true,
+        }
+      })
+  }, [metaRows])
 
   const tasksByStatus = useMemo(
     () =>
@@ -423,8 +467,8 @@ export default function CompanyDashboard() {
         <div className="card p-4">
           <ProgressBar
             ratio={overallHealth.ratio}
-            label="Saúde geral dos indicadores"
-            caption={`média de atingimento em ${overallHealth.medidos} indicador(es) com meta definida`}
+            label="Saúde geral das metas"
+            caption={`média de atingimento em ${overallHealth.medidos} meta(s) com alvo definido`}
           />
         </div>
       )}
@@ -437,23 +481,19 @@ export default function CompanyDashboard() {
       {(() => {
         const cards = [
           <StatTile
-            key="kpis"
-            label="KPIs na meta"
+            key="metas-na-meta"
+            label="Metas na meta"
             value={`${stats.onTarget.length}/${stats.onTarget.length + stats.offTarget.length}`}
-            hint={
-              stats.noValue > 0
-                ? `${kpiRows.length} indicadores · ${stats.noValue} sem lançamento`
-                : `${kpiRows.length} indicadores`
-            }
+            hint={`${stats.onTarget.length + stats.offTarget.length} meta(s) com alvo`}
             tone={stats.offTarget.length === 0 ? 'green' : 'slate'}
             icon={CheckCircle2}
           />,
           <StatTile
             key="metas"
             label="Metas em aberto"
-            value={metas.length}
-            hint={`${metas.filter((meta) => meta.status === 'at_risk').length} em risco`}
-            tone={metas.some((meta) => meta.status === 'at_risk') ? 'amber' : 'slate'}
+            value={openMetas.length}
+            hint={`${openMetas.filter((meta) => meta.status === 'at_risk').length} em risco`}
+            tone={openMetas.some((meta) => meta.status === 'at_risk') ? 'amber' : 'slate'}
             icon={Target}
           />,
           <StatTile
@@ -511,8 +551,8 @@ export default function CompanyDashboard() {
                   <p className="mt-1 text-xs text-content-faint">{stats?.open ?? 0} tarefa(s) aberta(s)</p>
                   {stats && stats.metas.length > 0 ? (
                     <div className="mt-2 space-y-2">
-                      {stats.metas.slice(0, 2).map(({ kpi, value, editionName }) => (
-                        <ProductMetaLine key={kpi.kpi_id} kpi={kpi} value={value} editionName={editionName} />
+                      {stats.metas.slice(0, 2).map(({ meta, editionName }) => (
+                        <ProductMetaLine key={meta.meta_id} meta={meta} editionName={editionName} />
                       ))}
                       {stats.metas.length > 2 && (
                         <p className="text-[11px] text-content-faint">
@@ -558,51 +598,28 @@ export default function CompanyDashboard() {
             />
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {kpiRows.slice(0, 8).map((kpi) => {
-                const status =
-                  kpi.value === null ? null : isOnTarget(kpi.value, kpi.target_value, kpi.direction)
-                const ratio = attainmentRatio(kpi.value, kpi.target_value, kpi.direction)
-                // Com prazo, a data completa da meta diz mais do que o rótulo
-                // curto do período (ex. "set/26") — que nem cabe o dia.
-                const dateLabel = kpi.due_date
-                  ? `prazo ${formatDate(kpi.due_date)}`
-                  : kpi.value === null
-                    ? 'aguardando o primeiro valor'
-                    : labelPeriod(kpi.period_start!, kpi.frequency)
-                return (
-                  <Link
-                    key={kpi.kpi_id}
-                    to={`/empresa/${company.id}/kpis?kpi=${kpi.kpi_id}`}
-                    className="block rounded-lg border border-line p-3 transition hover:border-line-strong hover:bg-hover"
-                  >
-                    <p className="truncate text-xs font-medium uppercase tracking-wide text-content-soft">
-                      {kpi.name}
-                    </p>
-                    <div className="mt-1 flex items-end justify-between gap-2">
-                      <span
-                        className={`text-xl font-semibold ${kpi.value === null ? 'text-content-faint' : ''}`}
-                      >
-                        {kpi.value === null ? '—' : formatValue(kpi.value, kpi.unit)}
-                      </span>
-                      {status !== null && (
-                        <Badge tone={status ? 'green' : 'red'}>{status ? 'na meta' : 'fora'}</Badge>
-                      )}
-                      {kpi.value === null && <Badge tone="slate">sem lançamento</Badge>}
-                    </div>
-                    <p className="mt-0.5 text-[11px] text-content-faint">
-                      {dateLabel}
-                      {kpi.target_value !== null && (
-                        <> · meta {formatValue(kpi.target_value, kpi.unit)}</>
-                      )}
-                    </p>
-                    {ratio !== null && (
-                      <div className="mt-2">
-                        <ProgressBar ratio={ratio} />
-                      </div>
-                    )}
-                  </Link>
-                )
-              })}
+              {kpiRows.slice(0, 8).map((kpi) => (
+                <Link
+                  key={kpi.kpi_id}
+                  to={`/empresa/${company.id}/kpis?kpi=${kpi.kpi_id}`}
+                  className="block rounded-lg border border-line p-3 transition hover:border-line-strong hover:bg-hover"
+                >
+                  <p className="truncate text-xs font-medium uppercase tracking-wide text-content-soft">
+                    {kpi.name}
+                  </p>
+                  <div className="mt-1 flex items-end justify-between gap-2">
+                    <span
+                      className={`text-xl font-semibold ${kpi.value === null ? 'text-content-faint' : ''}`}
+                    >
+                      {kpi.value === null ? '—' : formatValue(kpi.value, kpi.unit)}
+                    </span>
+                    {kpi.value === null && <Badge tone="slate">sem lançamento</Badge>}
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-content-faint">
+                    {kpi.value === null ? 'aguardando o primeiro valor' : labelPeriod(kpi.period_start!, kpi.frequency)}
+                  </p>
+                </Link>
+              ))}
             </div>
           )}
         </Card>
@@ -651,25 +668,25 @@ export default function CompanyDashboard() {
 
           <Card
             title="Metas"
-            description="KPIs com prazo — a meta é o próprio indicador."
+            description="Alvo, prazo e andamento de cada meta desta empresa."
             actions={
               <Link to={`/empresa/${company.id}/kpis`} className="btn-ghost py-1.5 text-xs">
                 Ver KPIs
               </Link>
             }
           >
-            {metas.length === 0 ? (
+            {openMetas.length === 0 ? (
               <p className="text-sm text-content-soft">Nenhuma meta em aberto.</p>
             ) : (
               <ul className="space-y-3">
-                {metas.map((meta) => {
+                {openMetas.map((meta) => {
                   const ratio = attainmentRatio(meta.value, meta.target_value, meta.direction)
                   const caption =
                     meta.value !== null && meta.target_value !== null
                       ? `${formatValue(meta.value, meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
                       : undefined
                   return (
-                    <li key={meta.kpi_id}>
+                    <li key={meta.meta_id}>
                       <Link
                         to={`/empresa/${company.id}/kpis?kpi=${meta.kpi_id}`}
                         className="block rounded-md -mx-1 px-1 py-0.5 transition hover:bg-hover"
@@ -702,13 +719,13 @@ export default function CompanyDashboard() {
       {/* ------------------------------------------------- gráficos comparativos */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card
-          title="KPIs: realizado x meta"
-          description="Quanto cada indicador entregou frente ao próprio alvo. A linha marca os 100%."
+          title="Metas: realizado x alvo"
+          description="Quanto cada meta entregou frente ao próprio alvo. A linha marca os 100%."
         >
           {kpiAttainment.length === 0 ? (
             <EmptyState
               title="Nada para comparar ainda"
-              description="Defina uma meta e lance ao menos um valor em algum KPI."
+              description="Defina uma meta e lance ao menos um valor no indicador dela."
             />
           ) : (
             <div className="h-64">

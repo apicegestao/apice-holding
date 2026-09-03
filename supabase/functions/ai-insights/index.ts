@@ -24,9 +24,9 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSess
 const SEVERITIES = ['info', 'opportunity', 'warning', 'critical']
 
 const SYSTEM_PROMPT = `Você é o analista de gestão da Ápice Holding, uma holding que controla várias empresas.
-Recebe um retrato em JSON com o estado inteiro da empresa (ou do grupo): KPIs — que já são as metas quando
-têm prazo, com responsável e andamento —, tarefas, orçamentos de eventos/projetos (previsto x realizado) e
-integrações. Devolve insights acionáveis para o administrador.
+Recebe um retrato em JSON com o estado inteiro da empresa (ou do grupo): KPIs — indicadores que medem algo,
+cada um podendo ter zero, uma ou várias metas (alvo, prazo, responsável e andamento) —, tarefas, orçamentos
+de eventos/projetos (previsto x realizado) e integrações. Devolve insights acionáveis para o administrador.
 
 Regras:
 - Responda SEMPRE em português do Brasil.
@@ -82,63 +82,91 @@ const MODULE_READERS: Record<string, ModuleReader> = {
   async kpis(companyId) {
     const { data: kpis } = await admin
       .from('kpis')
-      .select('id, name, unit, direction, frequency, target_value, category, due_date, status, owner_id')
+      .select('id, name, unit, direction, frequency, category')
       .eq('company_id', companyId)
       .eq('is_active', true)
 
     const kpiIds = (kpis ?? []).map((k) => k.id)
+    if (!kpiIds.length) return { kpis: [] }
+
     const history: Record<string, { period: string; value: number }[]> = {}
-    const checkpointsByKpi: Record<string, { periodo: string; alvo: number }[]> = {}
 
-    if (kpiIds.length) {
-      const [{ data: values }, { data: checkpoints }, { data: owners }] = await Promise.all([
-        admin
-          .from('kpi_values')
-          .select('kpi_id, period_start, value')
-          .in('kpi_id', kpiIds)
-          .order('period_start', { ascending: false })
-          .limit(400),
-        admin
-          .from('kpi_checkpoints')
-          .select('kpi_id, period_start, period_end, target_value')
-          .in('kpi_id', kpiIds)
-          .order('seq', { ascending: true }),
-        admin.from('profiles').select('id, full_name').in(
-          'id',
-          [...new Set((kpis ?? []).map((k) => k.owner_id).filter((id): id is string => Boolean(id)))],
-        ),
-      ])
+    const [{ data: values }, { data: metas }] = await Promise.all([
+      admin
+        .from('kpi_values')
+        .select('kpi_id, period_start, value')
+        .in('kpi_id', kpiIds)
+        .order('period_start', { ascending: false })
+        .limit(400),
+      // Um indicador pode ter 0, 1 ou várias metas — cada uma com seu
+      // próprio prazo, alvo, responsável e andamento.
+      admin
+        .from('metas')
+        .select('id, kpi_id, target_value, due_date, owner_id, status')
+        .in('kpi_id', kpiIds),
+    ])
 
-      for (const row of values ?? []) {
-        const bucket = (history[row.kpi_id] ??= [])
-        if (bucket.length < 8) bucket.push({ period: row.period_start, value: Number(row.value) })
-      }
-      for (const row of checkpoints ?? []) {
-        const bucket = (checkpointsByKpi[row.kpi_id] ??= [])
-        bucket.push({ periodo: `${row.period_start}..${row.period_end}`, alvo: Number(row.target_value) })
-      }
-      const ownerName = new Map((owners ?? []).map((o) => [o.id, o.full_name]))
-
-      return {
-        // Um KPI com prazo é a meta — está tudo na mesma linha, não há mais
-        // um módulo "metas" separado.
-        kpis: (kpis ?? []).map((k) => ({
-          nome: k.name,
-          categoria: k.category,
-          unidade: k.unit,
-          direcao: k.direction, // "up" = quanto maior melhor
-          frequencia: k.frequency,
-          meta: k.target_value === null ? null : Number(k.target_value),
-          eh_meta_com_prazo: k.due_date !== null,
-          prazo: k.due_date,
-          andamento: k.due_date !== null ? k.status : null,
-          responsavel: k.owner_id ? (ownerName.get(k.owner_id) ?? null) : null,
-          parcelas_semanais: checkpointsByKpi[k.id] ?? [],
-          ultimos_valores: (history[k.id] ?? []).slice().reverse(),
-        })),
-      }
+    for (const row of values ?? []) {
+      const bucket = (history[row.kpi_id] ??= [])
+      if (bucket.length < 8) bucket.push({ period: row.period_start, value: Number(row.value) })
     }
-    return { kpis: [] }
+
+    const metaIds = (metas ?? []).map((m) => m.id)
+    const ownerIds = [
+      ...new Set((metas ?? []).map((m) => m.owner_id).filter((id): id is string => Boolean(id))),
+    ]
+
+    const [{ data: checkpoints }, { data: owners }] = await Promise.all([
+      metaIds.length
+        ? admin
+            .from('kpi_checkpoints')
+            .select('meta_id, period_start, period_end, target_value')
+            .in('meta_id', metaIds)
+            .order('seq', { ascending: true })
+        : { data: [] as { meta_id: string; period_start: string; period_end: string; target_value: number }[] },
+      ownerIds.length
+        ? admin.from('profiles').select('id, full_name').in('id', ownerIds)
+        : { data: [] as { id: string; full_name: string }[] },
+    ])
+
+    const checkpointsByMeta: Record<string, { periodo: string; alvo: number }[]> = {}
+    for (const row of checkpoints ?? []) {
+      const bucket = (checkpointsByMeta[row.meta_id] ??= [])
+      bucket.push({ periodo: `${row.period_start}..${row.period_end}`, alvo: Number(row.target_value) })
+    }
+    const ownerName = new Map((owners ?? []).map((o) => [o.id, o.full_name]))
+
+    type MetaRow = {
+      id: string
+      kpi_id: string
+      target_value: number | null
+      due_date: string | null
+      owner_id: string | null
+      status: string
+    }
+    const metasByKpi: Record<string, MetaRow[]> = {}
+    for (const m of (metas ?? []) as MetaRow[]) {
+      const bucket = (metasByKpi[m.kpi_id] ??= [])
+      bucket.push(m)
+    }
+
+    return {
+      kpis: (kpis ?? []).map((k) => ({
+        nome: k.name,
+        categoria: k.category,
+        unidade: k.unit,
+        direcao: k.direction, // "up" = quanto maior melhor
+        frequencia: k.frequency,
+        ultimos_valores: (history[k.id] ?? []).slice().reverse(),
+        metas: (metasByKpi[k.id] ?? []).map((m) => ({
+          meta: m.target_value === null ? null : Number(m.target_value),
+          prazo: m.due_date,
+          andamento: m.status,
+          responsavel: m.owner_id ? (ownerName.get(m.owner_id) ?? null) : null,
+          parcelas_semanais: checkpointsByMeta[m.id] ?? [],
+        })),
+      })),
+    }
   },
 
   async tarefas(companyId) {
@@ -224,11 +252,11 @@ async function companyContext(companyId: string) {
 }
 
 async function holdingContext() {
-  const [{ data: snapshots }, { data: kpis }, { data: companies }, { data: integrations }, { data: budgets }] =
+  const [{ data: snapshots }, { data: metas }, { data: companies }, { data: integrations }, { data: budgets }] =
     await Promise.all([
       admin.rpc('company_snapshots'),
       admin
-        .from('kpi_latest_values')
+        .from('meta_latest_values')
         .select('company_id, name, value, target_value, unit, direction, period_start, due_date, status')
         .limit(300),
       admin.from('companies').select('id, name, sector'),
@@ -252,17 +280,16 @@ async function holdingContext() {
   return {
     escopo: 'holding',
     empresas: snapshots ?? [],
-    kpis_consolidados: (kpis ?? []).map((k) => ({
-      empresa: byId.get(k.company_id) ?? k.company_id,
-      nome: k.name,
-      valor: Number(k.value),
-      meta: k.target_value === null ? null : Number(k.target_value),
-      unidade: k.unit,
-      direcao: k.direction,
-      periodo: k.period_start,
-      eh_meta_com_prazo: k.due_date !== null,
-      prazo: k.due_date,
-      andamento: k.due_date !== null ? k.status : null,
+    metas_consolidadas: (metas ?? []).map((m) => ({
+      empresa: byId.get(m.company_id) ?? m.company_id,
+      nome: m.name,
+      valor: m.value === null ? null : Number(m.value),
+      meta: m.target_value === null ? null : Number(m.target_value),
+      unidade: m.unit,
+      direcao: m.direction,
+      periodo: m.period_start,
+      prazo: m.due_date,
+      andamento: m.status,
     })),
     integracoes_com_problema: (integrations ?? [])
       .filter((i) => i.is_active && i.last_status === 'error')

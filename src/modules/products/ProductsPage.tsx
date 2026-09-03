@@ -36,10 +36,12 @@ import {
 import { COMPANY_PALETTE } from '../companies/CompanyFields'
 import {
   PRODUCT_EDITION_STATUS_LABEL,
+  type GoalStatus,
   type Kpi,
   type KpiDirection,
   type KpiLatestValue,
   type KpiUnit,
+  type Meta,
   type Product,
   type ProductEdition,
   type ProductEditionStatus,
@@ -62,19 +64,36 @@ const blankEditionForm: EditionForm = { name: '', start_date: '', end_date: '' }
 // título/descrição de toda tarefa da empresa à toa.
 type TaskCount = { id: string; product_id: string | null; status: string }
 
-// Um KPI ativo entra aqui com lançamento ou não — um indicador que só soma
-// os filhos (ex. o do produto, que nunca lança direto) não pode sumir da
-// tela por nunca ter uma linha própria em kpi_values.
+// Um KPI (indicador) ativo entra aqui com lançamento ou não — um indicador
+// que só soma os filhos (ex. o do produto, que nunca lança direto) não pode
+// sumir da tela por nunca ter uma linha própria em kpi_values. Só medição:
+// meta é outra coisa, ver `ProductMetaRow`.
 type ProductKpiRow = {
   kpi_id: string
   name: string
   unit: KpiUnit
   direction: KpiDirection
-  target_value: number | null
   value: number | null
   product_id: string | null
   product_edition_id: string | null
   parent_kpi_id: string | null
+}
+
+// Uma meta, já com o nome/unidade/direção do indicador que ela mede e o
+// valor de verdade dele (effectiveValue — soma incluída). O mesmo kpi_id
+// pode aparecer em mais de uma linha — um indicador pode ter mais de uma
+// meta ao mesmo tempo.
+type ProductMetaRow = {
+  meta_id: string
+  kpi_id: string
+  name: string
+  unit: KpiUnit
+  direction: KpiDirection
+  product_id: string | null
+  product_edition_id: string | null
+  target_value: number | null
+  status: GoalStatus
+  value: number | null
 }
 
 export default function ProductsPage() {
@@ -85,6 +104,7 @@ export default function ProductsPage() {
   const [editions, setEditions] = useState<ProductEdition[]>([])
   const [kpiDefs, setKpiDefs] = useState<Kpi[]>([])
   const [kpiValues, setKpiValues] = useState<KpiLatestValue[]>([])
+  const [metas, setMetas] = useState<Meta[]>([])
   const [tasks, setTasks] = useState<TaskCount[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -97,22 +117,30 @@ export default function ProductsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: productRows }, { data: editionRows }, { data: kpiDefRows }, { data: kpiValueRows }, { data: taskRows }] =
-      await Promise.all([
-        supabase.from('products').select('*').eq('company_id', company.id).order('display_order'),
-        supabase
-          .from('product_editions')
-          .select('*')
-          .eq('company_id', company.id)
-          .order('start_date', { ascending: false, nullsFirst: false }),
-        supabase.from('kpis').select('*').eq('company_id', company.id).eq('is_active', true).is('archived_at', null),
-        supabase.from('kpi_latest_values').select('*').eq('company_id', company.id).is('archived_at', null),
-        supabase.from('tasks').select('id, product_id, status').eq('company_id', company.id),
-      ])
+    const [
+      { data: productRows },
+      { data: editionRows },
+      { data: kpiDefRows },
+      { data: kpiValueRows },
+      { data: metaRows },
+      { data: taskRows },
+    ] = await Promise.all([
+      supabase.from('products').select('*').eq('company_id', company.id).order('display_order'),
+      supabase
+        .from('product_editions')
+        .select('*')
+        .eq('company_id', company.id)
+        .order('start_date', { ascending: false, nullsFirst: false }),
+      supabase.from('kpis').select('*').eq('company_id', company.id).eq('is_active', true).is('archived_at', null),
+      supabase.from('kpi_latest_values').select('*').eq('company_id', company.id).is('archived_at', null),
+      supabase.from('metas').select('*').eq('company_id', company.id).is('archived_at', null),
+      supabase.from('tasks').select('id, product_id, status').eq('company_id', company.id),
+    ])
     setProducts((productRows as Product[]) ?? [])
     setEditions((editionRows as ProductEdition[]) ?? [])
     setKpiDefs((kpiDefRows as Kpi[]) ?? [])
     setKpiValues((kpiValueRows as KpiLatestValue[]) ?? [])
+    setMetas((metaRows as Meta[]) ?? [])
     setTasks((taskRows as TaskCount[]) ?? [])
     setLoading(false)
   }, [company.id])
@@ -130,7 +158,6 @@ export default function ProductsPage() {
           name: def.name,
           unit: def.unit,
           direction: def.direction,
-          target_value: latest?.target_value ?? def.target_value,
           value: latest ? Number(latest.value) : null,
           product_id: def.product_id,
           product_edition_id: def.product_edition_id,
@@ -149,72 +176,94 @@ export default function ProductsPage() {
     [childrenByParent, kpiRowById],
   )
 
-  // Indicadores "do produto como um todo" (sem edição) e os "de cada
-  // turma" — separados porque aparecem em lugares diferentes da tela.
-  const kpisByProduct = useMemo(() => {
-    const map = new Map<string, ProductKpiRow[]>()
-    for (const row of kpiRows) {
+  // Cada meta ganha o nome/unidade/direção do indicador que ela mede e o
+  // valor de verdade dele (soma incluída) — um indicador pode aparecer em
+  // mais de uma linha aqui (uma por meta que ele tem).
+  const metaRows = useMemo<ProductMetaRow[]>(
+    () =>
+      metas
+        .map((meta) => {
+          const kpi = kpiRowById.get(meta.kpi_id)
+          if (!kpi) return null
+          return {
+            meta_id: meta.id,
+            kpi_id: meta.kpi_id,
+            name: kpi.name,
+            unit: kpi.unit,
+            direction: kpi.direction,
+            product_id: kpi.product_id,
+            product_edition_id: kpi.product_edition_id,
+            target_value: meta.target_value,
+            status: meta.status,
+            value: effectiveValue(meta.kpi_id),
+          }
+        })
+        .filter((row): row is ProductMetaRow => row !== null),
+    [metas, kpiRowById, effectiveValue],
+  )
+
+  // Metas "do produto como um todo" (sem edição) e as "de cada turma" —
+  // separadas porque aparecem em lugares diferentes da tela.
+  const metasByProduct = useMemo(() => {
+    const map = new Map<string, ProductMetaRow[]>()
+    for (const row of metaRows) {
       if (!row.product_id || row.product_edition_id) continue
       const list = map.get(row.product_id) ?? []
       list.push(row)
       map.set(row.product_id, list)
     }
     return map
-  }, [kpiRows])
+  }, [metaRows])
 
-  const kpisByEdition = useMemo(() => {
-    const map = new Map<string, ProductKpiRow[]>()
-    for (const row of kpiRows) {
+  const metasByEdition = useMemo(() => {
+    const map = new Map<string, ProductMetaRow[]>()
+    for (const row of metaRows) {
       if (!row.product_edition_id) continue
       const list = map.get(row.product_edition_id) ?? []
       list.push(row)
       map.set(row.product_edition_id, list)
     }
     return map
-  }, [kpiRows])
+  }, [metaRows])
 
   // Saúde de cada produto: mesma conta da saúde geral da empresa (média do
-  // attainmentRatio dos KPIs com meta, usando o valor de verdade — soma
-  // incluída), restrita aos KPIs daquele produto — e tarefas abertas dele.
-  // `metas` é TODA meta do produto — a dele mesmo e a de cada edição —, não
-  // só uma "de capa" escolhida a dedo: uma turma pode ter várias metas ao
-  // mesmo tempo (vendas de ingresso, faturamento, cancelamentos…) e todas
-  // precisam aparecer, não só a primeira que existir.
+  // attainmentRatio das metas com alvo, usando o valor de verdade — soma
+  // incluída), restrita às metas daquele produto — e tarefas abertas dele.
+  // `metas` aqui é TODA meta do produto — a dele mesmo e a de cada edição —,
+  // não só uma "de capa" escolhida a dedo: uma turma pode ter várias metas
+  // ao mesmo tempo (vendas de ingresso, faturamento, cancelamentos…) e
+  // todas precisam aparecer, não só a primeira que existir.
   const statsByProduct = useMemo(() => {
     const map = new Map<
       string,
-      { ratio: number | null; open: number; metas: { kpi: ProductKpiRow; value: number | null; editionName?: string }[] }
+      { ratio: number | null; open: number; metas: { meta: ProductMetaRow; editionName?: string }[] }
     >()
     for (const product of products) {
-      const productLevel = kpisByProduct.get(product.id) ?? []
+      const productLevel = metasByProduct.get(product.id) ?? []
       const productEditions = editions.filter((edition) => edition.product_id === product.id)
-      const withTarget = kpiRows.filter(
+      const withTarget = metaRows.filter(
         (row) => row.product_id === product.id && row.target_value !== null && Number(row.target_value) !== 0,
       )
       const ratios = withTarget
-        .map((row) => attainmentRatio(effectiveValue(row.kpi_id), row.target_value, row.direction))
+        .map((row) => attainmentRatio(row.value, row.target_value, row.direction))
         .filter((ratio): ratio is number => ratio !== null)
       const open = tasks.filter(
         (task) => task.product_id === product.id && ['todo', 'doing', 'blocked'].includes(task.status),
       )
-      const metas = [
-        ...productLevel.map((kpi) => ({ kpi, value: effectiveValue(kpi.kpi_id) })),
+      const metasList = [
+        ...productLevel.map((meta) => ({ meta })),
         ...productEditions.flatMap((edition) =>
-          (kpisByEdition.get(edition.id) ?? []).map((kpi) => ({
-            kpi,
-            value: effectiveValue(kpi.kpi_id),
-            editionName: edition.name,
-          })),
+          (metasByEdition.get(edition.id) ?? []).map((meta) => ({ meta, editionName: edition.name })),
         ),
       ]
       map.set(product.id, {
         ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
         open: open.length,
-        metas,
+        metas: metasList,
       })
     }
     return map
-  }, [products, kpisByProduct, kpisByEdition, editions, kpiRows, tasks, effectiveValue])
+  }, [products, metasByProduct, metasByEdition, editions, metaRows, tasks])
 
   const activeProduct = useMemo(() => products.find((item) => item.id === activeId) ?? null, [products, activeId])
   const activeEditions = useMemo(
@@ -381,8 +430,8 @@ export default function ProductsPage() {
                 </div>
                 {stats && stats.metas.length > 0 ? (
                   <div className="mt-3 space-y-2.5">
-                    {stats.metas.slice(0, 2).map(({ kpi, value, editionName }) => (
-                      <MetaLine key={kpi.kpi_id} kpi={kpi} value={value} editionName={editionName} size="xs" />
+                    {stats.metas.slice(0, 2).map(({ meta, editionName }) => (
+                      <MetaLine key={meta.meta_id} meta={meta} editionName={editionName} size="xs" />
                     ))}
                     {stats.metas.length > 2 && (
                       <p className="text-[11px] text-content-faint">
@@ -450,19 +499,19 @@ export default function ProductsPage() {
                   </Link>
                 )}
               </div>
-              {(kpisByProduct.get(activeProduct.id) ?? []).length === 0 ? (
+              {(metasByProduct.get(activeProduct.id) ?? []).length === 0 ? (
                 <p className="mt-1 text-sm text-content-soft">
-                  Ainda sem meta própria — o produto como um todo não tem nenhum indicador ligado a ele.
+                  Ainda sem meta própria — o produto como um todo não tem nenhuma meta definida.
                 </p>
               ) : (
                 <ul className="mt-2 space-y-2">
-                  {(kpisByProduct.get(activeProduct.id) ?? []).map((kpi) => (
-                    <li key={kpi.kpi_id}>
+                  {(metasByProduct.get(activeProduct.id) ?? []).map((meta) => (
+                    <li key={meta.meta_id}>
                       <Link
-                        to={`/empresa/${company.id}/kpis?kpi=${kpi.kpi_id}`}
+                        to={`/empresa/${company.id}/kpis?kpi=${meta.kpi_id}`}
                         className="block rounded-lg border border-line p-2.5 transition hover:border-line-strong hover:bg-hover"
                       >
-                        <MetaLine kpi={kpi} value={effectiveValue(kpi.kpi_id)} />
+                        <MetaLine meta={meta} />
                       </Link>
                     </li>
                   ))}
@@ -479,7 +528,7 @@ export default function ProductsPage() {
               ) : (
                 <ul className="mt-2 space-y-2">
                   {activeEditions.map((edition) => {
-                    const editionKpis = kpisByEdition.get(edition.id) ?? []
+                    const editionMetas = metasByEdition.get(edition.id) ?? []
                     return (
                       <li key={edition.id} className="rounded-lg border border-line p-2.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -526,7 +575,7 @@ export default function ProductsPage() {
                         </div>
 
                         <div className="mt-2 border-t border-line pt-2">
-                          {editionKpis.length === 0 ? (
+                          {editionMetas.length === 0 ? (
                             <div className="flex items-center justify-between gap-2">
                               <p className="text-xs text-content-faint">Sem meta própria ainda.</p>
                               {canWrite && (
@@ -540,13 +589,13 @@ export default function ProductsPage() {
                             </div>
                           ) : (
                             <ul className="space-y-2">
-                              {editionKpis.map((kpi) => (
-                                <li key={kpi.kpi_id}>
+                              {editionMetas.map((meta) => (
+                                <li key={meta.meta_id}>
                                   <Link
-                                    to={`/empresa/${company.id}/kpis?kpi=${kpi.kpi_id}`}
+                                    to={`/empresa/${company.id}/kpis?kpi=${meta.kpi_id}`}
                                     className="block rounded-md -mx-1 px-1 py-0.5 transition hover:bg-hover"
                                   >
-                                    <MetaLine kpi={kpi} value={effectiveValue(kpi.kpi_id)} size="xs" />
+                                    <MetaLine meta={meta} size="xs" />
                                   </Link>
                                 </li>
                               ))}
@@ -681,32 +730,30 @@ export default function ProductsPage() {
  *  mais de uma turma na mesma lista — sem isso, "Faturamento" repetido
  *  duas vezes não diz de qual edição é cada um. */
 function MetaLine({
-  kpi,
-  value,
+  meta,
   editionName,
   size = 'sm',
 }: {
-  kpi: ProductKpiRow
-  value: number | null
+  meta: ProductMetaRow
   editionName?: string
   size?: 'sm' | 'xs'
 }) {
-  const ratio = value !== null ? attainmentRatio(value, kpi.target_value, kpi.direction) : null
+  const ratio = meta.value !== null ? attainmentRatio(meta.value, meta.target_value, meta.direction) : null
   const textSize = size === 'xs' ? 'text-[11px]' : 'text-xs'
   return (
     <div>
       <p className={`truncate font-medium text-content-soft ${textSize}`}>
-        {kpi.name}
+        {meta.name}
         {editionName && <span className="font-normal text-content-faint"> · {editionName}</span>}
       </p>
       <p className={`mt-0.5 text-content-faint ${textSize}`}>
-        {value === null
+        {meta.value === null
           ? 'sem lançamento ainda'
-          : kpi.target_value !== null
-            ? `${formatValue(value, kpi.unit)} de ${formatValue(kpi.target_value, kpi.unit)}`
-            : formatValue(value, kpi.unit)}
+          : meta.target_value !== null
+            ? `${formatValue(meta.value, meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
+            : formatValue(meta.value, meta.unit)}
       </p>
-      {value !== null && kpi.target_value !== null && (
+      {meta.value !== null && meta.target_value !== null && (
         <div className="mt-1">
           <ProgressBar ratio={ratio} />
         </div>

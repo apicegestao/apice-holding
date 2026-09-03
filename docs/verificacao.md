@@ -1629,3 +1629,92 @@ com screenshot real (empresa Vibra): cartão de "Entre Donos" no painel e
 em Produtos mostrando as duas metas (a do produto, 32%, e a da turma de
 setembro, 64%) lado a lado, cada uma com sua própria barra — antes só a
 primeira aparecia.
+
+## 29. Separar Meta de Indicador (KPI) — metas como centro do sistema
+
+Pedido do usuário: "Metas são o ponto central do sistema. Indicadores são
+as ferramentas de visualização" — empresa, produto e sub-produto deveriam
+poder carregar **múltiplas** metas ao mesmo tempo, com os KPIs servindo só
+de instrumento de medição por trás delas. Isso já não era possível: desde
+a migração `0016_merge_kpis_goals.sql` (item 32 acima), "KPI" e "meta" eram
+a mesma linha — um indicador só podia ter uma meta, e quando o prazo dela
+vencia o arquivamento automático apagava o indicador inteiro junto (era
+essa a causa do bug corrigido mais cedo na mesma sessão: um KPI de vendas
+ganhando o mês no próprio nome, "Set.26", porque alguém precisava recriar
+o indicador do zero a cada mês).
+
+**Modelo novo:** `kpis` volta a ser só o indicador (nome, unidade,
+direção, frequência, produto/edição, categoria, histórico de valores) —
+saíram de lá `target_value`, `due_date`, `owner_id` e `status`. Nova
+tabela `metas` (`company_id`, `kpi_id`, `target_value`, `due_date`,
+`owner_id`, `status`, `archived_at`) guarda cada meta separadamente,
+referenciando o indicador que ela mede — um `kpi_id` pode aparecer em 0, 1
+ou N linhas de `metas` ao mesmo tempo. `kpi_checkpoints` (repartição
+semanal) trocou a chave de `kpi_id` para `meta_id`, já que a repartição é
+sobre uma meta específica, não sobre o indicador cru. `parent_kpi_id` (a
+cadeia de soma turma → produto, já com profundidade livre desde o item 78)
+**não mudou** — rollup de valor é uma conta sobre indicador, ortogonal a
+meta.
+
+Duas views, cada uma no seu papel: `kpi_latest_values` (existente) ficou
+enxuta — só indicador + último valor, sem nenhum campo de meta.
+`meta_latest_values` (nova) — uma linha por META, juntando `metas` +
+`kpis` + o último valor do indicador; o mesmo `kpi_id` aparece uma vez por
+meta que ele tem. `company_snapshots()` manteve os mesmos nomes de coluna
+(`kpis_on_target`/`kpis_off_target`/`goals_*` — o painel da holding lê por
+nome), só trocou a origem interna de `kpis`/`kpi_latest_values` para
+`meta_latest_values`: um indicador com 2 metas agora conta certo como 2,
+não 1. `app.archive_overdue_kpis()` virou `app.archive_overdue_metas()`
+(cron `apice_archive_overdue_metas`) — arquiva a **meta** vencida, nunca
+mais o indicador; isso é o que fecha o bug de origem.
+
+**Telas:** `KpisPage` separou o cadastro do indicador (nome, unidade,
+direção, frequência, produto/edição — tela única, sem fricção) do
+cadastro de meta, oferecido opcionalmente na mesma submissão ("Definir uma
+meta agora?") ou depois, via "+ Meta" num indicador já existente. Cada
+indicador lista suas metas (0, 1 ou N) com prazo/responsável/status/
+progresso próprios; a repartição semanal (`MetaFormModal`) passou a operar
+sobre uma meta (`meta_id`), não mais sobre o KPI. `CompanyDashboard`,
+`HoldingDashboard` e `ProductsPage` trocaram a leitura única de
+`kpi_latest_values` por duas fontes: `kpi_latest_values` pro grid puro de
+indicadores, `metas`/`meta_latest_values` pra tudo que é meta (lista
+"Metas", gráfico "Metas: realizado x alvo", contagem "Metas na meta",
+saúde geral) — o padrão de lista "+N meta(s)" do item 28 já servia sem
+mudança de estrutura, só trocando a fonte do dado. `ai-insights` (edge
+function): o leitor de KPIs devolve indicador + lista de metas aninhada
+(era uma linha só, "kpi com meta embutida"); `holdingContext()` passou a
+ler `meta_latest_values` para os números de meta consolidados.
+
+**Fora de escopo, documentado no plano:** uma meta acompanhada por mais de
+um indicador ao mesmo tempo (ex. "crescer a turma" = ingressos +
+faturamento juntos) — os casos concretos citados pelo usuário (ingressos,
+faturamento, cancelamentos) já são resolvidos como metas separadas sobre
+indicadores separados, sem essa necessidade.
+
+**Verificação:** migração aplicada e conferida por SQL direto — a mesma
+empresa (Vibra) usada nos testes já cadastrados. `get_advisors` (security)
+antes/depois: mesmos dois avisos pré-existentes (`system_settings` sem
+política e proteção de senha vazada desligada), nenhum novo. Smoke test
+completo no banco: criado um indicador com 1 lançamento e 2 metas
+(mensal, alvo 50.000, e anual, alvo 600.000); `meta_latest_values` mostrou
+as duas linhas distintas para o mesmo `kpi_id`, cada uma com seu próprio
+`target_value`/`due_date`, e `kpi_latest_values` seguiu com 1 linha só,
+sem nenhum campo de meta. Antecipado o prazo da meta mensal pro passado e
+rodado `app.archive_overdue_metas()` manualmente: só ela arquivou
+(`archived_at` preenchido), a meta anual seguiu ativa e o indicador
+manteve `archived_at` nulo — o indicador nunca mais é arquivado só porque
+uma meta venceu. Registros de teste removidos ao final, sem órfão (`metas`
+sem `kpi_id` válido ou `kpi_values` sem `kpi_id` válido: zero). `npx tsc
+--noEmit` e `npm run build` limpos. `npm run test`: 28, sem mudança
+(rollup de valor não foi tocado). `npm run check:contrast`: 24/24, sem
+mudança (nenhuma cor nova). `npm run test:e2e`: 190 testes — fixture
+`KPIS` perdeu os 4 campos de meta, nova fixture `METAS` (tabela crua,
+lida por `CompanyDashboard`/`ProductsPage`) e `META_LATEST_VALUES` (view,
+lida pela holding) cobrem os mesmos casos de antes; 2 asserções
+atualizadas para os rótulos renomeados ("Metas: realizado x alvo", "Metas
+na meta por empresa"). Rodada completa: 159 passaram de cara, 4 falharam
+por queda transitória do servidor de preview local perto do fim de uma
+suíte longa (`ERR_CONNECTION_REFUSED`, não relacionado à mudança) —
+confirmado reexecutando só esses 4 isoladamente: passam (23/23 no arquivo
+de segurança, incluindo os 4). `ai-insights` reimplantado na função viva
+(`deploy_edge_function`).

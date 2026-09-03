@@ -1,5 +1,7 @@
-// KPIs e metas da empresa — a mesma coisa: cadastro, lançamento por período,
-// histórico e, quando o indicador tem prazo, quem responde e como está indo.
+// Indicadores (KPIs) da empresa: cadastro, lançamento por período e
+// histórico. Meta — alvo, prazo, responsável, andamento — é uma coisa à
+// parte agora (tabela `metas`, uma ou várias por indicador); o indicador é
+// só a ferramenta de medição por trás dela.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -12,6 +14,7 @@ import {
   Layers,
   Pencil,
   Plus,
+  Target,
   Trash2,
   TrendingUp,
 } from 'lucide-react'
@@ -19,7 +22,6 @@ import {
   CartesianGrid,
   Line,
   LineChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -30,7 +32,6 @@ import {
   attainmentRatio,
   formatDate,
   formatValue,
-  isOnTarget,
   labelPeriod,
   periodBounds,
   relativeDays,
@@ -70,6 +71,7 @@ import {
   type KpiUnit,
   type KpiValue,
   type KpiValueEntry,
+  type Meta,
   type Product,
   type ProductEdition,
   type Profile,
@@ -92,16 +94,17 @@ const emptyKpi = {
   unit: 'number' as KpiUnit,
   direction: 'up' as KpiDirection,
   frequency: 'monthly' as KpiFrequency,
-  target_value: null as number | null,
   is_active: true,
-  due_date: '',
-  owner_id: '',
-  status: 'active' as GoalStatus,
   product_id: '',
   product_edition_id: '',
   entry_frequency: '' as KpiFrequency | '',
   parent_kpi_id: '',
 }
+
+// Rascunho da primeira meta, oferecida junto na hora de criar o indicador —
+// opcional, cobre o caso comum (indicador + 1 meta) numa submissão só, sem
+// reintroduzir o fluxo de dois passos que motivou fundir os dois em 2026.
+const emptyMetaDraft = { target_value: null as number | null, due_date: '', owner_id: '' }
 
 export default function KpisPage() {
   const { company, canWrite } = useCompany()
@@ -110,6 +113,7 @@ export default function KpisPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [kpis, setKpis] = useState<Kpi[]>([])
+  const [metas, setMetas] = useState<Meta[]>([])
   const [values, setValues] = useState<KpiValue[]>([])
   const [entries, setEntries] = useState<KpiValueEntry[]>([])
   const [people, setPeople] = useState<Profile[]>([])
@@ -127,7 +131,11 @@ export default function KpisPage() {
   const [creatingKpi, setCreatingKpi] = useState(false)
   const [createMode, setCreateMode] = useState<'suggestions' | 'custom'>('suggestions')
   const [chosen, setChosen] = useState<KpiTemplate[]>([])
+  const [wantsInitialMeta, setWantsInitialMeta] = useState(false)
+  const [metaDraft, setMetaDraft] = useState(emptyMetaDraft)
   const [removingKpi, setRemovingKpi] = useState<Kpi | null>(null)
+  const [metaModalFor, setMetaModalFor] = useState<{ kpi: Kpi; meta: Meta | null } | null>(null)
+  const [removingMeta, setRemovingMeta] = useState<Meta | null>(null)
   const [entryFor, setEntryFor] = useState<Kpi | null>(null)
   const [historyFor, setHistoryFor] = useState<Kpi | null>(null)
   const [error, setError] = useState('')
@@ -135,7 +143,7 @@ export default function KpisPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: kpiRows }, { data: memberRows }, { data: productRows }, { data: editionRows }] =
+    const [{ data: kpiRows }, { data: memberRows }, { data: productRows }, { data: editionRows }, { data: metaRows }] =
       await Promise.all([
         supabase
           .from('kpis')
@@ -146,15 +154,21 @@ export default function KpisPage() {
         supabase.from('company_members').select('user_id').eq('company_id', company.id),
         supabase.from('products').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
         supabase.from('product_editions').select('*').eq('company_id', company.id),
+        supabase
+          .from('metas')
+          .select('*')
+          .eq('company_id', company.id)
+          .order('due_date', { ascending: true, nullsFirst: false }),
       ])
 
     const ids = (kpiRows ?? []).map((row) => row.id)
+    const metaIds = (metaRows ?? []).map((row) => row.id)
     const [{ data: valueRows }, { data: checkpointRows }, { data: entryRows }] = await Promise.all([
       ids.length
         ? supabase.from('kpi_values').select('*').in('kpi_id', ids).order('period_start', { ascending: true })
         : Promise.resolve({ data: [] as KpiValue[] }),
-      ids.length
-        ? supabase.from('kpi_checkpoints').select('*').in('kpi_id', ids).order('seq', { ascending: true })
+      metaIds.length
+        ? supabase.from('kpi_checkpoints').select('*').in('meta_id', metaIds).order('seq', { ascending: true })
         : Promise.resolve({ data: [] as KpiCheckpoint[] }),
       ids.length
         ? supabase
@@ -171,6 +185,7 @@ export default function KpisPage() {
       : { data: [] as Profile[] }
 
     setKpis((kpiRows as Kpi[]) ?? [])
+    setMetas((metaRows as Meta[]) ?? [])
     setValues((valueRows as KpiValue[]) ?? [])
     setEntries((entryRows as KpiValueEntry[]) ?? [])
     setCheckpoints((checkpointRows as KpiCheckpoint[]) ?? [])
@@ -209,8 +224,21 @@ export default function KpisPage() {
     return map
   }, [values])
 
+  const metasByKpi = useMemo(() => {
+    const map = new Map<string, Meta[]>()
+    for (const meta of metas) {
+      if (meta.archived_at) continue
+      const list = map.get(meta.kpi_id) ?? []
+      list.push(meta)
+      map.set(meta.kpi_id, list)
+    }
+    return map
+  }, [metas])
+
   const openCreate = (prefill?: Partial<typeof emptyKpi>) => {
     setKpiForm({ ...emptyKpi, ...prefill })
+    setWantsInitialMeta(false)
+    setMetaDraft(emptyMetaDraft)
     setChosen([])
     // Vindo de um atalho com produto/edição já escolhidos, pula direto pro
     // formulário — a lista de sugestões não sabe de produto, não ajuda aqui.
@@ -295,11 +323,7 @@ export default function KpisPage() {
       unit: kpi.unit,
       direction: kpi.direction,
       frequency: kpi.frequency,
-      target_value: kpi.target_value,
       is_active: kpi.is_active,
-      due_date: kpi.due_date ?? '',
-      owner_id: kpi.owner_id ?? '',
-      status: kpi.status,
       product_id: kpi.product_id ?? '',
       product_edition_id: kpi.product_edition_id ?? '',
       entry_frequency: kpi.entry_frequency ?? '',
@@ -321,11 +345,7 @@ export default function KpisPage() {
       unit: kpiForm.unit,
       direction: kpiForm.direction,
       frequency: kpiForm.frequency,
-      target_value: kpiForm.target_value,
       is_active: kpiForm.is_active,
-      due_date: kpiForm.due_date || null,
-      owner_id: kpiForm.owner_id || null,
-      status: kpiForm.status,
       product_id: kpiForm.product_id || null,
       // Edição só faz sentido junto do produto — trocar o produto e deixar
       // a edição antiga presa nele seria o mesmo bug que a guarda no banco
@@ -347,25 +367,57 @@ export default function KpisPage() {
       setError('Dê um nome ao indicador.')
       return
     }
+    if (!editingKpi && wantsInitialMeta && !metaDraft.due_date) {
+      setError('Defina um prazo para a meta, ou desmarque "Definir uma meta agora".')
+      return
+    }
 
     setBusy(true)
-    const result = editingKpi
-      ? await supabase.from('kpis').update(payload).eq('id', editingKpi.id)
-      : await supabase.from('kpis').insert(payload)
-    setBusy(false)
 
-    if (result.error) {
+    if (editingKpi) {
+      const { error: updateError } = await supabase.from('kpis').update(payload).eq('id', editingKpi.id)
+      setBusy(false)
+      if (updateError) {
+        setError(
+          updateError.code === '23505' ? 'Já existe um KPI com esse nome nesta empresa.' : updateError.message,
+        )
+        return
+      }
+      notify('KPI atualizado.')
+      setEditingKpi(null)
+      await load()
+      return
+    }
+
+    const { data: created, error: insertError } = await supabase.from('kpis').insert(payload).select('id').single()
+    if (insertError) {
+      setBusy(false)
       setError(
-        result.error.code === '23505'
-          ? 'Já existe um KPI com esse nome nesta empresa.'
-          : result.error.message,
+        insertError.code === '23505' ? 'Já existe um KPI com esse nome nesta empresa.' : insertError.message,
       )
       return
     }
 
-    notify(editingKpi ? 'KPI atualizado.' : 'KPI criado.')
+    if (wantsInitialMeta) {
+      const { error: metaError } = await supabase.from('metas').insert({
+        company_id: company.id,
+        kpi_id: created!.id,
+        target_value: metaDraft.target_value,
+        due_date: metaDraft.due_date,
+        owner_id: metaDraft.owner_id || null,
+      })
+      if (metaError) {
+        setBusy(false)
+        notify(`KPI criado, mas a meta não pôde ser salva: ${metaError.message}`, 'error')
+        setCreatingKpi(false)
+        await load()
+        return
+      }
+    }
+
+    setBusy(false)
+    notify(wantsInitialMeta ? 'KPI e meta criados.' : 'KPI criado.')
     setCreatingKpi(false)
-    setEditingKpi(null)
     await load()
   }
 
@@ -383,9 +435,10 @@ export default function KpisPage() {
     await load()
   }
 
-  // Arquivar não some com nada — só tira da tela de ativos. O sistema já
-  // arquiva sozinho quando o prazo passa; isto é só a versão manual, com o
-  // desfazer sempre à mão na aba de arquivados.
+  // Arquivar não some com nada — só tira da tela de ativos. Ao contrário de
+  // antes, o indicador nunca mais arquiva sozinho por causa de uma meta
+  // vencida (isso agora é só da meta, automático) — este botão é sempre uma
+  // decisão manual, com o desfazer sempre à mão na aba de arquivados.
   const archiveKpi = async (kpi: Kpi) => {
     const { error } = await supabase.from('kpis').update({ archived_at: new Date().toISOString() }).eq('id', kpi.id)
     if (error) {
@@ -403,6 +456,20 @@ export default function KpisPage() {
       return
     }
     notify('KPI reativado.')
+    await load()
+  }
+
+  const removeMeta = async () => {
+    if (!removingMeta) return
+    setBusy(true)
+    const { error } = await supabase.from('metas').delete().eq('id', removingMeta.id)
+    setBusy(false)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify('Meta excluída.')
+    setRemovingMeta(null)
     await load()
   }
 
@@ -424,12 +491,12 @@ export default function KpisPage() {
     return productFilter ? byArchiveTab.filter((kpi) => kpi.product_id === productFilter) : byArchiveTab
   }, [kpis, productFilter, showArchived])
 
-  const checkpointsByKpi = useMemo(() => {
+  const checkpointsByMeta = useMemo(() => {
     const map = new Map<string, KpiCheckpoint[]>()
     for (const checkpoint of checkpoints) {
-      const list = map.get(checkpoint.kpi_id) ?? []
+      const list = map.get(checkpoint.meta_id) ?? []
       list.push(checkpoint)
-      map.set(checkpoint.kpi_id, list)
+      map.set(checkpoint.meta_id, list)
     }
     return map
   }, [checkpoints])
@@ -536,7 +603,7 @@ export default function KpisPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title={`Metas · ${company.name}`}
-        subtitle="Indicadores desta empresa. Um KPI com prazo já é a meta — com responsável e andamento."
+        subtitle="Indicadores desta empresa — cada um pode ter uma ou várias metas, com prazo, responsável e andamento."
         actions={
           <>
             {products.length > 0 && (
@@ -607,7 +674,7 @@ export default function KpisPage() {
           title={showArchived ? 'Nenhum KPI arquivado' : 'Nenhum KPI neste produto'}
           description={
             showArchived
-              ? 'Indicadores arquivados (manualmente ou por prazo vencido) aparecem aqui.'
+              ? 'Indicadores arquivados manualmente aparecem aqui.'
               : 'Troque o filtro ou cadastre um indicador vinculado a este produto.'
           }
         />
@@ -622,12 +689,11 @@ export default function KpisPage() {
             const rollup = rollupFor(kpi.id)
             const parent = kpi.parent_kpi_id ? kpis.find((item) => item.id === kpi.parent_kpi_id) : null
             const displayValue = rollup ? rollup.value : latest ? Number(latest.value) : null
-            const onTarget = displayValue !== null ? isOnTarget(displayValue, kpi.target_value, kpi.direction) : null
-            const ratio = displayValue !== null ? attainmentRatio(displayValue, kpi.target_value, kpi.direction) : null
             const delta =
               !rollup && latest && previous ? Number(latest.value) - Number(previous.value) : null
             const improving =
               delta === null ? null : kpi.direction === 'up' ? delta >= 0 : delta <= 0
+            const kpiMetas = metasByKpi.get(kpi.id) ?? []
 
             const chartData = series.slice(-12).map((item) => ({
               label: labelPeriod(item.period_start, kpi.frequency),
@@ -729,32 +795,22 @@ export default function KpisPage() {
                         : latest
                           ? labelPeriod(latest.period_start, kpi.frequency)
                           : 'sem lançamento'}
-                      {kpi.target_value !== null && (
-                        <> · meta {formatValue(kpi.target_value, kpi.unit)}</>
-                      )}
                     </p>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    {onTarget !== null && (
-                      <Badge tone={onTarget ? 'green' : 'red'}>
-                        {onTarget ? 'na meta' : 'fora da meta'}
-                      </Badge>
-                    )}
-                    {delta !== null && (
-                      <span
-                        className={`flex items-center gap-0.5 text-xs font-medium ${
-                          improving ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-                        }`}
-                      >
-                        {improving ? (
-                          <ArrowUpRight className="h-3.5 w-3.5" />
-                        ) : (
-                          <ArrowDownRight className="h-3.5 w-3.5" />
-                        )}
-                        {formatValue(Math.abs(delta), kpi.unit)}
-                      </span>
-                    )}
-                  </div>
+                  {delta !== null && (
+                    <span
+                      className={`flex items-center gap-0.5 text-xs font-medium ${
+                        improving ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                      }`}
+                    >
+                      {improving ? (
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      ) : (
+                        <ArrowDownRight className="h-3.5 w-3.5" />
+                      )}
+                      {formatValue(Math.abs(delta), kpi.unit)}
+                    </span>
+                  )}
                 </div>
 
                 {rollup && (
@@ -781,14 +837,6 @@ export default function KpisPage() {
                   </ul>
                 )}
 
-                {/* KPI com prazo já ganha a barra lá embaixo, junto do resto
-                    da meta — mostrar duas vezes na mesma tela é redundante. */}
-                {ratio !== null && !kpi.due_date && (
-                  <div className="mt-3">
-                    <ProgressBar ratio={ratio} label="Meta x realizado" />
-                  </div>
-                )}
-
                 {chartData.length > 1 && (
                   <div className="mt-4 h-24">
                     <ResponsiveContainer width="100%" height="100%">
@@ -808,14 +856,6 @@ export default function KpisPage() {
                           itemStyle={{ color: chart.tooltipText }}
                           labelStyle={{ color: chart.tooltipText }}
                         />
-                        {kpi.target_value !== null && (
-                          <ReferenceLine
-                            y={kpi.target_value}
-                            stroke={chart.reference}
-                            strokeDasharray="4 4"
-                            ifOverflow="extendDomain"
-                          />
-                        )}
                         <Line
                           type="monotone"
                           dataKey="value"
@@ -828,29 +868,77 @@ export default function KpisPage() {
                   </div>
                 )}
 
-                {/* KPI com prazo é também a meta: mostra quem responde, até
-                    quando e o andamento — sem precisar de outra tela. */}
-                {kpi.due_date && (
-                  <div className="mt-4 border-t border-line pt-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs text-content-soft">
-                        {ownerName(kpi.owner_id) ?? 'Sem responsável'} · prazo {formatDate(kpi.due_date)}
-                        {' '}({relativeDays(kpi.due_date)})
-                      </p>
-                      <Badge tone={statusTone(kpi.status)}>{GOAL_STATUS_LABEL[kpi.status]}</Badge>
-                    </div>
-                    {ratio !== null && (
-                      <div className="mt-2">
-                        <ProgressBar ratio={ratio} label="Progresso da meta" />
-                      </div>
-                    )}
-                    {(checkpointsByKpi.get(kpi.id)?.length ?? 0) > 0 && (
-                      <p className="mt-1.5 text-[11px] text-content-faint">
-                        {checkpointsByKpi.get(kpi.id)!.length} parcela(s) semanal(is) — ver em Histórico
-                      </p>
+                {/* Metas deste indicador — zero, uma ou várias ao mesmo
+                    tempo (ex. meta mensal e meta anual do mesmo indicador). */}
+                <div className="mt-4 border-t border-line pt-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-content-soft">
+                      <Target className="h-3.5 w-3.5" /> Metas{kpiMetas.length > 0 && ` (${kpiMetas.length})`}
+                    </p>
+                    {canWrite && (
+                      <button
+                        type="button"
+                        className="text-xs text-brand-text hover:underline"
+                        onClick={() => setMetaModalFor({ kpi, meta: null })}
+                      >
+                        + Meta
+                      </button>
                     )}
                   </div>
-                )}
+                  {kpiMetas.length === 0 ? (
+                    <p className="mt-1.5 text-xs text-content-faint">Nenhuma meta ainda.</p>
+                  ) : (
+                    <ul className="mt-2 space-y-3">
+                      {kpiMetas.map((meta) => {
+                        const ratio =
+                          displayValue !== null ? attainmentRatio(displayValue, meta.target_value, kpi.direction) : null
+                        const caption =
+                          meta.target_value !== null && displayValue !== null
+                            ? `${formatValue(displayValue, kpi.unit)} de ${formatValue(meta.target_value, kpi.unit)}`
+                            : undefined
+                        return (
+                          <li key={meta.id}>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                className="min-w-0 truncate text-left text-xs text-content-soft hover:underline"
+                                onClick={() => setMetaModalFor({ kpi, meta })}
+                              >
+                                {ownerName(meta.owner_id) ?? 'Sem responsável'}
+                                {meta.due_date && (
+                                  <> · prazo {formatDate(meta.due_date)} ({relativeDays(meta.due_date)})</>
+                                )}
+                              </button>
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <Badge tone={statusTone(meta.status)}>{GOAL_STATUS_LABEL[meta.status]}</Badge>
+                                {canWrite && (
+                                  <button
+                                    type="button"
+                                    className="rounded p-0.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
+                                    onClick={() => setRemovingMeta(meta)}
+                                    aria-label="Excluir meta"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            {ratio !== null && (
+                              <div className="mt-1.5">
+                                <ProgressBar ratio={ratio} caption={caption} />
+                              </div>
+                            )}
+                            {(checkpointsByMeta.get(meta.id)?.length ?? 0) > 0 && (
+                              <p className="mt-1 text-[11px] text-content-faint">
+                                {checkpointsByMeta.get(meta.id)!.length} parcela(s) semanal(is)
+                              </p>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </div>
 
                 <div className="mt-4 flex items-center justify-between gap-2">
                   <div className="flex gap-1.5">
@@ -953,7 +1041,7 @@ export default function KpisPage() {
               onChange={(event) => setKpiForm((c) => ({ ...c, name: event.target.value }))}
             />
           </Field>
-          {/* Agrupado numa caixa só, como a de prazo/meta mais abaixo — três
+          {/* Agrupado numa caixa só, como a de meta mais abaixo — três
               campos que só existem quando a empresa usa produtos, e o
               terceiro só quando o segundo aponta pra uma turma. Ver os três
               juntos deixa claro que "contribui para" é consequência de
@@ -1097,7 +1185,7 @@ export default function KpisPage() {
             </Field>
           </div>
 
-          {/* Uma meta anual (ex. faturamento) pode ser mais fácil de
+          {/* Um total anual (ex. faturamento) pode ser mais fácil de
               acompanhar lançando mês a mês — só aparece quando a frequência
               escolhida tem uma cadência mais fina que faça sentido. */}
           {FINER_FREQUENCIES[kpiForm.frequency].length > 0 && (
@@ -1122,7 +1210,7 @@ export default function KpisPage() {
             </Field>
           )}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Unidade">
               <select
                 className="input"
@@ -1148,57 +1236,60 @@ export default function KpisPage() {
                 <option value="down">Quanto menor, melhor</option>
               </select>
             </Field>
-            <Field label="Meta">
-              <NumberInput
-                unit={kpiForm.unit}
-                value={kpiForm.target_value}
-                onChange={(target_value) => setKpiForm((c) => ({ ...c, target_value }))}
-              />
-            </Field>
           </div>
 
-          <div className="rounded-lg border border-dashed border-line-strong p-3">
-            <p className="mb-3 text-xs font-medium uppercase tracking-wide text-content-soft">
-              Vira meta quando tem prazo — opcional
-            </p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <Field label="Prazo" hint="Em branco, fica só um indicador de acompanhamento.">
+          {/* Meta inicial, opcional — pode ser adicionada (ou uma segunda,
+              terceira...) depois, a qualquer momento, pelo "+ Meta" no
+              cartão do indicador. */}
+          {!editingKpi && (
+            <div className="rounded-lg border border-dashed border-line-strong p-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-content">
                 <input
-                  className="input"
-                  type="date"
-                  value={kpiForm.due_date}
-                  onChange={(event) => setKpiForm((c) => ({ ...c, due_date: event.target.value }))}
+                  type="checkbox"
+                  checked={wantsInitialMeta}
+                  onChange={(event) => setWantsInitialMeta(event.target.checked)}
                 />
-              </Field>
-              <Field label="Responsável" hint="Notificado quando você define ou troca.">
-                <select
-                  className="input"
-                  value={kpiForm.owner_id}
-                  onChange={(event) => setKpiForm((c) => ({ ...c, owner_id: event.target.value }))}
-                >
-                  <option value="">Sem responsável</option>
-                  {people.map((person) => (
-                    <option key={person.id} value={person.id}>
-                      {person.full_name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Andamento">
-                <select
-                  className="input"
-                  value={kpiForm.status}
-                  onChange={(event) => setKpiForm((c) => ({ ...c, status: event.target.value as GoalStatus }))}
-                >
-                  {STATUSES.map((status) => (
-                    <option key={status} value={status}>
-                      {GOAL_STATUS_LABEL[status]}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+                Definir uma meta agora
+              </label>
+              <p className="mt-1 text-xs text-content-faint">
+                Opcional — um indicador pode ganhar metas depois, a qualquer momento.
+              </p>
+              {wantsInitialMeta && (
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <Field label="Prazo">
+                    <input
+                      className="input"
+                      type="date"
+                      required
+                      value={metaDraft.due_date}
+                      onChange={(event) => setMetaDraft((c) => ({ ...c, due_date: event.target.value }))}
+                    />
+                  </Field>
+                  <Field label="Alvo">
+                    <NumberInput
+                      unit={kpiForm.unit}
+                      value={metaDraft.target_value}
+                      onChange={(target_value) => setMetaDraft((c) => ({ ...c, target_value }))}
+                    />
+                  </Field>
+                  <Field label="Responsável" hint="Notificado quando você define ou troca.">
+                    <select
+                      className="input"
+                      value={metaDraft.owner_id}
+                      onChange={(event) => setMetaDraft((c) => ({ ...c, owner_id: event.target.value }))}
+                    >
+                      <option value="">Sem responsável</option>
+                      {people.map((person) => (
+                        <option key={person.id} value={person.id}>
+                          {person.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
           <Field label="Descrição">
             <textarea
@@ -1223,6 +1314,26 @@ export default function KpisPage() {
         )}
       </Modal>
 
+      {metaModalFor && (
+        <MetaFormModal
+          kpi={metaModalFor.kpi}
+          meta={metaModalFor.meta}
+          people={people}
+          latestValue={
+            rollupFor(metaModalFor.kpi.id)
+              ? effectiveValue(metaModalFor.kpi.id)
+              : (() => {
+                  const s = seriesByKpi.get(metaModalFor.kpi.id) ?? []
+                  const last = s[s.length - 1]
+                  return last ? Number(last.value) : null
+                })()
+          }
+          checkpoints={metaModalFor.meta ? checkpointsByMeta.get(metaModalFor.meta.id) ?? [] : []}
+          onClose={() => setMetaModalFor(null)}
+          onSaved={load}
+        />
+      )}
+
       {entryFor && (
         <ValueEntryModal
           kpi={entryFor}
@@ -1242,7 +1353,6 @@ export default function KpisPage() {
           kpi={historyFor}
           series={seriesByKpi.get(historyFor.id) ?? []}
           entries={entriesByKpi.get(historyFor.id) ?? []}
-          checkpoints={checkpointsByKpi.get(historyFor.id) ?? []}
           canWrite={canWrite}
           onClose={() => setHistoryFor(null)}
           onChanged={load}
@@ -1257,14 +1367,284 @@ export default function KpisPage() {
         confirmLabel="Excluir"
         message={
           <>
-            Excluir <strong>{removingKpi?.name}</strong> remove também todo o histórico de valores
-            lançados nele.
+            Excluir <strong>{removingKpi?.name}</strong> remove também todo o histórico de valores e
+            todas as metas ligadas a ele.
           </>
         }
         onConfirm={() => void removeKpi()}
         onCancel={() => setRemovingKpi(null)}
       />
+
+      <ConfirmDialog
+        open={Boolean(removingMeta)}
+        title="Excluir meta"
+        danger
+        busy={busy}
+        confirmLabel="Excluir"
+        message="O indicador e o histórico dele continuam intactos — só esta meta some. Não dá pra desfazer."
+        onConfirm={() => void removeMeta()}
+        onCancel={() => setRemovingMeta(null)}
+      />
     </div>
+  )
+}
+
+// ------------------------------------------------------------------ meta
+function MetaFormModal({
+  kpi,
+  meta,
+  people,
+  latestValue,
+  checkpoints,
+  onClose,
+  onSaved,
+}: {
+  kpi: Kpi
+  meta: Meta | null
+  people: Profile[]
+  latestValue: number | null
+  checkpoints: KpiCheckpoint[]
+  onClose: () => void
+  onSaved: () => Promise<void>
+}) {
+  const { notify } = useToast()
+  const [form, setForm] = useState({
+    target_value: meta?.target_value ?? null,
+    due_date: meta?.due_date ?? '',
+    owner_id: meta?.owner_id ?? '',
+    status: meta?.status ?? ('active' as GoalStatus),
+  })
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    setError('')
+    if (!form.due_date) {
+      setError('Defina um prazo para a meta.')
+      return
+    }
+    const payload = {
+      company_id: kpi.company_id,
+      kpi_id: kpi.id,
+      target_value: form.target_value,
+      due_date: form.due_date,
+      owner_id: form.owner_id || null,
+      status: form.status,
+    }
+    setBusy(true)
+    const result = meta
+      ? await supabase.from('metas').update(payload).eq('id', meta.id)
+      : await supabase.from('metas').insert(payload)
+    setBusy(false)
+    if (result.error) {
+      setError(result.error.message)
+      return
+    }
+    notify(meta ? 'Meta atualizada.' : 'Meta criada.')
+    await onSaved()
+    onClose()
+  }
+
+  // Divide o alvo final numa meta acumulada por semana — semana 1 pede uma
+  // fatia do total, a última semana pede o total inteiro. Refazer substitui
+  // a divisão anterior inteira, não soma em cima. Só existe editando uma
+  // meta que já foi salva (precisa de um meta_id de verdade pra gravar).
+  const repartirPorSemana = async () => {
+    if (!meta || !meta.due_date || meta.target_value === null) return
+    const start = new Date()
+    const end = new Date(`${meta.due_date}T00:00:00`)
+    const weeks = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (7 * 24 * 3600 * 1000)))
+    const rows = Array.from({ length: weeks }, (_, i) => {
+      const periodStart = new Date(start.getTime() + i * 7 * 24 * 3600 * 1000)
+      const periodEnd = new Date(Math.min(periodStart.getTime() + 6 * 24 * 3600 * 1000, end.getTime()))
+      return {
+        meta_id: meta.id,
+        company_id: kpi.company_id,
+        seq: i + 1,
+        period_start: periodStart.toISOString().slice(0, 10),
+        period_end: periodEnd.toISOString().slice(0, 10),
+        target_value: Math.round((meta.target_value! * ((i + 1) / weeks)) * 100) / 100,
+      }
+    })
+
+    setBusy(true)
+    await supabase.from('kpi_checkpoints').delete().eq('meta_id', meta.id)
+    const { error: insertError } = await supabase.from('kpi_checkpoints').insert(rows)
+    setBusy(false)
+    if (insertError) {
+      notify(insertError.message, 'error')
+      return
+    }
+    notify(`Meta repartida em ${weeks} semana(s).`)
+    await onSaved()
+  }
+
+  const limparRepartição = useConfirmDelete<true>(async () => {
+    if (!meta) return
+    const { error: deleteError } = await supabase.from('kpi_checkpoints').delete().eq('meta_id', meta.id)
+    if (deleteError) {
+      notify(deleteError.message, 'error')
+      return
+    }
+    notify('Divisão semanal removida.')
+    await onSaved()
+  })
+
+  const updateCheckpoint = async (id: string, target_value: number | null) => {
+    if (target_value === null) return
+    const { error: updateError } = await supabase.from('kpi_checkpoints').update({ target_value }).eq('id', id)
+    if (updateError) notify(updateError.message, 'error')
+    else await onSaved()
+  }
+
+  return (
+    <>
+    <Modal
+      open
+      title={meta ? `Editar meta · ${kpi.name}` : `Nova meta · ${kpi.name}`}
+      onClose={onClose}
+      width="max-w-md"
+      footer={
+        <>
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" form="meta-form" className="btn-primary" disabled={busy}>
+            {busy && <Spinner />}
+            Salvar
+          </button>
+        </>
+      }
+    >
+      <form id="meta-form" onSubmit={submit} className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Prazo">
+            <input
+              className="input"
+              type="date"
+              required
+              value={form.due_date}
+              onChange={(event) => setForm((c) => ({ ...c, due_date: event.target.value }))}
+            />
+          </Field>
+          <Field label="Alvo">
+            <NumberInput
+              unit={kpi.unit}
+              value={form.target_value}
+              onChange={(target_value) => setForm((c) => ({ ...c, target_value }))}
+            />
+          </Field>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Responsável" hint="Notificado quando você define ou troca.">
+            <select
+              className="input"
+              value={form.owner_id}
+              onChange={(event) => setForm((c) => ({ ...c, owner_id: event.target.value }))}
+            >
+              <option value="">Sem responsável</option>
+              {people.map((person) => (
+                <option key={person.id} value={person.id}>
+                  {person.full_name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Andamento">
+            <select
+              className="input"
+              value={form.status}
+              onChange={(event) => setForm((c) => ({ ...c, status: event.target.value as GoalStatus }))}
+            >
+              {STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {GOAL_STATUS_LABEL[status]}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        {error && <ErrorText>{error}</ErrorText>}
+      </form>
+
+      {/* Repartição semanal só existe pra uma meta já salva (precisa de um
+          id de verdade) — some da tela na hora de criar uma meta nova. */}
+      {meta && (
+        <div className="mt-5 rounded-lg border border-line p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-content">
+              <CalendarRange className="h-4 w-4 text-content-faint" /> Meta por semana
+            </p>
+            {meta.target_value !== null && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn-ghost py-1 text-xs"
+                  disabled={busy}
+                  onClick={() => void repartirPorSemana()}
+                >
+                  {checkpoints.length ? 'Refazer divisão' : 'Repartir por semana'}
+                </button>
+                {checkpoints.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-rose-600 hover:underline dark:text-rose-400"
+                    disabled={busy}
+                    onClick={() => limparRepartição.ask(true)}
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {meta.target_value === null ? (
+            <p className="mt-2 text-xs text-content-soft">Defina um alvo pra poder repartir por semana.</p>
+          ) : checkpoints.length === 0 ? (
+            <p className="mt-2 text-xs text-content-soft">
+              Sem divisão ainda — cada semana pede uma fatia acumulada do alvo final.
+            </p>
+          ) : (
+            <ul className="mt-3 space-y-1.5">
+              {checkpoints.map((checkpoint) => {
+                const reached =
+                  latestValue !== null &&
+                  (kpi.direction === 'up'
+                    ? latestValue >= checkpoint.target_value
+                    : latestValue <= checkpoint.target_value)
+                return (
+                  <li key={checkpoint.id} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="text-content-soft">
+                      Semana {checkpoint.seq} · {formatDate(checkpoint.period_start)}–{formatDate(checkpoint.period_end)}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <NumberInput
+                        unit={kpi.unit}
+                        value={checkpoint.target_value}
+                        onChange={(value) => void updateCheckpoint(checkpoint.id, value)}
+                      />
+                      <Badge tone={reached ? 'green' : 'slate'}>{reached ? 'em dia' : 'a caminho'}</Badge>
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </Modal>
+    <ConfirmDialog
+      open={limparRepartição.target !== null}
+      title="Limpar divisão semanal?"
+      message="As metas semanais já definidas são apagadas. Você pode repartir de novo depois."
+      confirmLabel="Limpar"
+      danger
+      busy={limparRepartição.busy}
+      onConfirm={() => void limparRepartição.confirm()}
+      onCancel={limparRepartição.cancel}
+    />
+    </>
   )
 }
 
@@ -1437,10 +1817,7 @@ function ValueEntryModal({
             />
           )}
         </Field>
-        <Field
-          label={`Valor apurado (${UNIT_LABEL[kpi.unit]})`}
-          hint={kpi.target_value !== null ? `Meta: ${formatValue(kpi.target_value, kpi.unit)}` : undefined}
-        >
+        <Field label={`Valor apurado (${UNIT_LABEL[kpi.unit]})`}>
           <NumberInput unit={kpi.unit} required value={value} onChange={setValue} />
         </Field>
         {/* Contexto de quem lança fino: quanto já está somado no período
@@ -1454,12 +1831,6 @@ function ValueEntryModal({
             {' '}(sem contar este lançamento).
           </p>
         )}
-        {/* Atualiza junto com o valor digitado — vê o efeito antes de salvar. */}
-        {!usesEntries &&
-          (() => {
-            const ratio = attainmentRatio(value, kpi.target_value, kpi.direction)
-            return ratio !== null ? <ProgressBar ratio={ratio} label="Meta x realizado" /> : null
-          })()}
         <Field label="Observação">
           <textarea
             className="input min-h-16"
@@ -1479,7 +1850,6 @@ function HistoryModal({
   kpi,
   series,
   entries,
-  checkpoints,
   canWrite,
   onClose,
   onChanged,
@@ -1487,19 +1857,16 @@ function HistoryModal({
   kpi: Kpi
   series: KpiValue[]
   entries: KpiValueEntry[]
-  checkpoints: KpiCheckpoint[]
   canWrite: boolean
   onClose: () => void
   onChanged: () => Promise<void>
 }) {
   const { notify } = useToast()
   const chart = useChartTheme()
-  const [busy, setBusy] = useState(false)
   const chartData = series.map((item) => ({
     label: labelPeriod(item.period_start, kpi.frequency),
     value: Number(item.value),
   }))
-  const latestValue = series.length ? Number(series[series.length - 1].value) : null
 
   const removeValue = useConfirmDelete<KpiValue>(async (item) => {
     const { error } = await supabase.from('kpi_values').delete().eq('id', item.id)
@@ -1523,122 +1890,9 @@ function HistoryModal({
     await onChanged()
   })
 
-  // Divide o alvo final numa meta acumulada por semana — semana 1 pede uma
-  // fatia do total, a última semana pede o total inteiro. Refazer substitui
-  // a divisão anterior inteira, não soma em cima.
-  const repartirPorSemana = async () => {
-    if (!kpi.due_date || kpi.target_value === null) return
-    const start = new Date()
-    const end = new Date(`${kpi.due_date}T00:00:00`)
-    const weeks = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (7 * 24 * 3600 * 1000)))
-    const rows = Array.from({ length: weeks }, (_, i) => {
-      const periodStart = new Date(start.getTime() + i * 7 * 24 * 3600 * 1000)
-      const periodEnd = new Date(Math.min(periodStart.getTime() + 6 * 24 * 3600 * 1000, end.getTime()))
-      return {
-        kpi_id: kpi.id,
-        company_id: kpi.company_id,
-        seq: i + 1,
-        period_start: periodStart.toISOString().slice(0, 10),
-        period_end: periodEnd.toISOString().slice(0, 10),
-        target_value: Math.round((kpi.target_value! * ((i + 1) / weeks)) * 100) / 100,
-      }
-    })
-
-    setBusy(true)
-    await supabase.from('kpi_checkpoints').delete().eq('kpi_id', kpi.id)
-    const { error } = await supabase.from('kpi_checkpoints').insert(rows)
-    setBusy(false)
-    if (error) {
-      notify(error.message, 'error')
-      return
-    }
-    notify(`Meta repartida em ${weeks} semana(s).`)
-    await onChanged()
-  }
-
-  const limparRepartição = useConfirmDelete<true>(async () => {
-    const { error } = await supabase.from('kpi_checkpoints').delete().eq('kpi_id', kpi.id)
-    if (error) {
-      notify(error.message, 'error')
-      return
-    }
-    notify('Divisão semanal removida.')
-    await onChanged()
-  })
-
-  const updateCheckpoint = async (id: string, target_value: number | null) => {
-    if (target_value === null) return
-    const { error } = await supabase.from('kpi_checkpoints').update({ target_value }).eq('id', id)
-    if (error) notify(error.message, 'error')
-    else await onChanged()
-  }
-
   return (
     <>
     <Modal open title={`Histórico · ${kpi.name}`} onClose={onClose} width="max-w-2xl">
-      {kpi.due_date && (
-        <div className="mb-5 rounded-lg border border-line p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="flex items-center gap-1.5 text-sm font-medium text-content">
-              <CalendarRange className="h-4 w-4 text-content-faint" /> Meta por semana
-            </p>
-            {canWrite && kpi.target_value !== null && (
-              <div className="flex gap-2">
-                <button type="button" className="btn-ghost py-1 text-xs" disabled={busy} onClick={() => void repartirPorSemana()}>
-                  {checkpoints.length ? 'Refazer divisão' : 'Repartir por semana'}
-                </button>
-                {checkpoints.length > 0 && (
-                  <button
-                    type="button"
-                    className="text-xs text-rose-600 hover:underline dark:text-rose-400"
-                    disabled={busy}
-                    onClick={() => limparRepartição.ask(true)}
-                  >
-                    Limpar
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-          {kpi.target_value === null ? (
-            <p className="mt-2 text-xs text-content-soft">Defina uma meta (alvo) para poder repartir por semana.</p>
-          ) : checkpoints.length === 0 ? (
-            <p className="mt-2 text-xs text-content-soft">
-              Sem divisão ainda — cada semana pede uma fatia acumulada do alvo final.
-            </p>
-          ) : (
-            <ul className="mt-3 space-y-1.5">
-              {checkpoints.map((checkpoint) => {
-                const reached =
-                  latestValue !== null &&
-                  (kpi.direction === 'up'
-                    ? latestValue >= checkpoint.target_value
-                    : latestValue <= checkpoint.target_value)
-                return (
-                  <li key={checkpoint.id} className="flex items-center justify-between gap-2 text-sm">
-                    <span className="text-content-soft">
-                      Semana {checkpoint.seq} · {formatDate(checkpoint.period_start)}–{formatDate(checkpoint.period_end)}
-                    </span>
-                    <span className="flex items-center gap-2">
-                      {canWrite ? (
-                        <NumberInput
-                          unit={kpi.unit}
-                          value={checkpoint.target_value}
-                          onChange={(value) => void updateCheckpoint(checkpoint.id, value)}
-                        />
-                      ) : (
-                        <span className="font-medium">{formatValue(checkpoint.target_value, kpi.unit)}</span>
-                      )}
-                      <Badge tone={reached ? 'green' : 'slate'}>{reached ? 'em dia' : 'a caminho'}</Badge>
-                    </span>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </div>
-      )}
-
       {/* Lançamentos finos (entry_frequency) por trás da soma que aparece no
           gráfico abaixo — só existe quando o KPI lança em cadência mais fina
           que a própria medição. */}
@@ -1703,14 +1957,6 @@ function HistoryModal({
                   itemStyle={{ color: chart.tooltipText }}
                   labelStyle={{ color: chart.tooltipText }}
                 />
-                {kpi.target_value !== null && (
-                  <ReferenceLine
-                    y={kpi.target_value}
-                    stroke={chart.reference}
-                    strokeDasharray="4 4"
-                    ifOverflow="extendDomain"
-                  />
-                )}
                 <Line type="monotone" dataKey="value" stroke="rgb(var(--brand))" strokeWidth={2} />
               </LineChart>
             </ResponsiveContainer>
@@ -1775,16 +2021,6 @@ function HistoryModal({
       busy={removeEntry.busy}
       onConfirm={() => void removeEntry.confirm()}
       onCancel={removeEntry.cancel}
-    />
-    <ConfirmDialog
-      open={limparRepartição.target !== null}
-      title="Limpar divisão semanal?"
-      message="As metas semanais já definidas são apagadas. Você pode repartir de novo depois."
-      confirmLabel="Limpar"
-      danger
-      busy={limparRepartição.busy}
-      onConfirm={() => void limparRepartição.confirm()}
-      onCancel={limparRepartição.cancel}
     />
     </>
   )

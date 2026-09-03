@@ -145,6 +145,12 @@ export const FINER_FREQUENCIES: Record<KpiFrequency, KpiFrequency[]> = {
   yearly: ['daily', 'weekly', 'biweekly', 'monthly', 'quarterly'],
 }
 
+// Indicador: o que se mede (unidade, direção, frequência, de qual
+// produto/edição é, histórico via kpi_values) — a ferramenta de medição.
+// A meta (alvo, prazo, responsável, andamento) mora em `Meta`, à parte: um
+// indicador pode ter zero, uma ou várias metas ao mesmo tempo (ex. meta
+// mensal e meta anual de "Faturamento", sem duplicar o indicador nem
+// lançar o valor duas vezes).
 export type Kpi = {
   id: string
   company_id: string
@@ -154,42 +160,58 @@ export type Kpi = {
   unit: KpiUnit
   direction: KpiDirection
   frequency: KpiFrequency
-  target_value: number | null
   source: 'manual' | 'integration'
   integration_id: string | null
   display_order: number
   is_active: boolean
   created_at: string
-  // KPI e meta são a mesma coisa agora: um indicador com prazo tem, nele
-  // mesmo, quando entregar, quem responde e como está indo. Sem prazo, é só
-  // um número acompanhado — o que a maioria dos KPIs continua sendo.
-  due_date: string | null
-  owner_id: string | null
-  status: GoalStatus
   // Frente de produto/serviço (ex. "Entre Donos") e, se ela roda em turmas,
   // a edição específica (ex. "Turma 12") — os dois opcionais, um KPI segue
   // podendo ser só "da empresa" sem nenhum dos dois.
   product_id: string | null
   product_edition_id: string | null
-  // null = ativo. Arquivar não apaga nada, só tira da tela principal — o
-  // sistema arquiva sozinho quando due_date passa, e sempre dá pra desfazer.
+  // null = ativo. Arquivar não apaga nada, só tira da tela principal — só
+  // manual agora (arquivar/desarquivar na tela de KPIs); o indicador nunca
+  // mais arquiva sozinho por causa de uma meta vencida — só a meta em si
+  // (Meta.archived_at) arquiva automaticamente.
   archived_at: string | null
   // KPI da frente principal (ex. "Entre Donos", product_edition_id nulo) que
-  // este KPI de sub-produto/turma contribui — a meta do pai soma as dos
-  // filhos. Só dois níveis: quem já é filho não pode virar pai de outro.
+  // este KPI de sub-produto/turma contribui — o valor do pai soma o dos
+  // filhos (soma de valor medido, independente de qualquer meta). Sem teto
+  // de profundidade fixo — só sem ciclo (checado no banco).
   parent_kpi_id: string | null
   // Quando preenchida, é a cadência REAL do lançamento (mais fina que
-  // frequency) — ex. meta anual (frequency) lançada mês a mês
+  // frequency) — ex. total anual (frequency) lançado mês a mês
   // (entry_frequency). null = lança direto no período de frequency, como
   // sempre foi.
   entry_frequency: KpiFrequency | null
 }
 
-/** Uma parcela semanal do alvo de um KPI com prazo — "essa semana precisa
- *  de X" em vez de só o número final. Opcional; gerada sob pedido. */
+// Meta: alvo, prazo, responsável e andamento sobre UM indicador — várias
+// metas podem apontar pro mesmo `kpi_id` (mesmo indicador, mais de um
+// objetivo ao mesmo tempo). "Meta de empresa/produto/turma" não é campo
+// aqui: vem do indicador que ela referencia (kpis.product_id/
+// product_edition_id) — uma meta herda o nível de quem ela mede.
+export type Meta = {
+  id: string
+  company_id: string
+  kpi_id: string
+  target_value: number | null
+  due_date: string | null
+  owner_id: string | null
+  status: GoalStatus
+  // null = ativa. Arquiva sozinha quando due_date passa (cron diário) —
+  // sem tocar no indicador nem no histórico de valores dele.
+  archived_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Uma parcela semanal do alvo de uma meta — "essa semana precisa de X" em
+ *  vez de só o número final. Opcional; gerada sob pedido. */
 export type KpiCheckpoint = {
   id: string
-  kpi_id: string
+  meta_id: string
   company_id: string
   seq: number
   period_start: string
@@ -487,24 +509,47 @@ export type BudgetItem = {
   updated_at: string
 }
 
+// Uma linha por INDICADOR (view kpi_latest_values) — só medição, sem meta
+// nenhuma embutida. Pra saber se um indicador tem meta e como ela anda,
+// ver `MetaLatestValue`.
 export type KpiLatestValue = {
   kpi_id: string
   company_id: string
   period_start: string
   period_end: string
   value: number
-  target_value: number | null
   name: string
   unit: KpiUnit
   direction: KpiDirection
   frequency: KpiFrequency
   category: string | null
-  due_date: string | null
-  owner_id: string | null
-  status: GoalStatus
   product_id: string | null
   product_edition_id: string | null
   parent_kpi_id: string | null
+  archived_at: string | null
+}
+
+// Uma linha por META (view meta_latest_values) — o "KpiLatestValue de
+// antes", só que um kpi_id pode aparecer mais de uma vez (uma vez por meta
+// que aquele indicador tem). `value` vem sempre do último lançamento do
+// indicador (kpi_latest_values por trás), null se ainda não tem nenhum.
+export type MetaLatestValue = {
+  meta_id: string
+  kpi_id: string
+  company_id: string
+  name: string
+  unit: KpiUnit
+  direction: KpiDirection
+  product_id: string | null
+  product_edition_id: string | null
+  parent_kpi_id: string | null
+  value: number | null
+  period_start: string | null
+  period_end: string | null
+  target_value: number | null
+  due_date: string | null
+  owner_id: string | null
+  status: GoalStatus
   archived_at: string | null
 }
 
