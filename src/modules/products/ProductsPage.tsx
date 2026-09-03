@@ -17,7 +17,7 @@ import { Link } from 'react-router-dom'
 import { CalendarRange, ClipboardList, Pencil, Plus, Target, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { formatDate, formatValue } from '../../core/lib/format'
-import { buildChildrenByParent, effectiveKpiValue } from '../../core/lib/kpiRollup'
+import { buildChildrenByParent, contributionRatio, effectiveKpiValue } from '../../core/lib/kpiRollup'
 import { useCompany } from '../../core/company/CompanyProvider'
 import {
   Badge,
@@ -60,6 +60,15 @@ const blankForm: ProductForm = { name: '', description: '', is_active: true }
 type EditionForm = { name: string; start_date: string; end_date: string }
 const blankEditionForm: EditionForm = { name: '', start_date: '', end_date: '' }
 
+// Maior valor primeiro; `null` (sem lançamento ainda) sempre por último —
+// nunca empatado com quem já lançou zero.
+function byValueDesc(a: number | null, b: number | null): number {
+  if (a === null && b === null) return 0
+  if (a === null) return 1
+  if (b === null) return -1
+  return b - a
+}
+
 // Tarefa enxuta só com o que esta tela precisa contar — nada de trazer
 // título/descrição de toda tarefa da empresa à toa.
 type TaskCount = { id: string; product_id: string | null; status: string }
@@ -97,6 +106,7 @@ export default function ProductsPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [editionForm, setEditionForm] = useState<EditionForm>(blankEditionForm)
+  const [editingEdition, setEditingEdition] = useState<ProductEdition | null>(null)
   const [attachEditionFor, setAttachEditionFor] = useState<ProductEdition | null>(null)
 
   const load = useCallback(async () => {
@@ -157,6 +167,20 @@ export default function ProductsPage() {
     [childrenByParent, kpiRowById],
   )
 
+  // Contribuição de uma meta pra meta-mãe dela (ex.: "9% de Faturamento") —
+  // só existe quando a linha tem pai (toda meta de produto/turma tem, é a
+  // meta raiz da empresa ou, no caso da turma, a meta do produto).
+  const contributionFor = useCallback(
+    (row: ProductKpiRow): { ratio: number | null; parentName: string | null } => {
+      if (!row.parent_kpi_id) return { ratio: null, parentName: null }
+      return {
+        ratio: contributionRatio(effectiveValue(row.kpi_id), effectiveValue(row.parent_kpi_id)),
+        parentName: kpiRowById.get(row.parent_kpi_id)?.name ?? null,
+      }
+    },
+    [effectiveValue, kpiRowById],
+  )
+
   // Metas próprias de cada turma (sem edição = do produto, ver
   // `statsByProduct` abaixo) — mapa pra não refiltrar `kpiRows` inteiro a
   // cada edição renderizada.
@@ -194,14 +218,50 @@ export default function ProductsPage() {
   // em uso, nunca uma lista fixa.
   const rootKpis = useMemo(() => kpiDefs.filter((kpi) => !kpi.parent_kpi_id && !kpi.product_id), [kpiDefs])
 
-  const activeProduct = useMemo(() => products.find((item) => item.id === activeId) ?? null, [products, activeId])
-  const activeEditions = useMemo(
-    () =>
-      editions
-        .filter((edition) => edition.product_id === activeId)
-        .sort((a, b) => (a.start_date ?? '') < (b.start_date ?? '') ? 1 : -1),
-    [editions, activeId],
+  // Soma das metas próprias de um produto/turma — o valor usado pra
+  // ordenar por contribuição (maior primeiro). `null` quando nenhuma delas
+  // tem lançamento ainda, pra não empatar com quem já lançou zero.
+  const totalValueOf = useCallback(
+    (rows: ProductKpiRow[]): number | null => {
+      let total = 0
+      let any = false
+      for (const row of rows) {
+        const value = effectiveValue(row.kpi_id)
+        if (value !== null) {
+          total += value
+          any = true
+        }
+      }
+      return any ? total : null
+    },
+    [effectiveValue],
   )
+  const productValue = useCallback(
+    (productId: string) => totalValueOf(statsByProduct.get(productId)?.indicators ?? []),
+    [statsByProduct, totalValueOf],
+  )
+  const editionValue = useCallback(
+    (editionId: string) => totalValueOf(indicatorsByEdition.get(editionId) ?? []),
+    [indicatorsByEdition, totalValueOf],
+  )
+
+  // Produtos e edições ordenados por quanto cada um contribui (maior →
+  // menor); sem lançamento ainda vai pro fim, nunca empata com "reportou
+  // zero".
+  const sortedProducts = useMemo(
+    () => [...products].sort((a, b) => byValueDesc(productValue(a.id), productValue(b.id))),
+    [products, productValue],
+  )
+  const sortedEditionsFor = useCallback(
+    (productId: string | null) =>
+      editions
+        .filter((edition) => edition.product_id === productId)
+        .sort((a, b) => byValueDesc(editionValue(a.id), editionValue(b.id))),
+    [editions, editionValue],
+  )
+
+  const activeProduct = useMemo(() => products.find((item) => item.id === activeId) ?? null, [products, activeId])
+  const activeEditions = useMemo(() => sortedEditionsFor(activeId), [sortedEditionsFor, activeId])
 
   // -------------------------------------------------------------- produto
   const openCreate = () => {
@@ -277,6 +337,45 @@ export default function ProductsPage() {
     await load()
   }
 
+  const startEditEdition = (edition: ProductEdition) => {
+    setEditingEdition(edition)
+    setEditionForm({
+      name: edition.name,
+      start_date: edition.start_date ?? '',
+      end_date: edition.end_date ?? '',
+    })
+  }
+
+  const cancelEditEdition = () => {
+    setEditingEdition(null)
+    setEditionForm(blankEditionForm)
+  }
+
+  const updateEdition = async () => {
+    if (!editingEdition || !editionForm.name.trim()) {
+      notify('Dê um nome à edição (ex.: "Turma 12", "2027.1").', 'error')
+      return
+    }
+    const { error: updateError } = await supabase
+      .from('product_editions')
+      .update({
+        name: editionForm.name.trim(),
+        start_date: editionForm.start_date || null,
+        end_date: editionForm.end_date || null,
+      })
+      .eq('id', editingEdition.id)
+    if (updateError) {
+      notify(
+        updateError.code === '23505' ? 'Já existe uma edição com esse nome.' : updateError.message,
+        'error',
+      )
+      return
+    }
+    notify('Edição atualizada.')
+    cancelEditEdition()
+    await load()
+  }
+
   const setEditionStatus = async (edition: ProductEdition, status: ProductEditionStatus) => {
     setEditions((current) => current.map((item) => (item.id === edition.id ? { ...item, status } : item)))
     const { error: updateError } = await supabase.from('product_editions').update({ status }).eq('id', edition.id)
@@ -289,6 +388,7 @@ export default function ProductsPage() {
       notify(deleteError.message, 'error')
       return
     }
+    if (editingEdition?.id === edition.id) cancelEditEdition()
     await load()
   })
 
@@ -322,7 +422,7 @@ export default function ProductsPage() {
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {products.map((product) => {
+          {sortedProducts.map((product) => {
             const stats = statsByProduct.get(product.id)
             const productEditions = editions.filter((edition) => edition.product_id === product.id)
             return (
@@ -360,7 +460,13 @@ export default function ProductsPage() {
                 {stats && stats.indicators.length > 0 && (
                   <div className="mt-3 space-y-2.5">
                     {stats.indicators.slice(0, 2).map((row) => (
-                      <IndicatorLine key={row.kpi_id} row={row} value={effectiveValue(row.kpi_id)} size="xs" />
+                      <IndicatorLine
+                        key={row.kpi_id}
+                        row={row}
+                        value={effectiveValue(row.kpi_id)}
+                        contribution={contributionFor(row)}
+                        size="xs"
+                      />
                     ))}
                     {stats.indicators.length > 2 && (
                       <p className="text-[11px] text-content-faint">
@@ -384,7 +490,10 @@ export default function ProductsPage() {
       <Modal
         open={Boolean(activeProduct)}
         title={activeProduct ? activeProduct.name : ''}
-        onClose={() => setActiveId(null)}
+        onClose={() => {
+          setActiveId(null)
+          cancelEditEdition()
+        }}
         width="max-w-2xl"
       >
         {activeProduct && (
@@ -421,7 +530,7 @@ export default function ProductsPage() {
                   {(statsByProduct.get(activeProduct.id)?.indicators ?? []).map((row) => (
                     <li key={row.kpi_id} className="rounded-lg border border-line p-2.5">
                       <Link to={`/empresa/${company.id}/kpis/${row.kpi_id}`} className="block">
-                        <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} />
+                        <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} contribution={contributionFor(row)} />
                       </Link>
                     </li>
                   ))}
@@ -475,6 +584,17 @@ export default function ProductsPage() {
                               <button
                                 type="button"
                                 className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
+                                onClick={() => startEditEdition(edition)}
+                                aria-label="Editar edição"
+                                title="Editar"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {canWrite && (
+                              <button
+                                type="button"
+                                className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
                                 onClick={() => setAttachEditionFor(edition)}
                                 aria-label="Metas desta turma"
                                 title="Metas"
@@ -506,7 +626,12 @@ export default function ProductsPage() {
                                     to={`/empresa/${company.id}/kpis/${row.kpi_id}`}
                                     className="block rounded-md py-0.5 transition hover:bg-hover"
                                   >
-                                    <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} size="xs" />
+                                    <IndicatorLine
+                                      row={row}
+                                      value={effectiveValue(row.kpi_id)}
+                                      contribution={contributionFor(row)}
+                                      size="xs"
+                                    />
                                   </Link>
                                 </li>
                               ))}
@@ -521,6 +646,11 @@ export default function ProductsPage() {
 
               {canWrite && (
                 <div className="mt-4 grid grid-cols-1 gap-2 rounded-lg border border-dashed border-line-strong p-3 sm:grid-cols-4">
+                  {editingEdition && (
+                    <p className="text-xs font-medium text-content-faint sm:col-span-4">
+                      Editando "{editingEdition.name}"
+                    </p>
+                  )}
                   <input
                     className="input sm:col-span-2"
                     placeholder="Nome da edição (ex.: Turma 12)"
@@ -539,13 +669,21 @@ export default function ProductsPage() {
                     value={editionForm.end_date}
                     onChange={(event) => setEditionForm((c) => ({ ...c, end_date: event.target.value }))}
                   />
-                  <button
-                    type="button"
-                    className="btn-primary sm:col-span-4"
-                    onClick={() => void addEdition()}
-                  >
-                    <Plus className="h-4 w-4" /> Adicionar edição
-                  </button>
+                  <div className="flex gap-2 sm:col-span-4">
+                    <button
+                      type="button"
+                      className="btn-primary flex-1"
+                      onClick={() => void (editingEdition ? updateEdition() : addEdition())}
+                    >
+                      {editingEdition ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                      {editingEdition ? 'Salvar edição' : 'Adicionar edição'}
+                    </button>
+                    {editingEdition && (
+                      <button type="button" className="btn-ghost" onClick={cancelEditEdition}>
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -627,22 +765,15 @@ export default function ProductsPage() {
       </Modal>
 
       {attachEditionFor && activeProduct && (
-        <Modal
-          open
-          title={`Metas de ${attachEditionFor.name}`}
+        <AttachEditionIndicatorsModal
+          companyId={company.id}
+          product={activeProduct}
+          edition={attachEditionFor}
+          allRootKpis={rootKpis}
+          existingChildren={kpiDefs.filter((kpi) => kpi.product_edition_id === attachEditionFor.id)}
           onClose={() => setAttachEditionFor(null)}
-          width="max-w-md"
-        >
-          <AttachIndicatorsSection
-            companyId={company.id}
-            productId={activeProduct.id}
-            productEditionId={attachEditionFor.id}
-            targetLabel={`${activeProduct.name} · ${attachEditionFor.name}`}
-            allRootKpis={rootKpis}
-            existingChildren={kpiDefs.filter((kpi) => kpi.product_edition_id === attachEditionFor.id)}
-            onLinked={load}
-          />
-        </Modal>
+          onLinked={load}
+        />
       )}
 
       <ConfirmDialog
@@ -683,18 +814,27 @@ export default function ProductsPage() {
 function IndicatorLine({
   row,
   value,
+  contribution,
   size = 'sm',
 }: {
   row: ProductKpiRow
   value: number | null
+  /** Quanto esta meta representa da meta-mãe dela — omitido quando não há pai. */
+  contribution?: { ratio: number | null; parentName: string | null }
   size?: 'sm' | 'xs'
 }) {
   const textSize = size === 'xs' ? 'text-[11px]' : 'text-xs'
+  const pct = contribution?.ratio != null ? Math.round(contribution.ratio * 100) : null
   return (
     <div>
       <p className={`truncate font-medium text-content-soft ${textSize}`}>{row.name}</p>
-      <p className={`mt-0.5 text-content-faint ${textSize}`}>
-        {value === null ? 'sem lançamento ainda' : formatValue(value, row.unit)}
+      <p className={`mt-0.5 flex flex-wrap items-center gap-1.5 text-content-faint ${textSize}`}>
+        <span>{value === null ? 'sem lançamento ainda' : formatValue(value, row.unit)}</span>
+        {pct !== null && (
+          <span className="rounded-full bg-hover px-1.5 py-0.5 text-[10px] font-medium text-content-soft">
+            {pct}%{contribution?.parentName ? ` de ${contribution.parentName}` : ''}
+          </span>
+        )}
       </p>
     </div>
   )
@@ -706,15 +846,13 @@ function IndicatorLine({
 // sempre recalculada a partir do que já está em uso (allRootKpis) — nunca
 // fixa — e dá pra criar uma meta nova ali mesmo, do catálogo ou com nome
 // livre, exatamente como o modal "Nova Meta" já faz.
-function AttachIndicatorsSection({
-  companyId,
-  productId,
-  productEditionId,
-  targetLabel,
-  allRootKpis,
-  existingChildren,
-  onLinked,
-}: {
+//
+// A lógica mora num hook (`useAttachIndicators`) separado da UI: usagem A
+// (inline no form de editar produto) renderiza tudo — inclusive o botão —
+// no corpo do modal do produto, que já tem o "Salvar" dele; usagem B (modal
+// próprio "Metas de <turma>") usa o mesmo hook mas põe o botão no `footer`
+// do `Modal`, igual o `AttachProductModal` de Metas.
+type AttachIndicatorsProps = {
   companyId: string
   productId: string
   productEditionId: string | null
@@ -722,7 +860,17 @@ function AttachIndicatorsSection({
   allRootKpis: Kpi[]
   existingChildren: Kpi[]
   onLinked: () => Promise<void>
-}) {
+}
+
+function useAttachIndicators({
+  companyId,
+  productId,
+  productEditionId,
+  targetLabel,
+  allRootKpis,
+  existingChildren,
+  onLinked,
+}: AttachIndicatorsProps) {
   const { notify } = useToast()
   const alreadyLinkedRootIds = new Set(
     existingChildren.map((kpi) => kpi.parent_kpi_id).filter((id): id is string => Boolean(id)),
@@ -829,33 +977,80 @@ function AttachIndicatorsSection({
     await onLinked()
   }
 
+  return {
+    available,
+    checked,
+    toggleChecked,
+    showCreateNew,
+    setShowCreateNew,
+    chosenTemplates,
+    toggleTemplate,
+    customName,
+    setCustomName,
+    error,
+    busy,
+    totalSelected,
+    submit,
+  }
+}
+
+type AttachIndicatorsState = ReturnType<typeof useAttachIndicators>
+
+// Lista de metas existentes + fluxo de criar meta nova — sem botão de
+// submeter, quem chama decide onde o botão mora (inline ou no footer de um
+// Modal).
+function AttachIndicatorsBody({ state, allRootKpis }: { state: AttachIndicatorsState; allRootKpis: Kpi[] }) {
+  const {
+    available,
+    checked,
+    toggleChecked,
+    showCreateNew,
+    setShowCreateNew,
+    chosenTemplates,
+    toggleTemplate,
+    customName,
+    setCustomName,
+    error,
+  } = state
+
   return (
-    <div className="space-y-3">
-      {available.length === 0 ? (
-        <p className="text-xs text-content-faint">Nenhuma outra meta cadastrada ainda pra vincular.</p>
+    <div className="space-y-4">
+      {available.length > 0 ? (
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-content-faint">Metas existentes</p>
+          <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-lg border border-line p-2.5">
+            {available.map((kpi) => (
+              <li key={kpi.id}>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={checked.has(kpi.id)} onChange={() => toggleChecked(kpi.id)} />
+                  {kpi.name}
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : (
-        <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-lg border border-line p-2">
-          {available.map((kpi) => (
-            <li key={kpi.id}>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={checked.has(kpi.id)} onChange={() => toggleChecked(kpi.id)} />
-                {kpi.name}
-              </label>
-            </li>
-          ))}
-        </ul>
+        !showCreateNew && (
+          <p className="text-xs text-content-faint">Nenhuma outra meta cadastrada ainda pra vincular.</p>
+        )
       )}
 
       {!showCreateNew ? (
-        <button
-          type="button"
-          className="text-xs text-brand-text hover:underline"
-          onClick={() => setShowCreateNew(true)}
-        >
-          + Criar uma meta nova
+        <button type="button" className="btn-ghost text-sm" onClick={() => setShowCreateNew(true)}>
+          <Plus className="h-3.5 w-3.5" /> Criar uma meta nova
         </button>
       ) : (
         <div className="space-y-3 rounded-lg border border-dashed border-line-strong p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-content-faint">Meta nova</p>
+            <button
+              type="button"
+              className="text-xs text-content-faint hover:underline"
+              onClick={() => setShowCreateNew(false)}
+            >
+              Cancelar
+            </button>
+          </div>
           <KpiSuggestions
             existingNames={allRootKpis.map((kpi) => kpi.name)}
             selected={chosenTemplates.map((template) => template.name)}
@@ -873,11 +1068,89 @@ function AttachIndicatorsSection({
       )}
 
       {error && <ErrorText>{error}</ErrorText>}
-
-      <button type="button" className="btn-primary" disabled={busy || totalSelected === 0} onClick={() => void submit()}>
-        {busy && <Spinner />}
-        Vincular{totalSelected > 1 ? ` (${totalSelected})` : ''}
-      </button>
     </div>
+  )
+}
+
+// Usagem A: inline no corpo do modal de editar produto. O form do produto
+// já tem o "Salvar" dele no footer — este botão é uma ação secundária,
+// contida na própria seção, pra não competir visualmente com ele.
+function AttachIndicatorsSection(props: AttachIndicatorsProps) {
+  const state = useAttachIndicators(props)
+  return (
+    <div className="space-y-4">
+      <AttachIndicatorsBody state={state} allRootKpis={props.allRootKpis} />
+      {(state.available.length > 0 || state.showCreateNew) && (
+        <button
+          type="button"
+          className="btn-ghost text-sm"
+          disabled={state.busy || state.totalSelected === 0}
+          onClick={() => void state.submit()}
+        >
+          {state.busy && <Spinner />}
+          Vincular{state.totalSelected > 1 ? ` (${state.totalSelected})` : ''}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Usagem B: modal próprio "Metas de <turma>" — igual o `AttachProductModal`
+// de Metas, o botão de submeter mora no footer do Modal, e o footer some
+// inteiro quando não há nada pra vincular ainda.
+function AttachEditionIndicatorsModal({
+  companyId,
+  product,
+  edition,
+  allRootKpis,
+  existingChildren,
+  onClose,
+  onLinked,
+}: {
+  companyId: string
+  product: Product
+  edition: ProductEdition
+  allRootKpis: Kpi[]
+  existingChildren: Kpi[]
+  onClose: () => void
+  onLinked: () => Promise<void>
+}) {
+  const state = useAttachIndicators({
+    companyId,
+    productId: product.id,
+    productEditionId: edition.id,
+    targetLabel: `${product.name} · ${edition.name}`,
+    allRootKpis,
+    existingChildren,
+    onLinked,
+  })
+
+  return (
+    <Modal
+      open
+      title={`Metas de ${edition.name}`}
+      onClose={onClose}
+      width="max-w-md"
+      footer={
+        (state.available.length > 0 || state.showCreateNew) && (
+          <>
+            <button type="button" className="btn-ghost" onClick={onClose}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={state.busy || state.totalSelected === 0}
+              onClick={() => void state.submit()}
+            >
+              {state.busy && <Spinner />}
+              Vincular{state.totalSelected > 1 ? ` (${state.totalSelected})` : ''}
+            </button>
+          </>
+        )
+      }
+    >
+      <AttachIndicatorsBody state={state} allRootKpis={allRootKpis} />
+    </Modal>
   )
 }
