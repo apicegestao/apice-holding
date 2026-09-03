@@ -381,7 +381,7 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
               </div>
             </div>
             <div className="sm:hidden">
-              <div className="divide-y divide-line">
+              <div className="space-y-2.5 p-3">
                 {children.map((child) => (
                   <ChildCard key={child.id} kpi={child} ctx={ctx} parentValue={value} />
                 ))}
@@ -502,7 +502,8 @@ function ChildCard({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentVa
     <Link
       to={`/empresa/${ctx.companyId}/kpis/${kpi.id}`}
       aria-label={ariaLabel}
-      className={`block px-4 py-3.5 transition hover:bg-hover ${kpi.is_active ? '' : 'opacity-60'}`}
+      className={`block rounded-xl border border-line-strong bg-surface px-4 py-3.5 shadow-card transition
+        hover:border-content-faint hover:bg-hover ${kpi.is_active ? '' : 'opacity-60'}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">

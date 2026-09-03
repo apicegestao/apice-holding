@@ -331,14 +331,23 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
               </div>
             </div>
           </div>
-          {groups.map((group) => (
+          {groups.map((group, groupIndex) => (
             <div key={group.label}>
-              <p className="px-4 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wide text-brand-text sm:px-5">
+              {/* Mais respiro entre categorias no celular (pt-6 a partir da
+                  segunda) — no desktop nada muda (sm: sempre volta a pt-3),
+                  a queixa era só a versão empilhada parecendo uma massa só. */}
+              <p
+                className={`px-4 pb-2 text-xs font-bold uppercase tracking-wide text-brand-text sm:px-5 sm:pb-1 sm:pt-3 sm:text-[11px] ${
+                  groupIndex === 0 ? 'pt-3' : 'pt-6'
+                }`}
+              >
                 {group.label}
               </p>
-              {/* A partir de sm: tabela em grid. Abaixo de sm: cartão
-                  empilhado por meta — 8 colunas nunca cabem legíveis num
-                  celular. */}
+              {/* A partir de sm: tabela em grid. Abaixo de sm: um cartão
+                  próprio por meta (borda + fundo, não só uma linha
+                  divisória) — 8 colunas nunca cabem legíveis num celular, e
+                  um cartão de verdade separa cada meta claramente das
+                  vizinhas em vez de tudo grudado num bloco só. */}
               <div className="hidden overflow-x-auto sm:block">
                 <div className="min-w-[900px]">
                   {group.items.map((kpi) => (
@@ -346,7 +355,7 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
                   ))}
                 </div>
               </div>
-              <div className="divide-y divide-line sm:hidden">
+              <div className="space-y-2.5 px-3 pb-3 sm:hidden">
                 {group.items.map((kpi) => (
                   <MetaCard key={kpi.id} kpi={kpi} ctx={ctx} />
                 ))}
@@ -460,7 +469,8 @@ function MetaCard({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
     <Link
       to={kpi.id}
       aria-label={ariaLabel}
-      className={`block px-4 py-3.5 transition hover:bg-hover ${kpi.is_active ? '' : 'opacity-60'}`}
+      className={`block rounded-xl border border-line-strong bg-surface px-4 py-3.5 shadow-card transition
+        hover:border-content-faint hover:bg-hover ${kpi.is_active ? '' : 'opacity-60'}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
