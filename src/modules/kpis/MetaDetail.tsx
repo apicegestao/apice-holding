@@ -314,7 +314,12 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
       </Card>
 
       {/* ------------------------------------------- acompanhamento por período */}
-      {primaryAlvo && <PeriodTracker meta={primaryAlvo} kpi={kpi} ctx={ctx} />}
+      {/* Só existe pra meta sem filho — com produto/turma por baixo, "Como
+          este número se divide" já é o acompanhamento por período (com
+          dados de verdade), então as duas coisas juntas confundiriam mais
+          do que ajudariam (ver aviso equivalente no modal de editar alvo,
+          que também esconde a repartição nesse caso). */}
+      {primaryAlvo && children.length === 0 && <PeriodTracker meta={primaryAlvo} kpi={kpi} ctx={ctx} />}
 
       {/* ---------------------------------------------------- quebra por filho */}
       {children.length > 0 && (

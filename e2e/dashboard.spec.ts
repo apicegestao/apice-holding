@@ -925,6 +925,21 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
 
     await expect(page.getByText('Soma dos alvos dos produtos: R$ 35.000,00')).toBeVisible()
   })
+
+  // Pedido explícito: repartir por período e produto/turma são duas
+  // respostas pra mesma pergunta ("como isso se divide?") quando a meta já
+  // tem filho — a segunda vence, a primeira nem aparece.
+  test('meta com produto/turma não oferece repartir por período — "Como este número se divide" já cobre isso', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_PRODUCT}`)
+    await page.waitForLoadState('networkidle')
+
+    await expect(page.getByText('Acompanhamento por período')).not.toBeVisible()
+
+    await page.getByRole('button', { name: /R\$\s?400\.000,00/ }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: /Editar alvo/ })).toBeVisible()
+    await expect(dialog.getByText('Repartir por período')).not.toBeVisible()
+  })
 })
 
 // Item: nenhuma tela pode abrir com zoom aplicado no celular — o caso

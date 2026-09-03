@@ -992,6 +992,7 @@ export default function KpisPage() {
           people={people}
           series={seriesByKpi.get(metaModalFor.kpi.id) ?? []}
           checkpoints={metaModalFor.meta ? checkpointsByMeta.get(metaModalFor.meta.id) ?? [] : []}
+          hasChildren={(childrenByParent.get(metaModalFor.kpi.id) ?? []).length > 0}
           onClose={() => setMetaModalFor(null)}
           onSaved={load}
         />
@@ -1347,6 +1348,7 @@ export function MetaFormModal({
   people,
   series,
   checkpoints,
+  hasChildren,
   onClose,
   onSaved,
 }: {
@@ -1355,6 +1357,11 @@ export function MetaFormModal({
   people: Profile[]
   series: KpiValue[]
   checkpoints: KpiCheckpoint[]
+  // Meta já tem produto/turma por baixo — a tabela "Como este número se
+  // divide" já É o acompanhamento por período nesse caso (com dados de
+  // verdade, não um cronograma abstrato); repartir por período junto
+  // criaria duas respostas desencontradas pra mesma pergunta.
+  hasChildren: boolean
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
@@ -1528,8 +1535,12 @@ export function MetaFormModal({
       {/* Repartição por período só existe pra um alvo já salvo (precisa de
           um id de verdade) — some da tela na hora de criar um alvo novo. O
           progresso detalhado de cada parcela (valor lançado x cota, %) fica
-          no Detalhe da meta, com mais espaço — aqui só a divisão em si. */}
-      {meta && (
+          no Detalhe da meta, com mais espaço — aqui só a divisão em si.
+          Também some quando a meta já tem produto/turma por baixo: "Como
+          este número se divide" já é o acompanhamento por período nesse
+          caso (com dados de verdade), e deixar as duas coisas juntas cria
+          duas respostas desencontradas pra mesma pergunta. */}
+      {meta && !hasChildren && (
         <div className="mt-5 rounded-lg border border-line p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="flex items-center gap-1.5 text-sm font-medium text-content">
@@ -1604,6 +1615,30 @@ export function MetaFormModal({
               })}
             </ul>
           )}
+        </div>
+      )}
+
+      {/* Meta ganhou produto/turma DEPOIS de já ter sido repartida por
+          período — a divisão antiga fica órfã (nem aparece mais em lugar
+          nenhum, já que a seção acima some com hasChildren) e só confunde
+          se continuar guardada. Oferece apagar em vez de deixar lixo. */}
+      {meta && hasChildren && checkpoints.length > 0 && (
+        <div className="mt-5 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-content">
+            <CalendarRange className="h-4 w-4 text-amber-600 dark:text-amber-400" /> Divisão por período desatualizada
+          </p>
+          <p className="mt-1 text-xs text-content-soft">
+            Esta meta tinha sido repartida em {checkpoints.length} parcela(s) antes de ganhar produto/turma — agora
+            "Como este número se divide" já mostra o acompanhamento de verdade, então essa divisão antiga não
+            aparece mais em lugar nenhum.
+          </p>
+          <button
+            type="button"
+            className="mt-2 text-xs text-rose-600 hover:underline dark:text-rose-400"
+            onClick={() => limparRepartição.ask(true)}
+          >
+            Remover divisão antiga
+          </button>
         </div>
       )}
     </Modal>
