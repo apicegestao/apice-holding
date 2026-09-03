@@ -183,7 +183,7 @@ export default function CompaniesPage() {
                     type="button"
                     className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                     onClick={() => openEdit(company)}
-                    aria-label="Editar"
+                    aria-label={`Editar empresa "${company.name}"`}
                   >
                     <Pencil className="h-4 w-4" />
                   </button>
@@ -192,7 +192,7 @@ export default function CompaniesPage() {
                       type="button"
                       className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                       onClick={() => setRemoving(company)}
-                      aria-label="Excluir"
+                      aria-label={`Excluir empresa "${company.name}"`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -251,7 +251,7 @@ export default function CompaniesPage() {
         message={
           <>
             Excluir <strong>{removing?.name}</strong> apaga junto tudo relacionado a ela: metas,
-            alvos, tarefas, mapas mentais e integrações. Esta ação não tem volta.
+            alvos, tarefas, notas e integrações. Esta ação não tem volta.
           </>
         }
         onConfirm={() => void confirmRemove()}

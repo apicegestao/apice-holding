@@ -141,6 +141,7 @@ function NotesBoard({ companyId, companyName }: { companyId: string; companyName
             <input
               className="input pl-9"
               placeholder="Buscar nas notas…"
+              aria-label="Buscar nas notas"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -159,7 +160,7 @@ function NotesBoard({ companyId, companyName }: { companyId: string; companyName
                         type="button"
                         className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                         onClick={() => openEdit(note)}
-                        aria-label="Editar nota"
+                        aria-label={`Editar nota "${note.title}"`}
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
@@ -167,7 +168,7 @@ function NotesBoard({ companyId, companyName }: { companyId: string; companyName
                         type="button"
                         className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                         onClick={() => removeNote.ask(note)}
-                        aria-label="Excluir nota"
+                        aria-label={`Excluir nota "${note.title}"`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>

@@ -227,7 +227,7 @@ export default function HoldingTasksPage() {
               </div>
 
               {items.length === 0 && (
-                <p className="hidden rounded-lg border border-dashed border-line px-3 py-6 text-center text-xs text-content-faint md:block">
+                <p className="rounded-lg border border-dashed border-line px-3 py-6 text-center text-xs text-content-faint">
                   vazio
                 </p>
               )}
@@ -256,7 +256,7 @@ export default function HoldingTasksPage() {
                               type="button"
                               className="rounded p-1 text-content-faint hover:bg-hover hover:text-content-muted"
                               onClick={() => setEditing(task)}
-                              aria-label="Editar"
+                              aria-label={`Editar tarefa "${task.title}"`}
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
@@ -264,7 +264,7 @@ export default function HoldingTasksPage() {
                               type="button"
                               className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                               onClick={() => setRemoving(task)}
-                              aria-label="Excluir"
+                              aria-label={`Excluir tarefa "${task.title}"`}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -305,8 +305,8 @@ export default function HoldingTasksPage() {
                               <ListChecks className="h-3 w-3" /> {checklist.done}/{checklist.total}
                             </Badge>
                           )}
-                          {task.tags.map((tag) => (
-                            <Badge key={tag}>{tag}</Badge>
+                          {task.tags.map((tag, i) => (
+                            <Badge key={`${tag}-${i}`}>{tag}</Badge>
                           ))}
                         </div>
 
@@ -337,7 +337,7 @@ export default function HoldingTasksPage() {
                               className="rounded p-1 text-content-faint enabled:hover:bg-hover enabled:hover:text-content disabled:opacity-30"
                               disabled={BOARD.indexOf(task.status) <= 0}
                               onClick={() => moveInBoard(task, -1)}
-                              aria-label="Voltar coluna"
+                              aria-label={`Voltar "${task.title}" de coluna`}
                               title="Voltar coluna"
                             >
                               <ChevronLeft className="h-4 w-4" />
@@ -350,7 +350,7 @@ export default function HoldingTasksPage() {
                                 BOARD.indexOf(task.status) >= BOARD.length - 1
                               }
                               onClick={() => moveInBoard(task, 1)}
-                              aria-label="Avançar coluna"
+                              aria-label={`Avançar "${task.title}" de coluna`}
                               title="Avançar coluna"
                             >
                               <ChevronRight className="h-4 w-4" />

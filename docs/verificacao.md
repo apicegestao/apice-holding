@@ -2327,3 +2327,166 @@ Mobile 390) — 4 testes novos (repartir por mês com data travada via
 contribuição do filho no Detalhe) mais o teste do gráfico da holding
 atualizado pro novo título. `mcp__Supabase__get_advisors`: nenhum item
 novo (security/performance) depois da migração 0035.
+
+## 39. Lançamento com calendário completo, ajustes de Metas, dois bugs reais e revisão geral de UI/UX
+
+Sequência de pedidos menores sobre a tela de Metas, seguida de dois bugs
+relatados no uso real e fechada com uma auditoria geral de UI/UX no
+sistema inteiro.
+
+**1. Lançamento: calendário completo, depois de volta pra só o dia.**
+Primeiro pedido: abrir um seletor de calendário completo (em vez de restrito
+ao mês corrente) e registrar dia+horário exatos do lançamento
+(`kpi_values.occurred_at`/`kpi_value_entries.occurred_at`, timestamptz novo
+na migração `0036_kpi_value_occurred_at.sql`). Testado com hora, o usuário
+pediu de volta só o dia — `ValueEntryModal` manteve o `occurred_at` (grava
+meio-dia do dia escolhido, `${reference}T12:00:00`, pra não colidir com
+fuso ao exibir), mas o campo voltou a ser `<input type="date">` simples;
+`HistoryModal` mostra a data sem hora (`formatDate`, não `formatDateTime`).
+
+**2. Títulos de tabela centralizados.** `MetasOverview`/`MetaDetail`
+tinham cabeçalho de tabela alinhado à esquerda por padrão do navegador —
+todas as colunas (incluindo a primeira, "Meta"/"Turma"/"Produto", que
+tinha escapado de uma rodada anterior) centralizadas.
+
+**3. Cascata de alvo — debate antes de mexer.** Pedido: o alvo de um
+produto deveria ser automaticamente a soma dos alvos das turmas dentro
+dele. Como pedido, parou pra debater antes de implementar — cascata
+automática tem um risco real (editar o alvo de uma turma muda "sem avisar"
+o compromisso que a empresa já assumiu no nível de produto, que pode ter
+sido negociado por outro motivo). Opção escolhida pelo usuário: um botão
+"Usar soma dos filhos" dentro do formulário de alvo, que preenche o campo
+uma vez (o usuário ainda decide se aceita) em vez de recalcular sozinho a
+cada mudança.
+
+**4. `MetasOverview`: mais formas de ordenar, cadastro mais rápido.**
+Antes só ordenava por nome dentro da categoria. Adicionado seletor com
+prazo/nome/alvo/progresso/data de cadastro (`SortKey`, `SORT_LABEL`).
+Cadastro de produto/turma ganhou dois atalhos que antes só existiam em
+Produtos: criar produto e turma inline de dentro do `AttachProductModal`
+(sem trocar de tela) e criar várias turmas de uma vez — um formulário em
+lote que gera "Turma jan. 2027, Turma fev. 2027, ..." a partir de
+mês/quantidade (`core/lib/bulkEditions.ts`, `buildBulkEditions`).
+
+**5. Mobile: cards de Metas mais separados.** A lista de `MetasOverview`
+no celular estava com os itens "grudados" visualmente (só uma borda fina
+entre eles). Cada linha virou um cartão próprio
+(`rounded-xl border border-line-strong bg-surface shadow-card`) com
+espaçamento entre eles — mesmo tratamento dado ao `ChildCard` de
+`MetaDetail`.
+
+**6. Ordenação por prazo como padrão + filtros compactos no mobile.**
+Dois problemas no mesmo print: a ordenação "automática" (cadastro) deixava
+turmas fora de ordem de prazo, e a linha de filtros/ordenação ocupava
+espaço demais no celular. `sortBy` passou a nascer em `'prazo'` (em vez de
+`'cadastro'`) tanto em `MetasOverview` quanto no `children` de
+`MetaDetail`; os controles de categoria/ordenação/produto/"Nova Meta" no
+mobile viraram uma grade 2×2 compacta (`grid grid-cols-2 gap-2 sm:contents`
+— o wrapper "desaparece" do layout a partir de `sm:`, os filhos voltam a
+fluir soltos como antes).
+
+**7. Bug real: lançamento "trava" a partir do segundo cadastro.** O
+relato: o primeiro lançamento funciona normal, mas ao abrir o formulário
+de novo (outro período), ele aparece com valor/observação do lançamento
+ANTERIOR, o toque no campo de texto não responde direito, e salvar não
+grava o valor certo. Causa: o efeito de sincronização em `ValueEntryModal`
+dependia de `entries`/`existing` — arrays que, quando o mapa de lançamentos
+não tinha a chave, chegavam como `?? []`, ou seja, uma referência NOVA a
+cada render. Qualquer re-render do componente pai (inclusive um causado
+pela própria digitação subindo por outro estado) refazia o efeito, que
+lia de novo o "lançamento encontrado para este período" e chamava
+`setValue`/`setNote` incondicionalmente — apagando o que a pessoa acabara
+de digitar. Corrigido com um `useRef` guardando o último `periodStart`
+sincronizado: o efeito só roda de fato quando o período muda, não a cada
+render alheio. Regressão nova em `dashboard.spec.ts` reproduz exatamente o
+cenário (lançar, fechar, abrir um período diferente e vazio, digitar, e
+conferir que o valor digitado não é substituído).
+
+**8. Bug real (achado investigando o Bug 7, não relatado): nome
+duplicado ao vincular turma.** Inspeção direta em produção mostrou nomes
+como "Faturamento · Entre Donos · Entre Donos · Turma set. 2026". Causa:
+o nome de um KPI de nível produto já vem sintetizado como
+`"{nome do indicador} · {produto}"` quando ele é criado — mas
+`AttachProductModal` (`linkChild` e o insert em lote de `submitBulk`)
+montava o nome da turma como `"{nome do PAI} · {produto} · {turma}"`,
+repetindo o nome do produto que já estava embutido no nome do pai.
+Corrigido nas duas rotas de criação (`${parentKpi.name} · ${entityName}`,
+sem repetir o produto) e as 9 linhas já afetadas em produção corrigidas
+com um `UPDATE ... regexp_replace` verificado por `RETURNING` antes de
+aplicar.
+
+**9. Revisão geral de UI/UX.** Pedido aberto — "garanta que tudo esteja
+bem desenhado e funcione perfeitamente". Abordagem: suíte e2e completa
+como base (207 passando), depois 3 agentes de leitura em paralelo
+varrendo o sistema por módulo (Tarefas/Orçamentos; Mapa de
+notas/Insights/Login/Perfil/shell; Notas/Integrações/Usuários/
+Auditoria/Empresas) devolvendo achados com arquivo:linha, sem editar nada
+— só depois disso, correção manual dos achados concretos. Aplicado nesta
+rodada:
+
+- **Acessibilidade de botões de ícone.** Vários botões só de ícone
+  (editar/excluir tarefa, integração, mapeamento, nota, empresa, item de
+  orçamento; avançar/voltar coluna do kanban; resetar senha, remover da
+  empresa, promover/inativar/excluir usuário) tinham `aria-label`
+  genérico ("Editar", "Excluir") ou nenhum — passaram a incluir o nome/
+  título do item (`` `Editar tarefa "${task.title}"` ``), e os que só
+  tinham `title` ganharam o `aria-label` correspondente mantendo o
+  `title` como dica visual. Campos de busca sem rótulo (Notas, Usuários,
+  seletor de empresa no mobile) ganharam `aria-label`.
+- **Dois bugs de referência instável, mesma classe do Bug 7.**
+  `UsersPage.tsx`: `<CreateUserModal companies={[company]} />` criava um
+  array novo a cada render; o efeito de reset do modal (que depende desse
+  prop) reabria o formulário do zero a qualquer re-render alheio,
+  apagando o que o admin estava digitando — corrigido com
+  `useMemo(() => [company], [company])`. `TaskFormModal.tsx`: o
+  `useCallback` de carregar autores de comentário tinha deps vazias de
+  propósito (estabilidade referencial), mas lia `commentAuthors` do
+  escopo externo — sempre via o `{}` inicial (closure presa), tratando
+  todo autor como "faltando" e refazendo a busca à toa; corrigido com um
+  `useRef` espelhando o estado, mantendo o callback estável e a leitura
+  atualizada.
+- **Erros de escrita silenciosos.** `markAllRead`/abrir notificação
+  (`AppLayout.tsx`) e arquivar insight (`InsightsPage.tsx`) aplicavam o
+  estado otimista mesmo quando o `update` no Supabase falhava — corrigido
+  pra checar `error` antes de atualizar o estado local, com toast de erro
+  quando falha.
+- **Dropdowns não fechavam com Esc.** `useClickOutside` (usado pelos três
+  menus do `AppLayout`/`CompanySwitcher` — notificações, perfil, seletor
+  de empresa) só fechava ao clicar fora; ganhou um listener de `keydown`
+  pra Escape, corrigindo os três de uma vez.
+- **Texto obsoleto.** "mapas mentais" (referência ao recurso removido,
+  hoje "Notas") em `LoginPage.tsx` e `CompaniesPage.tsx`.
+- **Notificação clicável.** `AppLayout.tsx`: clicar numa notificação não
+  navegava pro link nem marcava como lida — `openNotification` faz as
+  duas coisas, e o item ganhou um indicador visual de não lida.
+- **`BudgetsPage`:** os campos de "Adicionar item" eram `<input>` soltos
+  (sem `<Field>`/rótulo) dentro de uma `<div>`, sem `onSubmit` — só o
+  clique no botão "Adicionar" funcionava, Enter não fazia nada. Viraram
+  um `<form>` de verdade com `<Field>` em cada campo e o toggle
+  Despesa/Receita ganhou `role="group"`/`aria-pressed`.
+- **`key` de lista reaproveitando o valor.** `task.tags.map((tag) => ...
+  key={tag})` quebra se a mesma tag aparecer duas vezes na lista —
+  passou a incluir o índice (`` key={`${tag}-${i}`} ``) em
+  `TasksPage.tsx`/`HoldingTasksPage.tsx`.
+- **Dica de coluna vazia escondida no mobile.** O texto "vazio" de uma
+  coluna do kanban sem tarefas tinha `hidden md:block` — sem função
+  clara de esconder só no celular; virou sempre visível.
+
+**Deliberadamente adiado** (achados reais dos 3 agentes, mas de escopo
+maior que esta rodada — não é uma correção pontual, é um padrão
+repetido pelo sistema inteiro): erros de leitura do Supabase não
+verificados em quase todo `load()`; atualização otimista sem desfazer em
+caso de erro (checklist/comentários de tarefa, status/valor de item de
+orçamento — fora dos dois casos já corrigidos acima); tabela "Execuções
+recentes" de `IntegrationsPage` sem versão em cartão pro mobile (só
+scroll horizontal); área de toque abaixo de ~40px em vários botões
+pequenos (convenção já estabelecida no resto do sistema, mudar é decisão
+maior); pequenos ganhos de DRY (confirmação de exclusão sob medida em vez
+de `useConfirmDelete` em Integrações/Empresas, `run()` duplicado em
+`UsersPage`, `load` sem `useCallback` em `CompaniesPage`). Fica registrado
+aqui caso o usuário queira priorizar algum.
+
+**Verificação:** `npx tsc --noEmit`, `npm run build` e `npm run test`
+(48/48) limpos. `npm run check:contrast`: 24/24. `npm run test:e2e`:
+suíte completa 207 passando, 27 skipped, sem falhas (Desktop e Mobile
+390).

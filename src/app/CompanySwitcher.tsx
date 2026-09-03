@@ -143,6 +143,7 @@ export default function CompanySwitcher({
                     type="text"
                     className="input py-1.5 pl-8 sm:text-sm"
                     placeholder="Buscar empresa…"
+                    aria-label="Buscar empresa"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                   />

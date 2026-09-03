@@ -16,6 +16,16 @@ export function useClickOutside(
     // mousedown (não click) para fechar antes do próximo clique disparar,
     // evitando reabrir o menu ao tocar de novo no próprio botão.
     document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
+    // Esc também fecha — sem isso, quem navega só pelo teclado (sem mouse
+    // pra clicar fora) não tinha nenhuma forma de fechar o menu, diferente
+    // de todo <Modal> do sistema, que já fecha com Esc.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onOutside()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [active, ref, onOutside])
 }

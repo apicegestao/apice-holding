@@ -2,7 +2,7 @@
 // holding. Concentra quem faz, prazo, lembrete e — o ponto delicado —
 // quem enxerga a tarefa. Editando uma tarefa já salva, ganha também
 // subtarefas (checklist) e notas — o histórico de acompanhamento dela.
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { useAuth } from '../../core/auth/AuthProvider'
@@ -87,6 +87,14 @@ export default function TaskFormModal({
   const [editingChecklistId, setEditingChecklistId] = useState<string | null>(null)
   const [comments, setComments] = useState<TaskComment[]>([])
   const [commentAuthors, setCommentAuthors] = useState<Record<string, Profile>>({})
+  // `loadFollowUp` abaixo é intencionalmente estável (deps vazias, reusado
+  // por vários callers sem re-disparar efeitos) — mas por isso não pode ler
+  // `commentAuthors` direto (ficaria sempre no valor de quando montou). O
+  // ref mantém a leitura sempre atual sem precisar recriar o callback.
+  const commentAuthorsRef = useRef(commentAuthors)
+  useEffect(() => {
+    commentAuthorsRef.current = commentAuthors
+  }, [commentAuthors])
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingCommentBody, setEditingCommentBody] = useState('')
   const [newComment, setNewComment] = useState('')
@@ -158,7 +166,7 @@ export default function TaskFormModal({
     setComments((notes as TaskComment[]) ?? [])
 
     const authorIds = [...new Set((notes ?? []).map((n) => n.author_id).filter((id): id is string => Boolean(id)))]
-    const missing = authorIds.filter((id) => !commentAuthors[id])
+    const missing = authorIds.filter((id) => !commentAuthorsRef.current[id])
     if (missing.length) {
       const { data: profiles } = await supabase.from('profiles').select('*').in('id', missing)
       setCommentAuthors((current) => {
@@ -362,10 +370,9 @@ export default function TaskFormModal({
       priority: form.priority,
       status: form.status,
       visibility: form.visibility,
-      tags: form.tags
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean),
+      // Dedupe — "urgente, Urgente" viraria duas badges idênticas na lista
+      // (e key duplicada no React) sem isso.
+      tags: [...new Set(form.tags.split(',').map((tag) => tag.trim()).filter(Boolean))],
       ...(task ? {} : { created_by: profile?.id ?? null }),
     }
 
@@ -725,6 +732,7 @@ export default function TaskFormModal({
                 <input
                   className="input"
                   placeholder="Adicionar subtarefa…"
+                  aria-label="Adicionar subtarefa"
                   value={newChecklistTitle}
                   onChange={(event) => setNewChecklistTitle(event.target.value)}
                   onKeyDown={(event) => {
@@ -739,6 +747,7 @@ export default function TaskFormModal({
                   className="btn-ghost shrink-0"
                   disabled={!newChecklistTitle.trim()}
                   onClick={() => void addChecklistItem()}
+                  aria-label="Adicionar subtarefa"
                 >
                   <Plus className="h-4 w-4" />
                 </button>
@@ -817,6 +826,7 @@ export default function TaskFormModal({
                 <textarea
                   className="input min-h-16"
                   placeholder="Escreva uma nota sobre o andamento…"
+                  aria-label="Adicionar nota"
                   value={newComment}
                   onChange={(event) => setNewComment(event.target.value)}
                 />
@@ -825,6 +835,7 @@ export default function TaskFormModal({
                   className="btn-ghost shrink-0 self-end"
                   disabled={!newComment.trim()}
                   onClick={() => void addComment()}
+                  aria-label="Adicionar nota"
                 >
                   <Plus className="h-4 w-4" />
                 </button>

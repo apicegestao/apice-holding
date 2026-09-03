@@ -524,7 +524,7 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
                                   type="button"
                                   className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                                   onClick={() => itemDelete.ask(item)}
-                                  aria-label="Remover item"
+                                  aria-label={`Remover item "${item.title}"`}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
@@ -539,13 +539,20 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
                 )}
 
                 {canWrite && (
-                  <div className="mt-4 space-y-3 rounded-lg border border-dashed border-line-strong p-3">
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void addItem()
+                    }}
+                    className="mt-4 space-y-3 rounded-lg border border-dashed border-line-strong p-3"
+                  >
                     <p className="label">Adicionar item</p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-2" role="group" aria-label="Tipo do item">
                       {(['despesa', 'receita'] as BudgetItemKind[]).map((kind) => (
                         <button
                           key={kind}
                           type="button"
+                          aria-pressed={itemForm.kind === kind}
                           onClick={() => setItemForm((c) => ({ ...c, kind }))}
                           className={`rounded-lg border px-3 py-2 text-sm transition ${
                             itemForm.kind === kind
@@ -558,41 +565,49 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
                       ))}
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <input
-                        className="input"
-                        placeholder="Título (ex.: Buffet, Ingressos…)"
-                        value={itemForm.title}
-                        onChange={(event) => setItemForm((c) => ({ ...c, title: event.target.value }))}
-                      />
-                      <input
-                        className="input"
-                        placeholder="Categoria (ex.: Alimentação)"
-                        value={itemForm.category}
-                        onChange={(event) => setItemForm((c) => ({ ...c, category: event.target.value }))}
-                      />
-                      <input
-                        className="input"
-                        placeholder="Fornecedor (opcional)"
-                        value={itemForm.vendor}
-                        onChange={(event) => setItemForm((c) => ({ ...c, vendor: event.target.value }))}
-                      />
-                      <NumberInput
-                        unit="currency"
-                        placeholder="Valor previsto"
-                        value={itemForm.planned_amount}
-                        onChange={(value) => setItemForm((c) => ({ ...c, planned_amount: value }))}
-                      />
-                      <input
-                        className="input"
-                        type="date"
-                        value={itemForm.due_date}
-                        onChange={(event) => setItemForm((c) => ({ ...c, due_date: event.target.value }))}
-                      />
+                      <Field label="Título">
+                        <input
+                          className="input"
+                          placeholder="Ex.: Buffet, Ingressos…"
+                          value={itemForm.title}
+                          onChange={(event) => setItemForm((c) => ({ ...c, title: event.target.value }))}
+                        />
+                      </Field>
+                      <Field label="Categoria">
+                        <input
+                          className="input"
+                          placeholder="Ex.: Alimentação"
+                          value={itemForm.category}
+                          onChange={(event) => setItemForm((c) => ({ ...c, category: event.target.value }))}
+                        />
+                      </Field>
+                      <Field label="Fornecedor" hint="Opcional.">
+                        <input
+                          className="input"
+                          value={itemForm.vendor}
+                          onChange={(event) => setItemForm((c) => ({ ...c, vendor: event.target.value }))}
+                        />
+                      </Field>
+                      <Field label="Valor previsto">
+                        <NumberInput
+                          unit="currency"
+                          value={itemForm.planned_amount}
+                          onChange={(value) => setItemForm((c) => ({ ...c, planned_amount: value }))}
+                        />
+                      </Field>
+                      <Field label="Data" hint="Opcional.">
+                        <input
+                          className="input"
+                          type="date"
+                          value={itemForm.due_date}
+                          onChange={(event) => setItemForm((c) => ({ ...c, due_date: event.target.value }))}
+                        />
+                      </Field>
                     </div>
-                    <button type="button" className="btn-primary w-full sm:w-auto" onClick={() => void addItem()}>
+                    <button type="submit" className="btn-primary w-full sm:w-auto">
                       <Plus className="h-4 w-4" /> Adicionar
                     </button>
-                  </div>
+                  </form>
                 )}
               </div>
             )}

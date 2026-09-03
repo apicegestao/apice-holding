@@ -31,7 +31,7 @@ export default function LoginPage() {
             Uma visão só, para todas as empresas do grupo.
           </h1>
           <p className="mt-4 text-content-muted">
-            Metas, alvos, tarefas e mapas mentais de cada empresa, isolados entre si — e
+            Metas, alvos, tarefas e notas de cada empresa, isolados entre si — e
             consolidados no painel da holding.
           </p>
         </div>

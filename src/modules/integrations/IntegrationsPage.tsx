@@ -323,7 +323,7 @@ export default function IntegrationsPage() {
                       type="button"
                       className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                       onClick={() => openEdit(integration)}
-                      aria-label="Editar"
+                      aria-label={`Editar integração "${integration.name}"`}
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
@@ -331,7 +331,7 @@ export default function IntegrationsPage() {
                       type="button"
                       className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                       onClick={() => setRemoving(integration)}
-                      aria-label="Excluir"
+                      aria-label={`Excluir integração "${integration.name}"`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -680,9 +680,9 @@ function MappingModal({
                 </span>
                 <button
                   type="button"
-                  className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
+                  className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                   onClick={() => removeMapping.ask(mapping)}
-                  aria-label="Remover"
+                  aria-label={`Remover mapeamento "${mapping.json_path}"`}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>

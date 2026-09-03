@@ -30,6 +30,7 @@ import { Logo } from '../core/ui/Logo'
 import { supabase } from '../core/lib/supabase'
 import { formatDateTime, initials } from '../core/lib/format'
 import { useClickOutside } from '../core/lib/useClickOutside'
+import { useToast } from '../core/ui'
 import type { Notification } from '../core/types'
 
 type NavItem = { to: string; label: string; icon: typeof Gauge; end?: boolean }
@@ -42,6 +43,7 @@ const THEMES: { value: ThemeChoice; label: string; icon: typeof Sun }[] = [
 
 export default function AppLayout() {
   const { profile, memberships, isSuperAdmin, signOut } = useAuth()
+  const { notify } = useToast()
   const { theme, setTheme } = useTheme()
   const { companyId } = useParams<{ companyId: string }>()
   const location = useLocation()
@@ -81,10 +83,27 @@ export default function AppLayout() {
   const markAllRead = async () => {
     const ids = notifications.filter((item) => !item.read_at).map((item) => item.id)
     if (!ids.length) return
-    await supabase.from('notifications').update({ read_at: new Date().toISOString() }).in('id', ids)
+    const { error } = await supabase.from('notifications').update({ read_at: new Date().toISOString() }).in('id', ids)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
     setNotifications((current) =>
       current.map((item) => (item.read_at ? item : { ...item, read_at: new Date().toISOString() })),
     )
+  }
+
+  // Clicar numa notificação (não só o botão "Marcar como lidas") também
+  // marca ela como lida — sem isso o contador de não lidas nunca baixava
+  // de quem só clicava pra navegar até o link.
+  const openNotification = async (item: Notification) => {
+    setBellOpen(false)
+    if (item.link) navigate(item.link)
+    if (item.read_at) return
+    const readAt = new Date().toISOString()
+    setNotifications((current) => current.map((n) => (n.id === item.id ? { ...n, read_at: readAt } : n)))
+    const { error } = await supabase.from('notifications').update({ read_at: readAt }).eq('id', item.id)
+    if (error) notify(error.message, 'error')
   }
 
   const navItems = useMemo<NavItem[]>(() => {
@@ -145,6 +164,7 @@ export default function AppLayout() {
                 }}
                 className="relative rounded-lg p-2 text-content-soft hover:bg-hover hover:text-content"
                 aria-label="Notificações"
+                aria-expanded={bellOpen}
               >
                 <Bell className="h-4 w-4" />
                 {unread > 0 && (
@@ -182,19 +202,27 @@ export default function AppLayout() {
                       <button
                         key={item.id}
                         type="button"
-                        onClick={() => {
-                          setBellOpen(false)
-                          if (item.link) navigate(item.link)
-                        }}
-                        className={`block w-full border-b border-line px-4 py-3 text-left hover:bg-hover ${
+                        onClick={() => void openNotification(item)}
+                        className={`flex w-full items-start gap-2 border-b border-line px-4 py-3 text-left hover:bg-hover ${
                           item.read_at ? '' : 'bg-brand/10'
                         }`}
                       >
-                        <p className="text-sm font-medium">{item.title}</p>
-                        {item.body && <p className="text-xs text-content-soft">{item.body}</p>}
-                        <p className="mt-0.5 text-[11px] text-content-faint">
-                          {formatDateTime(item.created_at)}
-                        </p>
+                        {/* Bolinha de "não lida" — a tinta de fundo sozinha não
+                            é acessível o bastante (só cor, sem texto/ícone). */}
+                        <span
+                          className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${item.read_at ? '' : 'bg-brand'}`}
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium">
+                            {item.title}
+                            {!item.read_at && <span className="sr-only"> (não lida)</span>}
+                          </span>
+                          {item.body && <span className="block text-xs text-content-soft">{item.body}</span>}
+                          <span className="mt-0.5 block text-[11px] text-content-faint">
+                            {formatDateTime(item.created_at)}
+                          </span>
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -202,20 +230,21 @@ export default function AppLayout() {
               )}
             </div>
 
-            <div ref={menuRef} className="relative">
+            <div ref={menuRef} className="relative min-w-0">
               <button
                 type="button"
                 onClick={() => {
                   setMenuOpen((open) => !open)
                   setBellOpen(false)
                 }}
-                className="flex items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 hover:bg-hover"
+                className="flex min-w-0 items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 hover:bg-hover"
+                aria-expanded={menuOpen}
               >
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-brand/100 text-xs font-semibold">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-brand/100 text-xs font-semibold">
                   {initials(profile?.full_name || profile?.email || '?')}
                 </span>
-                <span className="hidden text-sm sm:block">{profile?.full_name}</span>
-                <ChevronDown className="h-3.5 w-3.5 text-content-faint" />
+                <span className="hidden max-w-[10rem] truncate text-sm sm:block">{profile?.full_name}</span>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-content-faint" />
               </button>
               {menuOpen && (
                 <div className="fixed inset-x-3 top-16 z-50 max-h-[75vh] overflow-y-auto rounded-xl border border-line bg-elevated text-content shadow-card sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-none sm:w-[17rem] sm:overflow-hidden">

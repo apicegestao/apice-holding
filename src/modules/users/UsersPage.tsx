@@ -231,6 +231,13 @@ function CompanyUsers() {
   const [pending, setPending] = useState<{ kind: 'reset' | 'remove'; user: Profile } | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // `[company]` literal na chamada de CreateUserModal criava um array novo a
+  // cada render — o efeito de reset do modal depende dele, então qualquer
+  // re-render alheio (ex. `busy` mudando) reabria o formulário do zero e
+  // apagava o que o admin já tinha digitado (mesma classe de bug já
+  // corrigida no formulário de lançamento de valor).
+  const companyList = useMemo(() => [company], [company])
+
   const load = useCallback(async () => {
     setLoading(true)
     const { data: memberRows } = await supabase
@@ -357,6 +364,7 @@ function CompanyUsers() {
                       type="button"
                       className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                       title="Resetar senha"
+                      aria-label={`Resetar senha de ${user.full_name}`}
                       onClick={() => setPending({ kind: 'reset', user })}
                     >
                       <KeyRound className="h-4 w-4" />
@@ -365,6 +373,7 @@ function CompanyUsers() {
                       type="button"
                       className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                       title="Remover desta empresa"
+                      aria-label={`Remover ${user.full_name} desta empresa`}
                       onClick={() => setPending({ kind: 'remove', user })}
                     >
                       <UserMinus className="h-4 w-4" />
@@ -385,7 +394,7 @@ function CompanyUsers() {
           notify('Acesso criado.')
           void load()
         }}
-        companies={[company]}
+        companies={companyList}
         fixedCompanyId={company.id}
         allowSuperAdmin={false}
       />
@@ -514,6 +523,7 @@ function HoldingUsers() {
         <input
           className="input mb-4 max-w-sm"
           placeholder="Buscar por nome ou e-mail…"
+          aria-label="Buscar usuário por nome ou e-mail"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
@@ -562,6 +572,7 @@ function HoldingUsers() {
                               ? 'Tirar admin da holding'
                               : 'Tornar admin da holding'
                           }
+                          aria-label={`${user.is_super_admin ? 'Tirar' : 'Tornar'} ${user.full_name} admin da holding`}
                           onClick={() =>
                             void run(
                               {
@@ -581,6 +592,7 @@ function HoldingUsers() {
                           type="button"
                           className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                           title="Resetar senha"
+                          aria-label={`Resetar senha de ${user.full_name}`}
                           onClick={() => setPending({ kind: 'reset', user })}
                         >
                           <KeyRound className="h-4 w-4" />
@@ -589,6 +601,7 @@ function HoldingUsers() {
                           type="button"
                           className="rounded-md p-1.5 text-content-faint hover:bg-amber-500/10 hover:text-amber-600 dark:text-amber-400"
                           title={user.is_active ? 'Inativar' : 'Reativar'}
+                          aria-label={`${user.is_active ? 'Inativar' : 'Reativar'} ${user.full_name}`}
                           onClick={() =>
                             user.is_active
                               ? setPending({ kind: 'deactivate', user })
@@ -604,6 +617,7 @@ function HoldingUsers() {
                           type="button"
                           className="rounded-md p-1.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                           title="Excluir cadastro"
+                          aria-label={`Excluir cadastro de ${user.full_name}`}
                           onClick={() => setPending({ kind: 'delete', user })}
                         >
                           <Trash2 className="h-4 w-4" />

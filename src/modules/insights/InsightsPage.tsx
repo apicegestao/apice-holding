@@ -112,6 +112,7 @@ function InsightList({
                     type="button"
                     className="rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
                     title="Arquivar"
+                    aria-label={`Arquivar insight "${insight.title}"`}
                     onClick={() => onArchive(insight)}
                   >
                     <Archive className="h-4 w-4" />
@@ -164,7 +165,11 @@ function CompanyInsights() {
   }
 
   const archive = async (insight: Insight) => {
-    await supabase.from('insights').update({ is_archived: true }).eq('id', insight.id)
+    const { error } = await supabase.from('insights').update({ is_archived: true }).eq('id', insight.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
     setInsights((current) => current.filter((item) => item.id !== insight.id))
   }
 
@@ -231,7 +236,11 @@ function HoldingInsights() {
   }
 
   const archive = async (insight: Insight) => {
-    await supabase.from('insights').update({ is_archived: true }).eq('id', insight.id)
+    const { error } = await supabase.from('insights').update({ is_archived: true }).eq('id', insight.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
     setInsights((current) => current.filter((item) => item.id !== insight.id))
   }
 
