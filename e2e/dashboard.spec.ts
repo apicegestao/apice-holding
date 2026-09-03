@@ -16,7 +16,9 @@ import {
   login,
   mockSupabase,
   NOTES,
+  PRODUCT_EDITIONS,
   PRODUCT_ID,
+  PRODUCTS,
   ROUTES,
   USER_ID,
 } from './fixtures'
@@ -672,9 +674,127 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByRole('heading', { name: /Vincular produto/ })).toBeVisible()
     await dialog.getByRole('combobox').selectOption({ label: 'Entre Donos' })
-    await dialog.getByRole('button', { name: 'Vincular' }).click()
+    // Nome exato: a aba "Vincular existente" também contém a palavra
+    // "Vincular" — sem exact, o match de substring pega as duas.
+    await dialog.getByRole('button', { name: 'Vincular', exact: true }).click()
 
     await expect(page.getByText('Vínculo criado.')).toBeVisible()
+  })
+
+  // Pedido explícito: ao vincular um produto que ainda não existe, dar um
+  // jeito de cadastrar ali mesmo, sem precisar ir até Produtos e voltar.
+  test('criar um produto novo direto do "Vincular produto" — sem sair pra Produtos', async ({ page }) => {
+    const kpis = [...KPIS]
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        for (const row of Array.isArray(body) ? body : [body]) {
+          kpis.push({ id: `novo-kpi-${kpis.length}`, is_active: true, archived_at: null, entry_frequency: null, ...row })
+        }
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+    await page.route('**/rest/v1/products*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        const created = { id: 'novo-produto-1', is_active: true, color: null, ...body }
+        await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(created) })
+        return
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PRODUCTS) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('link', { name: /Receita recorrente \(MRR\)/ }).click()
+    await page.getByRole('button', { name: 'Vincular produto' }).click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: /Vincular produto/ })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Criar produto' }).click()
+    await dialog.getByLabel('Nome do produto').fill('Consultoria')
+    await dialog.getByRole('button', { name: 'Criar e vincular' }).click()
+
+    await expect(page.getByText('Produto criado e vinculado.')).toBeVisible()
+  })
+
+  // Mesma ideia, nível turma — este é o caso mais comum na prática (produto
+  // já existe, falta a turma nova do mês).
+  test('criar uma turma nova direto do "Vincular turma" — sem sair pra Produtos', async ({ page }) => {
+    const kpis = [...KPIS]
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        for (const row of Array.isArray(body) ? body : [body]) {
+          kpis.push({ id: `novo-kpi-${kpis.length}`, is_active: true, archived_at: null, entry_frequency: null, ...row })
+        }
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+    await page.route('**/rest/v1/product_editions*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        const created = { id: 'nova-turma-1', status: 'planejamento', ...body }
+        await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(created) })
+        return
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PRODUCT_EDITIONS) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_PRODUCT}`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Vincular turma' }).click()
+
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'Criar turma' }).click()
+    await dialog.getByLabel('Nome da turma').fill('Imersão Novembro 2026')
+    await dialog.getByRole('button', { name: 'Criar e vincular' }).click()
+
+    await expect(page.getByText('Turma criada e vinculada.')).toBeVisible()
+  })
+
+  // Pedido explícito: planejar um ano inteiro de turmas (ex. 12 mensais)
+  // sem repetir o formulário de vincular turma 12 vezes.
+  test('criar várias turmas de uma vez (lote) a partir de "Vincular turma"', async ({ page }) => {
+    const kpis = [...KPIS]
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        for (const row of Array.isArray(body) ? body : [body]) {
+          kpis.push({ id: `novo-kpi-${kpis.length}`, is_active: true, archived_at: null, entry_frequency: null, ...row })
+        }
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+    await page.route('**/rest/v1/product_editions*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        const rows = Array.isArray(body) ? body : [body]
+        const created = rows.map((row, i) => ({ id: `lote-turma-${i}`, status: 'planejamento', ...row }))
+        await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(created) })
+        return
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PRODUCT_EDITIONS) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_PRODUCT}`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Vincular turma' }).click()
+
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'Criar várias' }).click()
+    await dialog.getByLabel('Prefixo do nome').fill('Imersão')
+    await dialog.getByLabel('Quantidade de turmas').fill('3')
+    await dialog.getByLabel('Mês/ano da primeira').fill('2027-01')
+    await dialog.getByRole('button', { name: /Criar 3 turma/ }).click()
+
+    await expect(page.getByText('3 turma(s) criada(s) e vinculada(s).')).toBeVisible()
   })
 
   // Bug relatado: no fluxo padrão ("Usar sugestões"), não havia como definir
@@ -788,6 +908,28 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
 
     await expect(page.getByRole('link', { name: /Ticket médio/ })).toBeVisible()
     await expect(page.getByRole('link', { name: /Receita recorrente/ })).not.toBeVisible()
+  })
+
+  // Pedido explícito: múltiplas formas de ordenar — a categoria continua
+  // agrupando, mas a ordem das linhas dentro dela muda com o critério
+  // escolhido. "Comercial" tem Ticket médio/Churn/Novos clientes nessa
+  // ordem de cadastro (padrão); em ordem alfabética, Churn vem primeiro.
+  test('ordenar por nome muda a ordem das linhas dentro da mesma categoria', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+
+    const ticket = page.getByRole('link', { name: /^Ticket médio/ })
+    const churn = page.getByRole('link', { name: /^Churn/ })
+
+    const ticketBefore = await ticket.boundingBox()
+    const churnBefore = await churn.boundingBox()
+    expect(ticketBefore!.y).toBeLessThan(churnBefore!.y)
+
+    await page.getByLabel('Ordenar por').selectOption('name')
+
+    const ticketAfter = await ticket.boundingBox()
+    const churnAfter = await churn.boundingBox()
+    expect(churnAfter!.y).toBeLessThan(ticketAfter!.y)
   })
 
   // Pedido explícito do usuário: repartir por qualquer período (não só

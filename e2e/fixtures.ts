@@ -285,7 +285,7 @@ const METAS = [
   },
 ]
 
-const PRODUCTS = [
+export const PRODUCTS = [
   {
     id: PRODUCT_ID,
     company_id: COMPANY_ID_2,
@@ -300,7 +300,7 @@ const PRODUCTS = [
   },
 ]
 
-const PRODUCT_EDITIONS = [
+export const PRODUCT_EDITIONS = [
   {
     id: EDITION_ID,
     product_id: PRODUCT_ID,

@@ -44,6 +44,7 @@ import {
   toDateTimeLocal,
 } from '../../core/lib/format'
 import { buildChildrenByParent, effectiveKpiValue, type RollupRow } from '../../core/lib/kpiRollup'
+import { buildBulkEditions } from '../../core/lib/bulkEditions'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
@@ -1100,6 +1101,14 @@ export default function KpisPage() {
 // cadastrado em Produtos — o pai já é sabido (o cartão de onde este modal
 // foi aberto), então não tem "Contribui para" nenhum pra escolher: o
 // vínculo nasce direto, sem passo manual.
+// Três formas de chegar num produto/turma vinculado — pedido explícito pra
+// não obrigar ida até Produtos no meio da criação de uma meta:
+// 'existing' vincula algo já cadastrado (fluxo original), 'new' cadastra
+// um só na hora, e 'bulk' (só faz sentido pra turma) gera vários de uma vez
+// — ex. as 12 turmas mensais de um ano de planejamento, sem repetir o
+// formulário 12 vezes.
+type AttachMode = 'existing' | 'new' | 'bulk'
+
 function AttachProductModal({
   parentKpi,
   products,
@@ -1128,37 +1137,50 @@ function AttachProductModal({
     level === 'turma'
       ? editions.filter((edition) => edition.product_id === parentKpi.product_id && !alreadyLinked.has(edition.id))
       : products.filter((product) => !alreadyLinked.has(product.id))
+  const parentProductName = products.find((item) => item.id === parentKpi.product_id)?.name ?? ''
 
+  const [mode, setMode] = useState<AttachMode>(candidates.length > 0 ? 'existing' : 'new')
   const [candidateId, setCandidateId] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!candidateId) {
-      setError(level === 'turma' ? 'Escolha uma turma.' : 'Escolha um produto.')
-      return
-    }
-    setError('')
-    setBusy(true)
+  // Criar um produto/turma só, na hora.
+  const [newName, setNewName] = useState('')
+  const [newDescription, setNewDescription] = useState('') // só produto
+  const [newStart, setNewStart] = useState('') // só turma
+  const [newEnd, setNewEnd] = useState('') // só turma
 
-    let productId: string
-    let editionId: string | null
-    let name: string
-    if (level === 'turma') {
-      const edition = editions.find((item) => item.id === candidateId)!
-      const product = products.find((item) => item.id === parentKpi.product_id)
-      productId = parentKpi.product_id!
-      editionId = edition.id
-      name = `${parentKpi.name} · ${product?.name ?? ''} · ${edition.name}`
-    } else {
-      const product = products.find((item) => item.id === candidateId)!
-      productId = product.id
-      editionId = null
-      name = `${parentKpi.name} · ${product.name}`
-    }
+  // Criar várias turmas de uma vez — ver core/lib/bulkEditions.ts.
+  const [bulkPrefix, setBulkPrefix] = useState(parentProductName)
+  const [bulkCount, setBulkCount] = useState(12)
+  const [bulkStartMonth, setBulkStartMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [bulkInterval, setBulkInterval] = useState(1)
+  const [bulkDurationMode, setBulkDurationMode] = useState<'month' | 'custom'>('month')
+  const [bulkStartDay, setBulkStartDay] = useState(1)
+  const [bulkDurationDays, setBulkDurationDays] = useState(1)
 
-    const { error: insertError } = await supabase.from('kpis').insert({
+  const bulkPreview = useMemo(() => {
+    if (mode !== 'bulk' || !bulkStartMonth) return []
+    return buildBulkEditions({
+      prefix: bulkPrefix,
+      count: Math.max(1, Math.min(36, bulkCount || 1)),
+      startMonth: bulkStartMonth,
+      intervalMonths: bulkInterval,
+      durationMode: bulkDurationMode,
+      startDay: bulkStartDay,
+      durationDays: bulkDurationDays,
+    })
+  }, [mode, bulkPrefix, bulkCount, bulkStartMonth, bulkInterval, bulkDurationMode, bulkStartDay, bulkDurationDays])
+
+  // Cria a linha de meta (kpis) que vincula um produto/turma já existente —
+  // mesma lógica pros três modos, só muda se quem chega até aqui já
+  // existia ou acabou de ser criado.
+  const linkChild = (productId: string, editionId: string | null, entityName: string) => {
+    const name =
+      level === 'turma'
+        ? `${parentKpi.name} · ${parentProductName} · ${entityName}`
+        : `${parentKpi.name} · ${entityName}`
+    return supabase.from('kpis').insert({
       company_id: companyId,
       name,
       category: parentKpi.category,
@@ -1170,6 +1192,20 @@ function AttachProductModal({
       parent_kpi_id: parentKpi.id,
       is_active: true,
     })
+  }
+
+  const submitExisting = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!candidateId) {
+      setError(level === 'turma' ? 'Escolha uma turma.' : 'Escolha um produto.')
+      return
+    }
+    setError('')
+    setBusy(true)
+    const { error: insertError } =
+      level === 'turma'
+        ? await linkChild(parentKpi.product_id!, candidateId, editions.find((item) => item.id === candidateId)!.name)
+        : await linkChild(candidateId, null, products.find((item) => item.id === candidateId)!.name)
     setBusy(false)
     if (insertError) {
       setError(
@@ -1184,6 +1220,124 @@ function AttachProductModal({
     onClose()
   }
 
+  const submitNew = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!newName.trim()) {
+      setError(level === 'turma' ? 'Dê um nome à turma.' : 'Dê um nome ao produto.')
+      return
+    }
+    setError('')
+    setBusy(true)
+    if (level === 'turma') {
+      const { data: edition, error: insertError } = await supabase
+        .from('product_editions')
+        .insert({
+          product_id: parentKpi.product_id,
+          company_id: companyId,
+          name: newName.trim(),
+          start_date: newStart || null,
+          end_date: newEnd || null,
+        })
+        .select()
+        .single()
+      if (insertError || !edition) {
+        setBusy(false)
+        setError(
+          insertError?.code === '23505'
+            ? 'Já existe uma turma com esse nome neste produto.'
+            : insertError?.message ?? 'Erro ao criar turma.',
+        )
+        return
+      }
+      const { error: linkError } = await linkChild(parentKpi.product_id!, edition.id, edition.name)
+      setBusy(false)
+      if (linkError) {
+        setError(linkError.message)
+        return
+      }
+      notify('Turma criada e vinculada.')
+    } else {
+      const { data: product, error: insertError } = await supabase
+        .from('products')
+        .insert({
+          company_id: companyId,
+          name: newName.trim(),
+          description: newDescription.trim() || null,
+          display_order: products.length,
+        })
+        .select()
+        .single()
+      if (insertError || !product) {
+        setBusy(false)
+        setError(
+          insertError?.code === '23505'
+            ? 'Já existe um produto com esse nome nesta empresa.'
+            : insertError?.message ?? 'Erro ao criar produto.',
+        )
+        return
+      }
+      const { error: linkError } = await linkChild(product.id, null, product.name)
+      setBusy(false)
+      if (linkError) {
+        setError(linkError.message)
+        return
+      }
+      notify('Produto criado e vinculado.')
+    }
+    await onSaved()
+    onClose()
+  }
+
+  const submitBulk = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!bulkStartMonth) {
+      setError('Escolha o mês/ano da primeira turma.')
+      return
+    }
+    if (bulkPreview.length === 0) return
+    setError('')
+    setBusy(true)
+    const { data: newEditions, error: insertError } = await supabase
+      .from('product_editions')
+      .insert(bulkPreview.map((row) => ({ ...row, product_id: parentKpi.product_id, company_id: companyId })))
+      .select()
+    if (insertError || !newEditions) {
+      setBusy(false)
+      setError(
+        insertError?.code === '23505'
+          ? 'Já existe uma turma com um desses nomes neste produto.'
+          : insertError?.message ?? 'Erro ao criar as turmas.',
+      )
+      return
+    }
+    const kpiRows = newEditions.map((edition) => ({
+      company_id: companyId,
+      name: `${parentKpi.name} · ${parentProductName} · ${edition.name}`,
+      category: parentKpi.category,
+      unit: parentKpi.unit,
+      direction: parentKpi.direction,
+      frequency: parentKpi.frequency,
+      product_id: parentKpi.product_id,
+      product_edition_id: edition.id,
+      parent_kpi_id: parentKpi.id,
+      is_active: true,
+    }))
+    const { error: kpiError } = await supabase.from('kpis').insert(kpiRows)
+    setBusy(false)
+    if (kpiError) {
+      setError(kpiError.message)
+      return
+    }
+    notify(`${newEditions.length} turma(s) criada(s) e vinculada(s).`)
+    await onSaved()
+    onClose()
+  }
+
+  const tabClass = (active: boolean) =>
+    `rounded-md px-3 py-1.5 text-xs font-medium transition ${
+      active ? 'bg-brand/10 text-brand-text' : 'text-content-muted hover:bg-hover'
+    }`
+
   return (
     <Modal
       open
@@ -1191,37 +1345,187 @@ function AttachProductModal({
       onClose={onClose}
       width="max-w-md"
       footer={
-        candidates.length > 0 && (
-          <>
-            <button type="button" className="btn-ghost" onClick={onClose}>
-              Cancelar
-            </button>
-            <button type="submit" form="attach-form" className="btn-primary" disabled={busy}>
+        <>
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Cancelar
+          </button>
+          {(mode !== 'existing' || candidates.length > 0) && (
+            <button
+              type="submit"
+              form="attach-form"
+              className="btn-primary"
+              disabled={busy || (mode === 'bulk' && bulkPreview.length === 0)}
+            >
               {busy && <Spinner />}
-              Vincular
+              {mode === 'existing' && 'Vincular'}
+              {mode === 'new' && 'Criar e vincular'}
+              {mode === 'bulk' && `Criar ${bulkPreview.length || ''} turma(s)`}
             </button>
-          </>
-        )
+          )}
+        </>
       }
     >
-      {candidates.length === 0 ? (
-        <p className="text-sm text-content-soft">
-          {level === 'turma'
-            ? 'Todas as turmas deste produto já estão vinculadas aqui, ou o produto ainda não tem turma cadastrada.'
-            : 'Todos os produtos cadastrados já estão vinculados a esta meta, ou nenhum produto foi cadastrado ainda.'}
-        </p>
-      ) : (
-        <form id="attach-form" onSubmit={submit} className="space-y-4">
-          <Field label={level === 'turma' ? 'Turma' : 'Produto'}>
-            <select className="input" value={candidateId} onChange={(event) => setCandidateId(event.target.value)}>
-              <option value="">Selecione…</option>
-              {candidates.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
+      {/* Abas só aparecem quando fazem sentido: "Vincular existente" some
+          se não sobrou nenhum candidato; "Criar várias" só existe pra
+          turma. */}
+      <div className="mb-4 inline-flex rounded-lg border border-line-strong p-0.5">
+        {candidates.length > 0 && (
+          <button type="button" onClick={() => setMode('existing')} className={tabClass(mode === 'existing')}>
+            Vincular existente
+          </button>
+        )}
+        <button type="button" onClick={() => setMode('new')} className={tabClass(mode === 'new')}>
+          Criar {level === 'turma' ? 'turma' : 'produto'}
+        </button>
+        {level === 'turma' && (
+          <button type="button" onClick={() => setMode('bulk')} className={tabClass(mode === 'bulk')}>
+            Criar várias
+          </button>
+        )}
+      </div>
+
+      {mode === 'existing' &&
+        (candidates.length === 0 ? (
+          <p className="text-sm text-content-soft">
+            {level === 'turma'
+              ? 'Todas as turmas deste produto já estão vinculadas aqui, ou o produto ainda não tem turma cadastrada.'
+              : 'Todos os produtos cadastrados já estão vinculados a esta meta, ou nenhum produto foi cadastrado ainda.'}
+          </p>
+        ) : (
+          <form id="attach-form" onSubmit={submitExisting} className="space-y-4">
+            <Field label={level === 'turma' ? 'Turma' : 'Produto'}>
+              <select className="input" value={candidateId} onChange={(event) => setCandidateId(event.target.value)}>
+                <option value="">Selecione…</option>
+                {candidates.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {error && <ErrorText>{error}</ErrorText>}
+          </form>
+        ))}
+
+      {mode === 'new' && (
+        <form id="attach-form" onSubmit={submitNew} className="space-y-4">
+          <Field label={level === 'turma' ? 'Nome da turma' : 'Nome do produto'}>
+            <input
+              className="input"
+              required
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              placeholder={level === 'turma' ? 'Ex.: Imersão Março 2027' : 'Ex.: Entre Donos'}
+            />
+          </Field>
+          {level === 'turma' ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Início">
+                <input
+                  className="input"
+                  type="date"
+                  value={newStart}
+                  onChange={(event) => setNewStart(event.target.value)}
+                />
+              </Field>
+              <Field label="Fim">
+                <input className="input" type="date" value={newEnd} onChange={(event) => setNewEnd(event.target.value)} />
+              </Field>
+            </div>
+          ) : (
+            <Field label="Descrição">
+              <textarea
+                className="input min-h-16"
+                value={newDescription}
+                onChange={(event) => setNewDescription(event.target.value)}
+              />
+            </Field>
+          )}
+          {error && <ErrorText>{error}</ErrorText>}
+        </form>
+      )}
+
+      {mode === 'bulk' && (
+        <form id="attach-form" onSubmit={submitBulk} className="space-y-4">
+          <Field label="Prefixo do nome" hint='Ex.: "Imersão" vira "Imersão Março 2027".'>
+            <input className="input" value={bulkPrefix} onChange={(event) => setBulkPrefix(event.target.value)} />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Quantidade de turmas">
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={36}
+                value={bulkCount}
+                onChange={(event) => setBulkCount(Number(event.target.value))}
+              />
+            </Field>
+            <Field label="Mês/ano da primeira">
+              <input
+                className="input"
+                type="month"
+                required
+                value={bulkStartMonth}
+                onChange={(event) => setBulkStartMonth(event.target.value)}
+              />
+            </Field>
+          </div>
+          <Field label="Intervalo entre turmas">
+            <select
+              className="input"
+              value={bulkInterval}
+              onChange={(event) => setBulkInterval(Number(event.target.value))}
+            >
+              <option value={1}>A cada mês</option>
+              <option value={2}>A cada 2 meses</option>
+              <option value={3}>A cada 3 meses (trimestral)</option>
+              <option value={6}>A cada 6 meses (semestral)</option>
             </select>
           </Field>
+          <Field label="Duração de cada turma">
+            <select
+              className="input"
+              value={bulkDurationMode}
+              onChange={(event) => setBulkDurationMode(event.target.value as 'month' | 'custom')}
+            >
+              <option value="month">Mês inteiro</option>
+              <option value="custom">Alguns dias (evento)</option>
+            </select>
+          </Field>
+          {bulkDurationMode === 'custom' && (
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Dia de início no mês">
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={bulkStartDay}
+                  onChange={(event) => setBulkStartDay(Number(event.target.value))}
+                />
+              </Field>
+              <Field label="Duração (dias)">
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={bulkDurationDays}
+                  onChange={(event) => setBulkDurationDays(Number(event.target.value))}
+                />
+              </Field>
+            </div>
+          )}
+          {bulkPreview.length > 0 && (
+            <div className="rounded-lg bg-hover px-3 py-2 text-xs text-content-soft">
+              <p className="font-medium text-content">Prévia: {bulkPreview.length} turma(s)</p>
+              <p className="mt-1">
+                {bulkPreview[0].name} ({formatDate(bulkPreview[0].start_date)}–{formatDate(bulkPreview[0].end_date)})
+                {bulkPreview.length > 1 && <> … {bulkPreview[bulkPreview.length - 1].name}</>}
+              </p>
+            </div>
+          )}
           {error && <ErrorText>{error}</ErrorText>}
         </form>
       )}

@@ -11,10 +11,24 @@ import { Badge, EmptyState, Loading, PageHeader } from '../../core/ui'
 import { GOAL_STATUS_LABEL, type Kpi } from '../../core/types'
 import { statusTone, type KpisCtx } from './KpisPage'
 
+// Múltiplas formas de ordenar dentro de cada grupo de categoria — a
+// categoria continua sendo o agrupamento principal (não faria sentido
+// misturar Financeiro com Comercial só porque o alvo de um é maior), a
+// ordenação decide só a ordem das linhas dentro de cada grupo.
+type SortKey = 'default' | 'name' | 'alvo' | 'progresso' | 'prazo'
+const SORT_LABEL: Record<SortKey, string> = {
+  default: 'Mais recentes primeiro',
+  name: 'Nome (A-Z)',
+  alvo: 'Alvo (maior primeiro)',
+  progresso: 'Progresso (maior primeiro)',
+  prazo: 'Prazo (mais próximo primeiro)',
+}
+
 export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
   const [productFilter, setProductFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [sortBy, setSortBy] = useState<SortKey>('default')
   // Arquivados ficam num ambiente à parte — só aparece a aba quando existe
   // pelo menos um, pra não acrescentar nada na tela de quem nunca arquivou.
   const [showArchived, setShowArchived] = useState(false)
@@ -80,7 +94,9 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
 
   // Agrupa por categoria, na ordem em que cada uma apareceu — "Sem
   // categoria" sempre por último, pra não competir por atenção com metas
-  // já organizadas.
+  // já organizadas. Dentro de cada grupo, a ordem das linhas segue o
+  // critério escolhido em `sortBy` — "default" mantém a ordem de chegada
+  // (mais recente por último, igual sempre foi), sem custo extra de sort.
   const groups = useMemo(() => {
     const order: string[] = []
     const byCategory = new Map<string, Kpi[]>()
@@ -93,8 +109,33 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
       byCategory.get(label)!.push(kpi)
     }
     if (byCategory.has('Sem categoria')) order.push('Sem categoria')
+
+    if (sortBy !== 'default') {
+      for (const items of byCategory.values()) {
+        items.sort((a, b) => {
+          if (sortBy === 'name') return a.name.localeCompare(b.name, 'pt-BR')
+          const statsA = getMetaRowStats(a, ctx)
+          const statsB = getMetaRowStats(b, ctx)
+          if (sortBy === 'alvo') {
+            const va = statsA.alvo?.target_value ?? -Infinity
+            const vb = statsB.alvo?.target_value ?? -Infinity
+            return vb - va
+          }
+          if (sortBy === 'progresso') {
+            const pa = statsA.pct ?? -Infinity
+            const pb = statsB.pct ?? -Infinity
+            return pb - pa
+          }
+          // prazo: mais próximo primeiro — sem prazo definido vai pro fim.
+          const da = statsA.alvo?.due_date ?? '9999-99-99'
+          const db = statsB.alvo?.due_date ?? '9999-99-99'
+          return da.localeCompare(db)
+        })
+      }
+    }
+
     return order.map((label) => ({ label, items: byCategory.get(label)! }))
-  }, [rootKpis])
+  }, [rootKpis, sortBy, ctx.effectiveValue, ctx.childrenByParent, ctx.metasByKpi])
 
   // Resumo do topo: todo alvo ativo desta empresa, em qualquer nível
   // (empresa/produto/turma) — diferente dos cartões-resumo do painel, que
@@ -146,6 +187,20 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
                 {categories.map((category) => (
                   <option key={category} value={category}>
                     {category}
+                  </option>
+                ))}
+              </select>
+            )}
+            {rootKpis.length > 1 && (
+              <select
+                className="input w-auto"
+                value={sortBy}
+                onChange={(event) => setSortBy(event.target.value as SortKey)}
+                aria-label="Ordenar por"
+              >
+                {(Object.keys(SORT_LABEL) as SortKey[]).map((key) => (
+                  <option key={key} value={key}>
+                    Ordenar: {SORT_LABEL[key]}
                   </option>
                 ))}
               </select>
@@ -265,7 +320,7 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
                 className="grid items-center gap-4 border-b border-line px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-content-faint"
                 style={{ gridTemplateColumns: 'minmax(240px, 2fr) 110px 110px 150px 110px 130px 140px 20px' }}
               >
-                <div>Meta</div>
+                <div className="text-center">Meta</div>
                 <div className="text-center">Atual</div>
                 <div className="text-center">Alvo</div>
                 <div className="text-center">Progresso</div>
@@ -306,7 +361,7 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
 
 /** Cálculo compartilhado entre a linha (sm:+) e o cartão (mobile) da mesma
  *  meta — um lugar só pra não divergir entre as duas apresentações. */
-function useMetaRowStats(kpi: Kpi, ctx: KpisCtx) {
+function getMetaRowStats(kpi: Kpi, ctx: KpisCtx) {
   const value = ctx.effectiveValue(kpi.id)
   const childCount = (ctx.childrenByParent.get(kpi.id) ?? []).length
   const levelSummary = childCount > 0 ? `Empresa + ${childCount} produto(s)` : 'Empresa'
@@ -327,7 +382,7 @@ function pctTone(pct: number | null) {
 }
 
 function MetaRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
-  const { value, levelSummary, alvo, pct } = useMetaRowStats(kpi, ctx)
+  const { value, levelSummary, alvo, pct } = getMetaRowStats(kpi, ctx)
   const { bar: barColor, text: pctColor } = pctTone(pct)
 
   // Sem isso, o nome acessível do link vira o texto da linha inteira
@@ -395,7 +450,7 @@ function MetaRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
 
 /** Mesma informação de MetaRow, empilhada em cartão — usada abaixo de sm:. */
 function MetaCard({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
-  const { value, levelSummary, alvo, pct } = useMetaRowStats(kpi, ctx)
+  const { value, levelSummary, alvo, pct } = getMetaRowStats(kpi, ctx)
   const { bar: barColor, text: pctColor } = pctTone(pct)
   const ariaLabel = `${kpi.name}, atual ${value !== null ? formatValue(value, kpi.unit) : 'sem lançamento'}${
     alvo ? `, alvo ${formatValue(alvo.target_value, kpi.unit)}, ${GOAL_STATUS_LABEL[alvo.status]}` : ', sem alvo'

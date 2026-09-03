@@ -347,7 +347,7 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
                   className="grid items-center gap-4 border-b border-line px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-content-faint"
                   style={{ gridTemplateColumns: 'minmax(200px, 2fr) 110px 90px 110px 150px 110px 130px 20px' }}
                 >
-                  <div>{kpi.product_id ? 'Turma' : 'Produto'}</div>
+                  <div className="text-center">{kpi.product_id ? 'Turma' : 'Produto'}</div>
                   <div className="text-center">Atual</div>
                   <div className="text-center">Contrib.</div>
                   <div className="text-center">Alvo</div>
