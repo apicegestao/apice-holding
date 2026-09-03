@@ -6,12 +6,15 @@ import { expect, test } from '@playwright/test'
 import {
   COMPANY_ID,
   COMPANY_ID_2,
+  EDITION_ID,
+  EDITION_ID_2,
   HOLDING_ID,
   KPI_PRODUCT,
   KPIS,
   login,
   mockSupabase,
   NOTES,
+  PRODUCT_ID,
   ROUTES,
   USER_ID,
 } from './fixtures'
@@ -572,6 +575,72 @@ test.describe('cascata de metas (KpisPage)', () => {
     await card.getByRole('button', { name: /Imersão Setembro 2026/ }).click()
     await expect(card.getByText(/de R\$\s?35\.000,00/)).toBeVisible()
     await expect(card.getByText('Em risco')).toBeVisible()
+  })
+
+  // Layout relatado como confuso: ao expandir uma turma, os ícones de ação
+  // (histórico/editar/arquivar/excluir) ficavam numa segunda linha quase
+  // vazia, só com ícones encostados à direita. Agora entram na mesma linha
+  // do cabeçalho — a linha de ações separada não deve mais existir.
+  test('expandir uma turma não deixa uma barra de ações vazia', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+
+    const card = page.locator('[id^="kpi-"]', { hasText: 'Faturamento Entre Donos' })
+    const turma = card.locator('li', { hasText: 'Imersão Setembro 2026' }).first()
+    await turma.getByRole('button', { name: /Imersão Setembro 2026/ }).click()
+
+    // Editar/Histórico/Arquivar/Excluir aparecem, mas dentro do cabeçalho —
+    // não existe mais nenhum <div> dedicado só a eles, com o resto vazio.
+    await expect(turma.getByTitle('Editar', { exact: true })).toBeVisible()
+    await expect(turma.getByTitle('Histórico')).toBeVisible()
+    const actionOnlyRow = turma.locator('div.flex.items-center.justify-end')
+    await expect(actionOnlyRow).toHaveCount(0)
+  })
+
+  // Bug relatado: não dava pra editar o nome/prazo de uma turma (sub
+  // produto) — só o produto tinha "Editar" na tela de Produtos. Agora um
+  // lápis próprio, dentro do cartão aninhado da meta, edita a turma em si.
+  test('lápis "Editar turma" no cartão aninhado renomeia e muda as datas da turma', async ({ page }) => {
+    // Mesma edição de "Imersão Setembro 2026" da fixture (ver PRODUCT_EDITIONS
+    // em fixtures.ts) — cópia local só pra este teste poder mutar em memória.
+    const editions = [
+      {
+        id: EDITION_ID,
+        product_id: PRODUCT_ID,
+        company_id: COMPANY_ID_2,
+        name: 'Imersão Setembro 2026',
+        start_date: '2026-09-15',
+        end_date: '2026-09-17',
+        status: 'em_andamento',
+      },
+      { id: EDITION_ID_2, product_id: PRODUCT_ID, company_id: COMPANY_ID_2, name: 'Imersão Outubro 2026' },
+    ]
+    await page.route('**/rest/v1/product_editions*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'PATCH') {
+        const body = JSON.parse(req.postData() || '{}')
+        const id = new URL(req.url()).searchParams.get('id')?.replace('eq.', '')
+        const idx = editions.findIndex((e) => e.id === id)
+        if (idx >= 0) Object.assign(editions[idx], body)
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(editions) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+
+    const card = page.locator('[id^="kpi-"]', { hasText: 'Faturamento Entre Donos' })
+    await card.getByRole('button', { name: /Imersão Setembro 2026/ }).click()
+    const turma = card.locator('li', { hasText: 'Imersão Setembro 2026' }).first()
+    await turma.getByTitle('Editar turma').click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: /Editar turma/ })).toBeVisible()
+    await dialog.getByLabel('Nome').fill('Imersão Setembro 2026 — Turma B')
+    await dialog.getByRole('button', { name: 'Salvar' }).click()
+
+    await expect(page.getByText('Turma atualizada.')).toBeVisible()
+    await expect(card.getByText('Imersão Setembro 2026 — Turma B')).toBeVisible()
   })
 
   test('"+ Vincular produto" no cartão de uma meta anexa um produto já cadastrado', async ({ page }) => {

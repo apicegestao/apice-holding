@@ -28,6 +28,7 @@ import {
   Layers,
   Pencil,
   Plus,
+  SquarePen,
   Target,
   Trash2,
   TrendingUp,
@@ -639,6 +640,9 @@ export default function KpisPage() {
   }, [kpis, productFilter, showArchived, hasProductInTree])
 
   const [attachingTo, setAttachingTo] = useState<Kpi | null>(null)
+  // Meta (kpi) de um nó de produto/turma cujo produto/edição em si (nome,
+  // datas) está sendo editado — distinto de openEdit, que edita a meta.
+  const [editingEntity, setEditingEntity] = useState<Kpi | null>(null)
 
   // Rótulo de um nó aninhado: nome do produto (+ edição, se for turma) em
   // vez do nome sintetizado gravado no banco — esse existe só pra
@@ -797,12 +801,18 @@ export default function KpisPage() {
               } ${child.is_active ? '' : 'opacity-60'}`}
               style={{ marginLeft: (depth - 1) * 12 }}
             >
-              <button
-                type="button"
-                onClick={() => toggleExpanded(child.id)}
-                className="flex w-full items-center justify-between gap-2 p-2.5 text-left"
-              >
-                <span className="flex min-w-0 items-center gap-1.5">
+              {/* Cabeçalho numa linha só: o botão de expandir cobre só
+                  chevron+nome+badge (não a linha inteira) pra caber, ao
+                  lado, o lápis de renomear o produto/turma em si (sempre
+                  visível) e — só quando aberto — os ícones de ação da meta.
+                  Isso substitui uma segunda linha de ações que antes ficava
+                  quase vazia, só com ícones encostados à direita. */}
+              <div className="flex w-full items-center justify-between gap-2 p-2.5">
+                <button
+                  type="button"
+                  onClick={() => toggleExpanded(child.id)}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                >
                   <ChevronRight
                     className={`h-4 w-4 shrink-0 text-content-faint transition-transform ${isOpen ? 'rotate-90' : ''}`}
                   />
@@ -813,14 +823,26 @@ export default function KpisPage() {
                       soma {childRollup.reported}/{childRollup.total}
                     </Badge>
                   )}
-                </span>
-                <span className="shrink-0 text-sm text-content-soft">
-                  {childValue !== null ? formatValue(childValue, child.unit) : 'sem lançamento'}
-                </span>
-              </button>
+                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  {canWrite && child.product_id && (
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-content-faint hover:bg-hover hover:text-content"
+                      title={child.product_edition_id ? 'Editar turma' : 'Editar produto'}
+                      onClick={() => setEditingEntity(child)}
+                    >
+                      <SquarePen className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  <span className="text-sm text-content-soft">
+                    {childValue !== null ? formatValue(childValue, child.unit) : 'sem lançamento'}
+                  </span>
+                  {isOpen && renderActions(child, true)}
+                </div>
+              </div>
               {isOpen && (
                 <div className="border-t border-line p-2.5">
-                  <div className="flex items-center justify-end">{renderActions(child, true)}</div>
                   {renderAlvoSection(child, childValue)}
                   {renderNested(child, depth + 1)}
                   <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1432,6 +1454,19 @@ export default function KpisPage() {
         />
       )}
 
+      {editingEntity && (
+        <EditEntityModal
+          product={products.find((item) => item.id === editingEntity.product_id) ?? null}
+          edition={
+            editingEntity.product_edition_id
+              ? editions.find((item) => item.id === editingEntity.product_edition_id) ?? null
+              : null
+          }
+          onClose={() => setEditingEntity(null)}
+          onSaved={load}
+        />
+      )}
+
       {entryFor && (
         <ValueEntryModal
           kpi={entryFor}
@@ -1617,6 +1652,124 @@ function AttachProductModal({
           {error && <ErrorText>{error}</ErrorText>}
         </form>
       )}
+    </Modal>
+  )
+}
+
+// Edita o produto ou a turma em si (nome, datas) — não a meta vinculada a
+// ele. `edition` vem preenchido só quando o nó é de turma; `product` sempre
+// vem preenchido (toda turma pertence a um produto).
+function EditEntityModal({
+  product,
+  edition,
+  onClose,
+  onSaved,
+}: {
+  product: Product | null
+  edition: ProductEdition | null
+  onClose: () => void
+  onSaved: () => Promise<void>
+}) {
+  const { notify } = useToast()
+  const [form, setForm] = useState({
+    name: edition ? edition.name : product?.name ?? '',
+    description: product?.description ?? '',
+    start_date: edition?.start_date ?? '',
+    end_date: edition?.end_date ?? '',
+  })
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  if (!product) return null
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!form.name.trim()) {
+      setError('Dê um nome.')
+      return
+    }
+    setError('')
+    setBusy(true)
+    const result = edition
+      ? await supabase
+          .from('product_editions')
+          .update({
+            name: form.name.trim(),
+            start_date: form.start_date || null,
+            end_date: form.end_date || null,
+          })
+          .eq('id', edition.id)
+      : await supabase
+          .from('products')
+          .update({ name: form.name.trim(), description: form.description.trim() || null })
+          .eq('id', product.id)
+    setBusy(false)
+    if (result.error) {
+      setError(result.error.message)
+      return
+    }
+    notify(edition ? 'Turma atualizada.' : 'Produto atualizado.')
+    await onSaved()
+    onClose()
+  }
+
+  return (
+    <Modal
+      open
+      title={edition ? `Editar turma · ${edition.name}` : `Editar produto · ${product.name}`}
+      onClose={onClose}
+      width="max-w-md"
+      footer={
+        <>
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" form="entity-form" className="btn-primary" disabled={busy}>
+            {busy && <Spinner />}
+            Salvar
+          </button>
+        </>
+      }
+    >
+      <form id="entity-form" onSubmit={submit} className="space-y-4">
+        <Field label="Nome">
+          <input
+            className="input"
+            required
+            value={form.name}
+            onChange={(event) => setForm((c) => ({ ...c, name: event.target.value }))}
+          />
+        </Field>
+        {edition ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Início">
+              <input
+                className="input"
+                type="date"
+                value={form.start_date}
+                onChange={(event) => setForm((c) => ({ ...c, start_date: event.target.value }))}
+              />
+            </Field>
+            <Field label="Fim">
+              <input
+                className="input"
+                type="date"
+                value={form.end_date}
+                onChange={(event) => setForm((c) => ({ ...c, end_date: event.target.value }))}
+              />
+            </Field>
+          </div>
+        ) : (
+          <Field label="Descrição">
+            <textarea
+              className="input min-h-16"
+              value={form.description}
+              onChange={(event) => setForm((c) => ({ ...c, description: event.target.value }))}
+            />
+          </Field>
+        )}
+        {error && <ErrorText>{error}</ErrorText>}
+      </form>
     </Modal>
   )
 }

@@ -2027,3 +2027,42 @@ test`: 28, sem mudança. `npm run check:contrast`: 24/24, sem mudança.
 juntos) e outro cobrindo o bug 2 (o valor do alvo aparece no cartão de um
 indicador sem nenhum valor lançado ainda). Suíte completa: 171 passando,
 27 skipped, sem falhas (Desktop e Mobile 390).
+
+## 35. Editar produto/turma de dentro do cartão + layout da linha aninhada
+
+Dois pedidos do usuário depois de já estar usando a cascata de metas no
+dia a dia: (1) não havia como editar o nome/prazo de uma turma (sub
+produto) — só existia criar; (2) ao expandir uma turma dentro do cartão
+de uma meta, os ícones de ação (histórico/editar/arquivar/excluir)
+caíam numa segunda linha praticamente vazia, só com os ícones encostados
+à direita — layout "com uma barra alta e praticamente vazia".
+
+**Editar produto/turma.** `product_editions` (e `products`) nunca tiveram
+um jeito de editar nome/datas depois de criados — só a página de Produtos
+tinha "Editar produto" (nome/descrição), e turma nunca teve edição
+nenhuma. Novo `EditEntityModal` em `KpisPage.tsx`: um lápis "Editar
+turma"/"Editar produto" (ícone `SquarePen`, distinto do lápis "Editar" já
+existente pra editar a meta em si) aparece no cabeçalho de todo nó
+aninhado que tem `product_id` — abre um formulário curto (nome + início/
+fim pra turma; nome + descrição pra produto) e grava direto em
+`product_editions`/`products`. Fica só na tela de Metas por enquanto (não
+duplicado em Produtos) — é o mesmo dado, um lugar só de editar evita
+divergência.
+
+**Layout da linha aninhada.** O cabeçalho de cada produto/turma era um
+`<button>` cobrindo a linha inteira (chevron + nome + valor); os ícones
+de ação, por não poderem ficar dentro de um `<button>`, iam pra um `<div>`
+inteiro só deles, abaixo, quando expandido — daí a barra vazia. Reescrito
+pra uma única linha `<div>` com o botão de expandir cobrindo só
+chevron+nome+badge (não mais a linha inteira), e ao lado — fora do botão —
+o novo lápis de editar produto/turma (sempre visível), o valor, e os
+ícones de ação de sempre (histórico/editar/arquivar/excluir), estes só
+quando o nó está expandido. A segunda linha vazia deixou de existir.
+
+**Verificação:** `npx tsc --noEmit` e `npm run build` limpos. `npm run
+test`: 28, sem mudança. `npm run check:contrast`: 24/24, sem mudança.
+`npm run test:e2e`: dois testes novos — um conferindo que expandir uma
+turma não deixa nenhum `<div>` só de ícones vazio no meio do caminho, e
+outro exercitando o lápis "Editar turma" de ponta a ponta (abre o modal,
+salva um nome novo, confirma refletido no cartão). Suíte completa: 175
+passando, 27 skipped, sem falhas (Desktop e Mobile 390).
