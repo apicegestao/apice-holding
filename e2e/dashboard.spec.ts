@@ -14,6 +14,7 @@ import {
   KPI_WITH,
   KPIS,
   login,
+  METAS,
   mockSupabase,
   NOTES,
   PRODUCT_EDITIONS,
@@ -1042,6 +1043,69 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await expect(page.getByText('Lançamento atualizado.')).toBeVisible()
     await page.getByRole('button', { name: 'Histórico' }).click()
     await expect(page.getByRole('dialog').getByText('R$ 99.999,99')).toBeVisible()
+  })
+
+  // Bug relatado: turmas cadastradas fora de ordem cronológica (set, nov,
+  // out) apareciam na quebra do Detalhe na ordem de cadastro — "bagunçado"
+  // de bater o olho. A ordenação automática tem que ser por prazo.
+  test('turmas na quebra do Detalhe aparecem em ordem de prazo, não de cadastro', async ({ page }) => {
+    // Uma turma de verdade sempre tem product_edition_id — é o que decide
+    // o rótulo mostrado (nestedLabel usa o nome da edição, não o nome
+    // sintetizado do kpi). Editions com nomes fictícios só pra este teste.
+    const editions = [
+      ...PRODUCT_EDITIONS,
+      { id: 'edicao-set-teste', product_id: PRODUCT_ID, company_id: COMPANY_ID_2, name: 'Turma Set 2026' },
+      { id: 'edicao-nov-teste', product_id: PRODUCT_ID, company_id: COMPANY_ID_2, name: 'Turma Nov 2026' },
+      { id: 'edicao-out-teste', product_id: PRODUCT_ID, company_id: COMPANY_ID_2, name: 'Turma Out 2026' },
+    ]
+    const kpiBase = {
+      company_id: COMPANY_ID_2,
+      category: 'Financeiro',
+      unit: 'currency',
+      direction: 'up',
+      frequency: 'monthly',
+      product_id: PRODUCT_ID,
+      parent_kpi_id: KPI_PRODUCT,
+      is_active: true,
+      archived_at: null,
+      entry_frequency: null,
+    }
+    // Cadastradas fora de ordem de propósito — set, depois nov, depois out
+    // — pra provar que a tela não está só refletindo a ordem de chegada.
+    const kpis = [
+      ...KPIS,
+      { id: 'turma-set-teste', name: 'turma-set-teste-nome', product_edition_id: 'edicao-set-teste', ...kpiBase },
+      { id: 'turma-nov-teste', name: 'turma-nov-teste-nome', product_edition_id: 'edicao-nov-teste', ...kpiBase },
+      { id: 'turma-out-teste', name: 'turma-out-teste-nome', product_edition_id: 'edicao-out-teste', ...kpiBase },
+    ]
+    const metas = [
+      ...METAS,
+      { id: 'meta-turma-set', company_id: COMPANY_ID_2, kpi_id: 'turma-set-teste', target_value: 5720, due_date: '2026-09-09', owner_id: null, status: 'active', archived_at: null },
+      { id: 'meta-turma-nov', company_id: COMPANY_ID_2, kpi_id: 'turma-nov-teste', target_value: 5720, due_date: '2026-11-10', owner_id: null, status: 'active', archived_at: null },
+      { id: 'meta-turma-out', company_id: COMPANY_ID_2, kpi_id: 'turma-out-teste', target_value: 5720, due_date: '2026-10-14', owner_id: null, status: 'active', archived_at: null },
+    ]
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+    await page.route('**/rest/v1/product_editions*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(editions) })
+    })
+    await page.route('**/rest/v1/metas*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(metas) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_PRODUCT}`)
+    await page.waitForLoadState('networkidle')
+
+    const set = page.getByRole('link', { name: /^Turma Set 2026/ })
+    const out = page.getByRole('link', { name: /^Turma Out 2026/ })
+    const nov = page.getByRole('link', { name: /^Turma Nov 2026/ })
+    const setBox = await set.boundingBox()
+    const outBox = await out.boundingBox()
+    const novBox = await nov.boundingBox()
+
+    expect(setBox!.y).toBeLessThan(outBox!.y)
+    expect(outBox!.y).toBeLessThan(novBox!.y)
   })
 
   // Pedido explícito: indicador de contribuição de um filho pro total do

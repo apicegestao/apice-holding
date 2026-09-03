@@ -14,21 +14,25 @@ import { statusTone, type KpisCtx } from './KpisPage'
 // Múltiplas formas de ordenar dentro de cada grupo de categoria — a
 // categoria continua sendo o agrupamento principal (não faria sentido
 // misturar Financeiro com Comercial só porque o alvo de um é maior), a
-// ordenação decide só a ordem das linhas dentro de cada grupo.
-type SortKey = 'default' | 'name' | 'alvo' | 'progresso' | 'prazo'
+// ordenação decide só a ordem das linhas dentro de cada grupo. Pedido
+// explícito: a ordenação AUTOMÁTICA (sem a pessoa mexer em nada) tem que
+// ser por prazo — cadastro tira do ar qualquer sequência óbvia (dá pra
+// cadastrar a turma de outubro antes da de setembro, por exemplo), prazo
+// não.
+type SortKey = 'prazo' | 'name' | 'alvo' | 'progresso' | 'cadastro'
 const SORT_LABEL: Record<SortKey, string> = {
-  default: 'Mais recentes primeiro',
+  prazo: 'Prazo (mais próximo)',
   name: 'Nome (A-Z)',
-  alvo: 'Alvo (maior primeiro)',
-  progresso: 'Progresso (maior primeiro)',
-  prazo: 'Prazo (mais próximo primeiro)',
+  alvo: 'Alvo (maior)',
+  progresso: 'Progresso (maior)',
+  cadastro: 'Ordem de cadastro',
 }
 
 export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
   const [productFilter, setProductFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
-  const [sortBy, setSortBy] = useState<SortKey>('default')
+  const [sortBy, setSortBy] = useState<SortKey>('prazo')
   // Arquivados ficam num ambiente à parte — só aparece a aba quando existe
   // pelo menos um, pra não acrescentar nada na tela de quem nunca arquivou.
   const [showArchived, setShowArchived] = useState(false)
@@ -95,8 +99,9 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
   // Agrupa por categoria, na ordem em que cada uma apareceu — "Sem
   // categoria" sempre por último, pra não competir por atenção com metas
   // já organizadas. Dentro de cada grupo, a ordem das linhas segue o
-  // critério escolhido em `sortBy` — "default" mantém a ordem de chegada
-  // (mais recente por último, igual sempre foi), sem custo extra de sort.
+  // critério escolhido em `sortBy` — "cadastro" é a única opção que pula o
+  // sort (mantém a ordem de chegada); todas as outras, prazo (o padrão)
+  // incluído, sempre reordenam.
   const groups = useMemo(() => {
     const order: string[] = []
     const byCategory = new Map<string, Kpi[]>()
@@ -110,7 +115,7 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
     }
     if (byCategory.has('Sem categoria')) order.push('Sem categoria')
 
-    if (sortBy !== 'default') {
+    if (sortBy !== 'cadastro') {
       for (const items of byCategory.values()) {
         items.sort((a, b) => {
           if (sortBy === 'name') return a.name.localeCompare(b.name, 'pt-BR')
@@ -165,10 +170,10 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
         actions={
           <>
             {ctx.kpis.length > 0 && (
-              <span className="relative">
+              <span className="relative block w-full sm:inline-block sm:w-auto">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-content-faint" />
                 <input
-                  className="input w-auto pl-8"
+                  className="input w-full pl-8 sm:w-auto"
                   placeholder="Buscar meta…"
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
@@ -176,55 +181,63 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
                 />
               </span>
             )}
-            {categories.length > 0 && (
-              <select
-                className="input w-auto"
-                value={categoryFilter}
-                onChange={(event) => setCategoryFilter(event.target.value)}
-                aria-label="Filtrar por categoria"
-              >
-                <option value="">Todas as categorias</option>
-                {categories.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
-            )}
-            {rootKpis.length > 1 && (
-              <select
-                className="input w-auto"
-                value={sortBy}
-                onChange={(event) => setSortBy(event.target.value as SortKey)}
-                aria-label="Ordenar por"
-              >
-                {(Object.keys(SORT_LABEL) as SortKey[]).map((key) => (
-                  <option key={key} value={key}>
-                    Ordenar: {SORT_LABEL[key]}
-                  </option>
-                ))}
-              </select>
-            )}
-            {ctx.products.length > 0 && (
-              <select
-                className="input w-auto"
-                value={productFilter}
-                onChange={(event) => setProductFilter(event.target.value)}
-                aria-label="Filtrar por produto"
-              >
-                <option value="">Todos os produtos</option>
-                {ctx.products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            {ctx.canWrite && !showArchived && (
-              <button type="button" className="btn-primary" onClick={ctx.openCreate}>
-                <Plus className="h-4 w-4" /> Nova Meta
-              </button>
-            )}
+            {/* No celular, os quatro controles secundários (categoria,
+                ordenar, produto, Nova Meta) viravam 4 linhas inteiras
+                empilhadas — muito espaço pra pouca informação. Uma grade
+                2x2 corta isso praticamente pela metade; a partir de sm: o
+                wrapper vira "contents" (some do fluxo) e cada um volta a
+                ser um item solto na mesma linha de sempre. */}
+            <div className="grid w-full grid-cols-2 gap-2 sm:contents">
+              {categories.length > 0 && (
+                <select
+                  className="input w-full sm:w-auto"
+                  value={categoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value)}
+                  aria-label="Filtrar por categoria"
+                >
+                  <option value="">Todas as categorias</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {rootKpis.length > 1 && (
+                <select
+                  className="input w-full sm:w-auto"
+                  value={sortBy}
+                  onChange={(event) => setSortBy(event.target.value as SortKey)}
+                  aria-label="Ordenar por"
+                >
+                  {(Object.keys(SORT_LABEL) as SortKey[]).map((key) => (
+                    <option key={key} value={key}>
+                      {SORT_LABEL[key]}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {ctx.products.length > 0 && (
+                <select
+                  className="input w-full sm:w-auto"
+                  value={productFilter}
+                  onChange={(event) => setProductFilter(event.target.value)}
+                  aria-label="Filtrar por produto"
+                >
+                  <option value="">Todos os produtos</option>
+                  {ctx.products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {ctx.canWrite && !showArchived && (
+                <button type="button" className="btn-primary w-full sm:w-auto" onClick={ctx.openCreate}>
+                  <Plus className="h-4 w-4" /> Nova Meta
+                </button>
+              )}
+            </div>
           </>
         }
       />

@@ -43,21 +43,22 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
     return list
   }, [kpi, ctx.kpiById])
 
-  // Do maior pro menor contribuinte — quem puxa mais o número do pai
-  // aparece primeiro (pedido explícito: "do maior/melhor pro menor/pior").
-  // Sem lançamento (null) vai pro fim, não pro topo — não é "zero". Precisa
-  // vir ANTES dos returns condicionais abaixo (loading / meta não achada) —
-  // hook nunca pode ser pulado em algumas renderizações e chamado em
-  // outras, senão o React perde a contagem de hooks entre uma e outra.
+  // Por prazo (mais próximo primeiro) — pedido explícito: a ordenação
+  // precisa ser cronológica, senão turmas de meses diferentes aparecem
+  // fora de ordem (ex. set/nov/out) e a lista fica "bagunçada" de bater o
+  // olho. Sem prazo definido vai pro fim, não pro topo. Precisa vir ANTES
+  // dos returns condicionais abaixo (loading / meta não achada) — hook
+  // nunca pode ser pulado em algumas renderizações e chamado em outras,
+  // senão o React perde a contagem de hooks entre uma e outra.
   const children = useMemo(() => {
     if (!kpi) return []
     return [...(ctx.childrenByParent.get(kpi.id) ?? [])].sort((a, b) => {
-      const va = ctx.effectiveValue(a.id)
-      const vb = ctx.effectiveValue(b.id)
-      if (va === null && vb === null) return 0
-      if (va === null) return 1
-      if (vb === null) return -1
-      return vb - va
+      const da = (ctx.metasByKpi.get(a.id) ?? [])[0]?.due_date
+      const db = (ctx.metasByKpi.get(b.id) ?? [])[0]?.due_date
+      if (!da && !db) return 0
+      if (!da) return 1
+      if (!db) return -1
+      return da.localeCompare(db)
     })
   }, [ctx, kpi])
 
