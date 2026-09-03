@@ -211,12 +211,13 @@ const KPIS = [
 
 // Uma meta por indicador (o caso comum hoje) — a tabela suporta várias por
 // KPI, mas nenhum teste depende disso ainda. Só KPI_WITH tem prazo/
-// responsável de verdade; os outros têm só um alvo (meta sem prazo).
+// responsável de verdade; os outros têm só um alvo (meta sem prazo). Meta
+// só existe em indicador de empresa (product_id null) — KPI_PRODUCT/
+// KPI_EDITION (produto/turma) nunca aparecem aqui, só em KPIS/kpi_latest_values,
+// como medição pura.
 const META_NOVALUE = '66666666-6666-6666-6666-666666666661'
 const META_WITH = '66666666-6666-6666-6666-666666666662'
 const META_EXTRA = ['3', '4', '5'].map((n) => `66666666-6666-6666-6666-66666666666${n}`)
-export const META_PRODUCT = '66666666-6666-6666-6666-666666666666'
-const META_EDITION = '66666666-6666-6666-6666-666666666667'
 
 const METAS = [
   {
@@ -255,30 +256,6 @@ const METAS = [
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   })),
-  {
-    id: META_PRODUCT,
-    company_id: COMPANY_ID_2,
-    kpi_id: KPI_PRODUCT,
-    target_value: 100000,
-    due_date: null,
-    owner_id: null,
-    status: 'active',
-    archived_at: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  },
-  {
-    id: META_EDITION,
-    company_id: COMPANY_ID_2,
-    kpi_id: KPI_EDITION,
-    target_value: 50000,
-    due_date: null,
-    owner_id: null,
-    status: 'active',
-    archived_at: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  },
 ]
 
 const PRODUCTS = [
@@ -446,47 +423,10 @@ const META_LATEST_VALUES = [
     status: 'active',
     archived_at: null as string | null,
   })),
-  {
-    meta_id: META_PRODUCT,
-    kpi_id: KPI_PRODUCT,
-    company_id: COMPANY_ID_2,
-    name: 'Faturamento Entre Donos',
-    unit: 'currency',
-    direction: 'up',
-    product_id: PRODUCT_ID as string | null,
-    product_edition_id: null as string | null,
-    parent_kpi_id: null as string | null,
-    // O produto nunca lança direto — sem linha em kpi_latest_values, então
-    // sem valor próprio na view (o painel da holding não recalcula a soma
-    // das turmas; isso é uma conta feita em Produtos/CompanyDashboard).
-    value: null as number | null,
-    period_start: null as string | null,
-    period_end: null as string | null,
-    target_value: 100000,
-    due_date: null as string | null,
-    owner_id: null as string | null,
-    status: 'active',
-    archived_at: null as string | null,
-  },
-  {
-    meta_id: META_EDITION,
-    kpi_id: KPI_EDITION,
-    company_id: COMPANY_ID_2,
-    name: 'Faturamento Imersão Set/2026',
-    unit: 'currency',
-    direction: 'up',
-    product_id: PRODUCT_ID as string | null,
-    product_edition_id: EDITION_ID as string | null,
-    parent_kpi_id: KPI_PRODUCT as string | null,
-    value: 32000,
-    period_start: '2026-08-01' as string | null,
-    period_end: '2026-08-31' as string | null,
-    target_value: 50000,
-    due_date: null as string | null,
-    owner_id: null as string | null,
-    status: 'active',
-    archived_at: null as string | null,
-  },
+  // KPI_PRODUCT/KPI_EDITION (produto/turma) não entram aqui — meta só
+  // existe em indicador de empresa. Os dois continuam em KPIS/
+  // kpi_latest_values como medição pura (usada por ProductsPage/
+  // CompanyDashboard).
 ]
 
 export const TASKS = [

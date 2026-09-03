@@ -49,7 +49,6 @@ import {
   type KpiUnit,
   type Meta,
   type Product,
-  type ProductEdition,
   type Profile,
   type Task,
   type TaskStatus,
@@ -151,32 +150,17 @@ function StatTile({
   )
 }
 
-/** Nome da meta + "valor de meta" + barrinha — uma frente pode ter várias
- *  metas ao mesmo tempo (dela mesma e de cada edição/turma, e cada
- *  indicador pode ter mais de uma meta também), então o cartão de produto
- *  lista mais de uma em vez de escolher só uma "de capa". `editionName`
- *  distingue metas de mesmo nome em turmas diferentes (ex. "Faturamento"
- *  da Turma 12 e da Turma 13). */
-function ProductMetaLine({ meta, editionName }: { meta: MetaRow; editionName?: string }) {
-  const ratio = meta.value !== null ? attainmentRatio(meta.value, meta.target_value, meta.direction) : null
+/** Nome do indicador + valor atual — produto e turma são medição pura (a
+ *  meta de verdade vive só no indicador de empresa inteira), então aqui não
+ *  tem alvo, nem ratio, nem barra: só o valor, já com a soma dos filhos
+ *  incluída quando o indicador tiver sub-produtos. */
+function IndicatorLine({ row, value }: { row: KpiRow; value: number | null }) {
   return (
     <div>
-      <p className="truncate text-xs font-medium text-content-soft">
-        {meta.name}
-        {editionName && <span className="font-normal text-content-faint"> · {editionName}</span>}
-      </p>
+      <p className="truncate text-xs font-medium text-content-soft">{row.name}</p>
       <p className="mt-0.5 text-xs text-content-faint">
-        {meta.value === null
-          ? 'sem lançamento ainda'
-          : meta.target_value !== null
-            ? `${formatValue(meta.value, meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
-            : formatValue(meta.value, meta.unit)}
+        {value === null ? 'sem lançamento ainda' : formatValue(value, row.unit)}
       </p>
-      {meta.value !== null && meta.target_value !== null && (
-        <div className="mt-1">
-          <ProgressBar ratio={ratio} />
-        </div>
-      )}
     </div>
   )
 }
@@ -192,12 +176,11 @@ export default function CompanyDashboard() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
   const [products, setProducts] = useState<Product[]>([])
-  const [editions, setEditions] = useState<ProductEdition[]>([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [kpiDefResult, kpiValueResult, metaResult, memberResult, taskResult, insightResult, productResult, editionResult] =
+    const [kpiDefResult, kpiValueResult, metaResult, memberResult, taskResult, insightResult, productResult] =
       await Promise.all([
         supabase
           .from('kpis')
@@ -220,7 +203,6 @@ export default function CompanyDashboard() {
               .limit(3)
           : Promise.resolve({ data: [] as Insight[] }),
         supabase.from('products').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
-        supabase.from('product_editions').select('*').eq('company_id', company.id),
       ])
 
     const memberIds = (memberResult.data ?? []).map((row) => row.user_id)
@@ -235,7 +217,6 @@ export default function CompanyDashboard() {
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
     setProducts((productResult.data as Product[]) ?? [])
-    setEditions((editionResult.data as ProductEdition[]) ?? [])
     setLoading(false)
   }, [company.id, isAdmin])
 
@@ -315,41 +296,24 @@ export default function CompanyDashboard() {
     [metas, kpiRowById, effectiveValue],
   )
 
-  // Saúde de cada produto: mesma conta da saúde geral da empresa (média do
-  // attainmentRatio das metas com alvo), restrita às metas daquela frente —
-  // mais quantas tarefas dela estão abertas. `metas` aqui é TODA meta do
-  // produto — a dele mesmo e a de cada edição —, não só uma "de capa"
-  // escolhida a dedo: uma turma pode ter várias metas ao mesmo tempo
-  // (vendas de ingresso, faturamento, cancelamentos…) e todas precisam
-  // aparecer.
+  // Produto e turma são medição pura — meta só existe no indicador de
+  // empresa inteira. O que o cartão do produto mostra é o valor dos
+  // indicadores próprios dele (sem edição — os de cada turma aparecem um
+  // nível abaixo, dentro de Produtos), mais quantas tarefas dele estão
+  // abertas.
   const productStats = useMemo(() => {
-    const map = new Map<
-      string,
-      { ratio: number | null; open: number; metas: { meta: MetaRow; editionName?: string }[] }
-    >()
+    const map = new Map<string, { open: number; indicators: KpiRow[] }>()
     for (const product of products) {
-      const productMetas = metaRows.filter((row) => row.product_id === product.id)
-      const withTarget = productMetas.filter((row) => row.target_value !== null && Number(row.target_value) !== 0)
-      const ratios = withTarget
-        .map((row) => attainmentRatio(row.value, row.target_value, row.direction))
-        .filter((ratio): ratio is number => ratio !== null)
+      const indicators = kpiRows.filter(
+        (row) => row.product_id === product.id && row.product_edition_id === null,
+      )
       const open = tasks.filter(
         (task) => task.product_id === product.id && ['todo', 'doing', 'blocked'].includes(task.status),
       )
-      const metasList = productMetas.map((row) => ({
-        meta: row,
-        editionName: row.product_edition_id
-          ? editions.find((edition) => edition.id === row.product_edition_id)?.name
-          : undefined,
-      }))
-      map.set(product.id, {
-        ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
-        open: open.length,
-        metas: metasList,
-      })
+      map.set(product.id, { open: open.length, indicators })
     }
     return map
-  }, [products, editions, metaRows, tasks])
+  }, [products, kpiRows, tasks])
 
   // Metas em aberto — pra bater o olho no cartão "Metas" sem entrar em KPIs.
   const openMetas = useMemo(
@@ -525,7 +489,7 @@ export default function CompanyDashboard() {
       {products.length > 0 && (
         <Card
           title="Produtos"
-          description="A saúde de cada frente — clique pra abrir edições, KPIs e tarefas dela."
+          description="O valor atual de cada frente — clique pra abrir edições, KPIs e tarefas dela."
           actions={
             <Link to={`/empresa/${company.id}/produtos`} className="btn-ghost py-1.5 text-xs">
               Gerenciar
@@ -535,6 +499,7 @@ export default function CompanyDashboard() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {products.map((product) => {
               const stats = productStats.get(product.id)
+              const indicators = stats?.indicators ?? []
               return (
                 <Link
                   key={product.id}
@@ -549,24 +514,17 @@ export default function CompanyDashboard() {
                     <p className="min-w-0 truncate text-sm font-medium text-content">{product.name}</p>
                   </div>
                   <p className="mt-1 text-xs text-content-faint">{stats?.open ?? 0} tarefa(s) aberta(s)</p>
-                  {stats && stats.metas.length > 0 ? (
+                  {indicators.length > 0 && (
                     <div className="mt-2 space-y-2">
-                      {stats.metas.slice(0, 2).map(({ meta, editionName }) => (
-                        <ProductMetaLine key={meta.meta_id} meta={meta} editionName={editionName} />
+                      {indicators.slice(0, 2).map((row) => (
+                        <IndicatorLine key={row.kpi_id} row={row} value={effectiveValue(row.kpi_id)} />
                       ))}
-                      {stats.metas.length > 2 && (
+                      {indicators.length > 2 && (
                         <p className="text-[11px] text-content-faint">
-                          + {stats.metas.length - 2} meta{stats.metas.length - 2 > 1 ? 's' : ''}
+                          + {indicators.length - 2} indicador{indicators.length - 2 > 1 ? 'es' : ''}
                         </p>
                       )}
                     </div>
-                  ) : (
-                    stats?.ratio !== null &&
-                    stats?.ratio !== undefined && (
-                      <div className="mt-2">
-                        <ProgressBar ratio={stats.ratio} />
-                      </div>
-                    )
                   )}
                 </Link>
               )

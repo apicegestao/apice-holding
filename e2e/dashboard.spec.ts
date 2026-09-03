@@ -436,24 +436,27 @@ test.describe('orçamentos', () => {
   })
 })
 
-// Cadeia de meta turma → produto: "Entre Donos" (produto) nunca lança
-// direto — o valor dele é a soma das turmas, calculada no cliente. Cobre a
-// reclamação de que não dava pra ver nem cadastrar meta a partir de Produtos.
-test.describe('metas de produto e sub-produto', () => {
+// Cadeia de valor turma → produto: "Entre Donos" (produto) nunca lança
+// direto — o valor dele é a soma das turmas, calculada no cliente. Meta só
+// existe no indicador de empresa; produto e turma são medição pura, sem
+// alvo/ratio/barra — só o nome do indicador e o valor atual.
+test.describe('indicadores de produto e sub-produto', () => {
   test.beforeEach(async ({ page }) => {
     await login(page)
   })
 
-  test('cartão do produto mostra a meta somada das turmas, mesmo sem lançamento próprio', async ({ page }) => {
+  test('cartão do produto mostra o valor somado das turmas, sem nenhum alvo', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     // KPI_PRODUCT não tem lançamento nenhum — o valor exibido (32.000) só
     // pode vir da soma de KPI_EDITION (a turma de setembro).
     await expect(page.getByText('Faturamento Entre Donos')).toBeVisible()
-    await expect(page.getByText(/R\$\s?32\.000,00 de R\$\s?100\.000,00/)).toBeVisible()
+    await expect(page.getByText(/R\$\s?32\.000,00/).first()).toBeVisible()
+    // Sem meta, não tem "de R$ X" nenhum pra comparar.
+    await expect(page.getByText(/de R\$/)).not.toBeVisible()
   })
 
-  test('abrir o produto mostra a meta dele e a de cada turma, com o estado vazio de quem ainda não tem', async ({
+  test('abrir o produto mostra o indicador dele e o de cada turma, com o estado vazio de quem ainda não tem', async ({
     page,
   }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
@@ -463,31 +466,29 @@ test.describe('metas de produto e sub-produto', () => {
     // O cartão do produto (atrás do modal) também mostra o nome do mesmo
     // indicador — por isso o link (role) em vez de texto solto, que pegaria
     // os dois.
-    await expect(page.getByText('Metas deste produto')).toBeVisible()
-    const productMetaLink = page.getByRole('link', { name: /Faturamento Entre Donos/ })
-    await expect(productMetaLink).toContainText('R$ 32.000,00 de R$ 100.000,00')
+    await expect(page.getByText('Indicadores deste produto')).toBeVisible()
+    const productLink = page.getByRole('link', { name: /Faturamento Entre Donos/ })
+    await expect(productLink).toContainText('R$ 32.000,00')
 
-    // Turma de setembro já tem meta própria (32.000 de 50.000).
-    const editionMetaLink = page.getByRole('link', { name: /Faturamento Imersão Set\/2026/ })
-    await expect(editionMetaLink).toContainText('R$ 32.000,00 de R$ 50.000,00')
-    // O cartão do produto (atrás do modal) agora também lista a meta desta
-    // turma, com "· Imersão Setembro 2026" ao lado — por isso escopar no
-    // modal, senão pega os dois de novo (mesmo motivo do link acima).
+    // Turma de setembro já tem indicador próprio (32.000).
+    const editionLink = page.getByRole('link', { name: /Faturamento Imersão Set\/2026/ })
+    await expect(editionLink).toContainText('R$ 32.000,00')
+
     const modal = page.getByRole('dialog')
     await expect(modal.getByText('Imersão Setembro 2026')).toBeVisible()
 
-    // Turma de outubro não tem meta ainda — mostra o estado vazio com o
-    // atalho pra cadastrar, em vez de simplesmente não aparecer nada.
+    // Turma de outubro não tem indicador ainda — mostra o estado vazio com
+    // o atalho pra cadastrar, em vez de simplesmente não aparecer nada.
     await expect(modal.getByText('Imersão Outubro 2026')).toBeVisible()
-    await expect(modal.getByText('Sem meta própria ainda.')).toBeVisible()
-    await expect(modal.getByRole('link', { name: '+ Meta desta turma' })).toBeVisible()
+    await expect(modal.getByText('Sem indicador próprio ainda.')).toBeVisible()
+    await expect(modal.getByRole('link', { name: '+ Indicador desta turma' })).toBeVisible()
   })
 
-  test('+ Nova meta do produto leva pro formulário de KPI já com o produto preenchido', async ({ page }) => {
+  test('+ Indicador do produto leva pro formulário de KPI já com o produto preenchido', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()
-    await page.getByRole('link', { name: 'Nova meta' }).click()
+    await page.getByRole('link', { name: 'Indicador', exact: true }).click()
 
     await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis$`))
     await expect(page.getByRole('heading', { name: 'Novo KPI' })).toBeVisible()
@@ -498,11 +499,11 @@ test.describe('metas de produto e sub-produto', () => {
     await expect(productBox.locator('select').first()).toHaveValue(PRODUCT_ID)
   })
 
-  test('+ Meta desta turma leva pro formulário já com produto e edição preenchidos', async ({ page }) => {
+  test('+ Indicador desta turma leva pro formulário já com produto e edição preenchidos', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()
-    await page.getByRole('link', { name: '+ Meta desta turma' }).click()
+    await page.getByRole('link', { name: '+ Indicador desta turma' }).click()
 
     await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis$`))
     await expect(page.getByRole('heading', { name: 'Novo KPI' })).toBeVisible()
@@ -511,7 +512,7 @@ test.describe('metas de produto e sub-produto', () => {
     await expect(productBox.locator('select').nth(1)).toHaveValue(EDITION_ID_2)
   })
 
-  test('clicar numa meta do produto abre KPIs e destaca o indicador certo', async ({ page }) => {
+  test('clicar num indicador do produto abre KPIs e destaca o indicador certo', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()

@@ -1,22 +1,21 @@
 // Produtos: as frentes de produto/serviço dentro de uma empresa — caso real
 // que motivou este módulo: a MDD (Mesa dos Donos) controla "Entre Donos",
-// "Imersão", "Mentoria" e "Club" ao mesmo tempo, cada uma com sua própria
-// saúde. Frente recorrente (Entre Donos, Imersão) cadastra uma edição por
-// turma/encontro; frente contínua (Mentoria, Club) pode não ter edição
-// nenhuma — funciona sozinha.
+// "Imersão", "Mentoria" e "Club" ao mesmo tempo. Frente recorrente (Entre
+// Donos, Imersão) cadastra uma edição por turma/encontro; frente contínua
+// (Mentoria, Club) pode não ter edição nenhuma — funciona sozinha.
 //
-// A meta é o que mais gerava confusão aqui: cadastrar produto e edição não
-// bastava, porque não existia nenhum jeito de definir (nem de ver) uma
-// meta a partir desta tela — era preciso ir pra KPIs, lembrar de escolher o
-// produto certo lá, e só então a meta "aparecia" de volta aqui. Agora o
-// produto e cada edição mostram a própria meta direto aqui, com um atalho
-// "+ Meta" que já leva pro formulário de KPI com produto/edição
-// preenchidos — cadastro e acompanhamento na mesma tela.
+// Produto e edição são medição pura — nenhum dos dois tem meta própria (a
+// meta de verdade vive só no indicador de empresa inteira, em KPIs). O que
+// esta tela mostra é o valor de cada indicador ligado ao produto/edição,
+// já com a soma dos filhos incluída quando ele tiver sub-produtos (a
+// cadeia turma → produto → empresa via "Contribui para" continua igual,
+// ver `kpiRollup.ts`) — cadastro do indicador e acompanhamento do valor na
+// mesma tela.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarRange, ClipboardList, Pencil, Plus, Target, Trash2 } from 'lucide-react'
+import { CalendarRange, ClipboardList, Pencil, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
-import { attainmentRatio, formatDate, formatValue } from '../../core/lib/format'
+import { formatDate, formatValue } from '../../core/lib/format'
 import { buildChildrenByParent, effectiveKpiValue } from '../../core/lib/kpiRollup'
 import { useCompany } from '../../core/company/CompanyProvider'
 import {
@@ -28,7 +27,6 @@ import {
   Loading,
   Modal,
   PageHeader,
-  ProgressBar,
   Spinner,
   useConfirmDelete,
   useToast,
@@ -36,12 +34,10 @@ import {
 import { COMPANY_PALETTE } from '../companies/CompanyFields'
 import {
   PRODUCT_EDITION_STATUS_LABEL,
-  type GoalStatus,
   type Kpi,
   type KpiDirection,
   type KpiLatestValue,
   type KpiUnit,
-  type Meta,
   type Product,
   type ProductEdition,
   type ProductEditionStatus,
@@ -66,8 +62,9 @@ type TaskCount = { id: string; product_id: string | null; status: string }
 
 // Um KPI (indicador) ativo entra aqui com lançamento ou não — um indicador
 // que só soma os filhos (ex. o do produto, que nunca lança direto) não pode
-// sumir da tela por nunca ter uma linha própria em kpi_values. Só medição:
-// meta é outra coisa, ver `ProductMetaRow`.
+// sumir da tela por nunca ter uma linha própria em kpi_values. Produto e
+// edição não têm meta própria — só medição, este é o único tipo de linha
+// que a tela usa pra "como está indo".
 type ProductKpiRow = {
   kpi_id: string
   name: string
@@ -79,23 +76,6 @@ type ProductKpiRow = {
   parent_kpi_id: string | null
 }
 
-// Uma meta, já com o nome/unidade/direção do indicador que ela mede e o
-// valor de verdade dele (effectiveValue — soma incluída). O mesmo kpi_id
-// pode aparecer em mais de uma linha — um indicador pode ter mais de uma
-// meta ao mesmo tempo.
-type ProductMetaRow = {
-  meta_id: string
-  kpi_id: string
-  name: string
-  unit: KpiUnit
-  direction: KpiDirection
-  product_id: string | null
-  product_edition_id: string | null
-  target_value: number | null
-  status: GoalStatus
-  value: number | null
-}
-
 export default function ProductsPage() {
   const { company, canWrite } = useCompany()
   const { notify } = useToast()
@@ -104,7 +84,6 @@ export default function ProductsPage() {
   const [editions, setEditions] = useState<ProductEdition[]>([])
   const [kpiDefs, setKpiDefs] = useState<Kpi[]>([])
   const [kpiValues, setKpiValues] = useState<KpiLatestValue[]>([])
-  const [metas, setMetas] = useState<Meta[]>([])
   const [tasks, setTasks] = useState<TaskCount[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -122,7 +101,6 @@ export default function ProductsPage() {
       { data: editionRows },
       { data: kpiDefRows },
       { data: kpiValueRows },
-      { data: metaRows },
       { data: taskRows },
     ] = await Promise.all([
       supabase.from('products').select('*').eq('company_id', company.id).order('display_order'),
@@ -133,14 +111,12 @@ export default function ProductsPage() {
         .order('start_date', { ascending: false, nullsFirst: false }),
       supabase.from('kpis').select('*').eq('company_id', company.id).eq('is_active', true).is('archived_at', null),
       supabase.from('kpi_latest_values').select('*').eq('company_id', company.id).is('archived_at', null),
-      supabase.from('metas').select('*').eq('company_id', company.id).is('archived_at', null),
       supabase.from('tasks').select('id, product_id, status').eq('company_id', company.id),
     ])
     setProducts((productRows as Product[]) ?? [])
     setEditions((editionRows as ProductEdition[]) ?? [])
     setKpiDefs((kpiDefRows as Kpi[]) ?? [])
     setKpiValues((kpiValueRows as KpiLatestValue[]) ?? [])
-    setMetas((metaRows as Meta[]) ?? [])
     setTasks((taskRows as TaskCount[]) ?? [])
     setLoading(false)
   }, [company.id])
@@ -176,94 +152,38 @@ export default function ProductsPage() {
     [childrenByParent, kpiRowById],
   )
 
-  // Cada meta ganha o nome/unidade/direção do indicador que ela mede e o
-  // valor de verdade dele (soma incluída) — um indicador pode aparecer em
-  // mais de uma linha aqui (uma por meta que ele tem).
-  const metaRows = useMemo<ProductMetaRow[]>(
-    () =>
-      metas
-        .map((meta) => {
-          const kpi = kpiRowById.get(meta.kpi_id)
-          if (!kpi) return null
-          return {
-            meta_id: meta.id,
-            kpi_id: meta.kpi_id,
-            name: kpi.name,
-            unit: kpi.unit,
-            direction: kpi.direction,
-            product_id: kpi.product_id,
-            product_edition_id: kpi.product_edition_id,
-            target_value: meta.target_value,
-            status: meta.status,
-            value: effectiveValue(meta.kpi_id),
-          }
-        })
-        .filter((row): row is ProductMetaRow => row !== null),
-    [metas, kpiRowById, effectiveValue],
-  )
-
-  // Metas "do produto como um todo" (sem edição) e as "de cada turma" —
-  // separadas porque aparecem em lugares diferentes da tela.
-  const metasByProduct = useMemo(() => {
-    const map = new Map<string, ProductMetaRow[]>()
-    for (const row of metaRows) {
-      if (!row.product_id || row.product_edition_id) continue
-      const list = map.get(row.product_id) ?? []
-      list.push(row)
-      map.set(row.product_id, list)
-    }
-    return map
-  }, [metaRows])
-
-  const metasByEdition = useMemo(() => {
-    const map = new Map<string, ProductMetaRow[]>()
-    for (const row of metaRows) {
+  // Indicadores próprios de cada turma (sem edição = do produto, ver
+  // `statsByProduct` abaixo) — mapa pra não refiltrar `kpiRows` inteiro a
+  // cada edição renderizada.
+  const indicatorsByEdition = useMemo(() => {
+    const map = new Map<string, ProductKpiRow[]>()
+    for (const row of kpiRows) {
       if (!row.product_edition_id) continue
       const list = map.get(row.product_edition_id) ?? []
       list.push(row)
       map.set(row.product_edition_id, list)
     }
     return map
-  }, [metaRows])
+  }, [kpiRows])
 
-  // Saúde de cada produto: mesma conta da saúde geral da empresa (média do
-  // attainmentRatio das metas com alvo, usando o valor de verdade — soma
-  // incluída), restrita às metas daquele produto — e tarefas abertas dele.
-  // `metas` aqui é TODA meta do produto — a dele mesmo e a de cada edição —,
-  // não só uma "de capa" escolhida a dedo: uma turma pode ter várias metas
-  // ao mesmo tempo (vendas de ingresso, faturamento, cancelamentos…) e
-  // todas precisam aparecer, não só a primeira que existir.
+  // Produto e turma são medição pura — meta só existe no indicador de
+  // empresa inteira. O que o cartão do produto mostra é o valor dos
+  // indicadores PRÓPRIOS dele (sem edição — os de cada turma aparecem um
+  // nível abaixo, dentro do modal), mais quantas tarefas dele estão
+  // abertas.
   const statsByProduct = useMemo(() => {
-    const map = new Map<
-      string,
-      { ratio: number | null; open: number; metas: { meta: ProductMetaRow; editionName?: string }[] }
-    >()
+    const map = new Map<string, { open: number; indicators: ProductKpiRow[] }>()
     for (const product of products) {
-      const productLevel = metasByProduct.get(product.id) ?? []
-      const productEditions = editions.filter((edition) => edition.product_id === product.id)
-      const withTarget = metaRows.filter(
-        (row) => row.product_id === product.id && row.target_value !== null && Number(row.target_value) !== 0,
+      const indicators = kpiRows.filter(
+        (row) => row.product_id === product.id && row.product_edition_id === null,
       )
-      const ratios = withTarget
-        .map((row) => attainmentRatio(row.value, row.target_value, row.direction))
-        .filter((ratio): ratio is number => ratio !== null)
       const open = tasks.filter(
         (task) => task.product_id === product.id && ['todo', 'doing', 'blocked'].includes(task.status),
       )
-      const metasList = [
-        ...productLevel.map((meta) => ({ meta })),
-        ...productEditions.flatMap((edition) =>
-          (metasByEdition.get(edition.id) ?? []).map((meta) => ({ meta, editionName: edition.name })),
-        ),
-      ]
-      map.set(product.id, {
-        ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
-        open: open.length,
-        metas: metasList,
-      })
+      map.set(product.id, { open: open.length, indicators })
     }
     return map
-  }, [products, metasByProduct, metasByEdition, editions, metaRows, tasks])
+  }, [products, kpiRows, tasks])
 
   const activeProduct = useMemo(() => products.find((item) => item.id === activeId) ?? null, [products, activeId])
   const activeEditions = useMemo(
@@ -369,7 +289,7 @@ export default function ProductsPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title={`Produtos · ${company.name}`}
-        subtitle="As frentes de produto ou serviço desta empresa, a meta de cada uma e, pra quem roda em turmas, a meta de cada edição."
+        subtitle="As frentes de produto ou serviço desta empresa, o valor de cada uma e, pra quem roda em turmas, o valor de cada edição."
         actions={
           canWrite && (
             <button type="button" className="btn-primary" onClick={openCreate}>
@@ -382,7 +302,7 @@ export default function ProductsPage() {
       {products.length === 0 ? (
         <EmptyState
           title="Nenhum produto cadastrado"
-          description='Cadastre as frentes que a empresa toca — ex.: "Entre Donos", "Imersão", "Mentoria" — pra acompanhar a meta e a saúde de cada uma separadamente.'
+          description='Cadastre as frentes que a empresa toca — ex.: "Entre Donos", "Imersão", "Mentoria" — pra acompanhar o valor de cada uma separadamente.'
           action={
             canWrite && (
               <button type="button" className="btn-primary" onClick={openCreate}>
@@ -428,24 +348,17 @@ export default function ProductsPage() {
                     <ClipboardList className="h-3.5 w-3.5" /> {stats?.open ?? 0} tarefa(s)
                   </span>
                 </div>
-                {stats && stats.metas.length > 0 ? (
+                {stats && stats.indicators.length > 0 && (
                   <div className="mt-3 space-y-2.5">
-                    {stats.metas.slice(0, 2).map(({ meta, editionName }) => (
-                      <MetaLine key={meta.meta_id} meta={meta} editionName={editionName} size="xs" />
+                    {stats.indicators.slice(0, 2).map((row) => (
+                      <IndicatorLine key={row.kpi_id} row={row} value={effectiveValue(row.kpi_id)} size="xs" />
                     ))}
-                    {stats.metas.length > 2 && (
+                    {stats.indicators.length > 2 && (
                       <p className="text-[11px] text-content-faint">
-                        + {stats.metas.length - 2} meta{stats.metas.length - 2 > 1 ? 's' : ''}
+                        + {stats.indicators.length - 2} indicador{stats.indicators.length - 2 > 1 ? 'es' : ''}
                       </p>
                     )}
                   </div>
-                ) : (
-                  stats?.ratio !== null &&
-                  stats?.ratio !== undefined && (
-                    <div className="mt-3">
-                      <ProgressBar ratio={stats.ratio} label="Saúde da frente" />
-                    </div>
-                  )
                 )}
               </button>
             )
@@ -489,29 +402,27 @@ export default function ProductsPage() {
 
             <div>
               <div className="flex items-center justify-between gap-2">
-                <p className="label">Metas deste produto</p>
+                <p className="label">Indicadores deste produto</p>
                 {canWrite && (
                   <Link
                     to={`/empresa/${company.id}/kpis?novo=1&product_id=${activeProduct.id}`}
                     className="btn-ghost py-1 text-xs"
                   >
-                    <Target className="h-3.5 w-3.5" /> Nova meta
+                    <Plus className="h-3.5 w-3.5" /> Indicador
                   </Link>
                 )}
               </div>
-              {(metasByProduct.get(activeProduct.id) ?? []).length === 0 ? (
-                <p className="mt-1 text-sm text-content-soft">
-                  Ainda sem meta própria — o produto como um todo não tem nenhuma meta definida.
-                </p>
+              {(statsByProduct.get(activeProduct.id)?.indicators ?? []).length === 0 ? (
+                <p className="mt-1 text-sm text-content-soft">Nenhum indicador próprio deste produto ainda.</p>
               ) : (
                 <ul className="mt-2 space-y-2">
-                  {(metasByProduct.get(activeProduct.id) ?? []).map((meta) => (
-                    <li key={meta.meta_id}>
+                  {(statsByProduct.get(activeProduct.id)?.indicators ?? []).map((row) => (
+                    <li key={row.kpi_id}>
                       <Link
-                        to={`/empresa/${company.id}/kpis?kpi=${meta.kpi_id}`}
+                        to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}`}
                         className="block rounded-lg border border-line p-2.5 transition hover:border-line-strong hover:bg-hover"
                       >
-                        <MetaLine meta={meta} />
+                        <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} />
                       </Link>
                     </li>
                   ))}
@@ -528,7 +439,7 @@ export default function ProductsPage() {
               ) : (
                 <ul className="mt-2 space-y-2">
                   {activeEditions.map((edition) => {
-                    const editionMetas = metasByEdition.get(edition.id) ?? []
+                    const editionIndicators = indicatorsByEdition.get(edition.id) ?? []
                     return (
                       <li key={edition.id} className="rounded-lg border border-line p-2.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -575,27 +486,27 @@ export default function ProductsPage() {
                         </div>
 
                         <div className="mt-2 border-t border-line pt-2">
-                          {editionMetas.length === 0 ? (
+                          {editionIndicators.length === 0 ? (
                             <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs text-content-faint">Sem meta própria ainda.</p>
+                              <p className="text-xs text-content-faint">Sem indicador próprio ainda.</p>
                               {canWrite && (
                                 <Link
                                   to={`/empresa/${company.id}/kpis?novo=1&product_id=${activeProduct.id}&product_edition_id=${edition.id}`}
                                   className="shrink-0 text-xs text-brand-text hover:underline"
                                 >
-                                  + Meta desta turma
+                                  + Indicador desta turma
                                 </Link>
                               )}
                             </div>
                           ) : (
                             <ul className="space-y-2">
-                              {editionMetas.map((meta) => (
-                                <li key={meta.meta_id}>
+                              {editionIndicators.map((row) => (
+                                <li key={row.kpi_id}>
                                   <Link
-                                    to={`/empresa/${company.id}/kpis?kpi=${meta.kpi_id}`}
+                                    to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}`}
                                     className="block rounded-md -mx-1 px-1 py-0.5 transition hover:bg-hover"
                                   >
-                                    <MetaLine meta={meta} size="xs" />
+                                    <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} size="xs" />
                                   </Link>
                                 </li>
                               ))}
@@ -723,41 +634,26 @@ export default function ProductsPage() {
   )
 }
 
-/** Nome da meta + "valor de meta" + barrinha, quando dá pra calcular — o
- *  mesmo formato em todo lugar que uma meta de produto/edição aparece
- *  (cartão do produto, lista de metas do produto, linha da edição).
- *  `editionName` só entra quando o cartão do produto mistura metas de
- *  mais de uma turma na mesma lista — sem isso, "Faturamento" repetido
- *  duas vezes não diz de qual edição é cada um. */
-function MetaLine({
-  meta,
-  editionName,
+/** Nome do indicador + valor atual — produto e turma são medição pura (a
+ *  meta de verdade vive só no indicador de empresa inteira), então aqui não
+ *  tem alvo, nem ratio, nem barra: só o valor, já com a soma dos filhos
+ *  incluída quando o indicador tiver sub-produtos. */
+function IndicatorLine({
+  row,
+  value,
   size = 'sm',
 }: {
-  meta: ProductMetaRow
-  editionName?: string
+  row: ProductKpiRow
+  value: number | null
   size?: 'sm' | 'xs'
 }) {
-  const ratio = meta.value !== null ? attainmentRatio(meta.value, meta.target_value, meta.direction) : null
   const textSize = size === 'xs' ? 'text-[11px]' : 'text-xs'
   return (
     <div>
-      <p className={`truncate font-medium text-content-soft ${textSize}`}>
-        {meta.name}
-        {editionName && <span className="font-normal text-content-faint"> · {editionName}</span>}
-      </p>
+      <p className={`truncate font-medium text-content-soft ${textSize}`}>{row.name}</p>
       <p className={`mt-0.5 text-content-faint ${textSize}`}>
-        {meta.value === null
-          ? 'sem lançamento ainda'
-          : meta.target_value !== null
-            ? `${formatValue(meta.value, meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
-            : formatValue(meta.value, meta.unit)}
+        {value === null ? 'sem lançamento ainda' : formatValue(value, row.unit)}
       </p>
-      {meta.value !== null && meta.target_value !== null && (
-        <div className="mt-1">
-          <ProgressBar ratio={ratio} />
-        </div>
-      )}
     </div>
   )
 }

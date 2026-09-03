@@ -1718,3 +1718,65 @@ suíte longa (`ERR_CONNECTION_REFUSED`, não relacionado à mudança) —
 confirmado reexecutando só esses 4 isoladamente: passam (23/23 no arquivo
 de segurança, incluindo os 4). `ai-insights` reimplantado na função viva
 (`deploy_edge_function`).
+
+## 30. Meta só na empresa — produto e turma viram medição pura
+
+Realinhamento do usuário logo depois do item 29: "empresa tem meta de
+faturamento, vendas... produto contribui pra meta da empresa, sub-produto
+contribui pra meta do produto, que contribui pra meta da empresa" — com o
+exemplo concreto de a empresa (Mesa dos Donos) ter o produto "Entre Donos"
+(evento), que tem sub-produtos (as turmas). A separação recém-feita entre
+indicador e meta (item 29) tinha aberto meta em **qualquer** nível — de
+empresa, de produto ou de turma —, o que reintroduzia a complexidade que
+essa visão queria evitar. Decisão confirmada (`AskUserQuestion`): meta só
+pode existir em indicador de empresa inteira (`kpis.product_id is null`);
+produto e turma viram nós de medição pura, mostrando só o valor (via a
+cadeia `parent_kpi_id`/"Contribui para", que não muda nada).
+
+**Achado antes de mexer:** já existia 1 meta de produção violando a regra
+nova — um indicador "Entre Donos (09/26)" de produto (empresa MDD,
+produto "Mesa Dos Donos"), criado minutos antes desta conversa, com meta
+própria (alvo 22, prazo 09/09). Confirmado com o usuário (`AskUserQuestion`)
+antes de tocar: excluída a meta, o indicador em si ficou intacto.
+
+**Modelo novo:** novo trigger `metas_company_level_guard` em
+`public.metas` (`app.assert_meta_kpi_company_level()`), rejeitando
+qualquer insert/update de meta cujo `kpi_id` aponte pra um indicador com
+`product_id` preenchido. RLS não muda — é regra de negócio, não de
+tenancy. `kpis.product_id`/`product_edition_id` e a cadeia `parent_kpi_id`
+seguem exatamente iguais — só quem pode *ter uma meta* muda.
+
+**Telas:**
+- `KpisPage`: a checkbox "Definir uma meta agora" e o botão "+ Meta" só
+  aparecem quando o indicador não tem produto; trocar de produto no meio
+  do cadastro desliga a checkbox sozinha; `submitKpi` ganhou uma segunda
+  guarda antes do gatilho do banco.
+- `CompanyDashboard`/`ProductsPage`: o cartão de produto e o modal de
+  detalhe trocaram a lista de metas (nome + alvo + barra) por uma lista de
+  indicadores puros (nome + valor, via `effectiveValue`, sem barra) — sem
+  meta, não tem mais nada pra comparar naquele nível. "Metas deste
+  produto" virou "Indicadores deste produto"; "+ Meta desta turma" virou
+  "+ Indicador desta turma"; o mesmo atalho `?novo=1&product_id=...`
+  continua levando pro formulário de KPI, só que criando um indicador
+  puro em vez de uma meta.
+- `ai-insights`: sem mudança — já lia metas de forma agnóstica de nível.
+
+**Fora de escopo:** nenhuma mudança na cadeia de soma de valor
+(`parent_kpi_id`, `buildChildrenByParent`/`effectiveKpiValue`) — ela já
+tinha profundidade livre e já era exatamente o mecanismo "turma soma no
+produto, que soma na empresa" que a visão do usuário descreve.
+
+**Verificação:** preflight por SQL achou a 1 meta de produção citada acima
+(excluída com autorização do usuário antes da migração). Migração
+aplicada; smoke test — tentativa de inserir meta num kpi de produto
+rejeitada pelo trigger (mensagem de erro clara), meta num kpi de empresa
+inserida e removida sem deixar rastro. `get_advisors`: mesmos dois avisos
+de sempre, nenhum novo. `npx tsc --noEmit` e `npm run build` limpos após
+cada arquivo tocado. `npm run test`: 28, sem mudança (rollup de valor não
+foi tocado). `npm run check:contrast`: 24/24, sem mudança. `npm run
+test:e2e`: describe `'metas de produto e sub-produto'` virou `'indicadores
+de produto e sub-produto'` (5 testes reescritos pro valor puro, sem alvo);
+fixture `METAS`/`META_LATEST_VALUES` perdeu as duas entradas de
+produto/turma (`META_PRODUCT`/`META_EDITION`), mantendo `KPI_PRODUCT`/
+`KPI_EDITION` como indicador puro. Suíte completa: 190 testes, sem
+falhas.

@@ -398,7 +398,11 @@ export default function KpisPage() {
       return
     }
 
-    if (wantsInitialMeta) {
+    // Segunda linha de defesa (a primeira é a checkbox nem aparecer pra
+    // KPI de produto/turma) — o gatilho no banco (metas_company_level_guard)
+    // é o backstop de verdade, mas não faz sentido nem tentar se o próprio
+    // formulário já sabe que este KPI não é de empresa inteira.
+    if (wantsInitialMeta && !payload.product_id) {
       const { error: metaError } = await supabase.from('metas').insert({
         company_id: company.id,
         kpi_id: created!.id,
@@ -416,7 +420,7 @@ export default function KpisPage() {
     }
 
     setBusy(false)
-    notify(wantsInitialMeta ? 'KPI e meta criados.' : 'KPI criado.')
+    notify(wantsInitialMeta && !payload.product_id ? 'KPI e meta criados.' : 'KPI criado.')
     setCreatingKpi(false)
     await load()
   }
@@ -875,7 +879,13 @@ export default function KpisPage() {
                     <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-content-soft">
                       <Target className="h-3.5 w-3.5" /> Metas{kpiMetas.length > 0 && ` (${kpiMetas.length})`}
                     </p>
-                    {canWrite && (
+                    {/* Meta só existe pra indicador de empresa inteira —
+                        produto e turma são medição pura. A lista abaixo
+                        continua aparecendo sem essa restrição, de
+                        propósito: é só leitura, e serve de rede de
+                        segurança caso sobre alguma meta antiga de
+                        produto/turma. */}
+                    {canWrite && !kpi.product_id && (
                       <button
                         type="button"
                         className="text-xs text-brand-text hover:underline"
@@ -1056,14 +1066,20 @@ export default function KpisPage() {
                   <select
                     className="input"
                     value={kpiForm.product_id}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      // Meta só existe pra indicador de empresa inteira —
+                      // escolher um produto some com a checkbox (JSX acima)
+                      // e, se ela já estava marcada, desliga também, senão
+                      // o submit tentaria gravar uma meta que não devia mais
+                      // existir.
+                      if (event.target.value) setWantsInitialMeta(false)
                       setKpiForm((c) => ({
                         ...c,
                         product_id: event.target.value,
                         product_edition_id: '',
                         parent_kpi_id: '',
                       }))
-                    }
+                    }}
                   >
                     <option value="">Nenhum — indicador da empresa toda</option>
                     {products.map((product) => (
@@ -1240,8 +1256,11 @@ export default function KpisPage() {
 
           {/* Meta inicial, opcional — pode ser adicionada (ou uma segunda,
               terceira...) depois, a qualquer momento, pelo "+ Meta" no
-              cartão do indicador. */}
-          {!editingKpi && (
+              cartão do indicador. Só existe pra indicador de empresa
+              inteira — produto e turma são medição pura, a meta de
+              verdade vive lá em cima (o valor deles soma via "Contribui
+              para"). */}
+          {!editingKpi && kpiForm.product_id === '' && (
             <div className="rounded-lg border border-dashed border-line-strong p-3">
               <label className="flex items-center gap-2 text-sm font-medium text-content">
                 <input
