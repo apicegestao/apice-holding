@@ -111,7 +111,7 @@ export const EDITION_ID = '55555555-5555-5555-5555-555555555561'
 // Turma sem meta própria ainda — cobre o estado vazio ("+ Meta desta turma").
 export const EDITION_ID_2 = '55555555-5555-5555-5555-555555555562'
 
-const KPIS = [
+export const KPIS = [
   {
     id: KPI_NOVALUE,
     company_id: COMPANY_ID,
@@ -211,13 +211,14 @@ const KPIS = [
 
 // Uma meta por indicador (o caso comum hoje) — a tabela suporta várias por
 // KPI, mas nenhum teste depende disso ainda. Só KPI_WITH tem prazo/
-// responsável de verdade; os outros têm só um alvo (meta sem prazo). Meta
-// só existe em indicador de empresa (product_id null) — KPI_PRODUCT/
-// KPI_EDITION (produto/turma) nunca aparecem aqui, só em KPIS/kpi_latest_values,
-// como medição pura.
+// responsável de verdade; os outros têm só um alvo (meta sem prazo). Alvo
+// agora existe em todo nível — META_PRODUCT/META_EDITION cobrem produto e
+// turma (KPI_PRODUCT/KPI_EDITION), lado a lado com os alvos de empresa.
 const META_NOVALUE = '66666666-6666-6666-6666-666666666661'
 const META_WITH = '66666666-6666-6666-6666-666666666662'
 const META_EXTRA = ['3', '4', '5'].map((n) => `66666666-6666-6666-6666-66666666666${n}`)
+const META_PRODUCT = '66666666-6666-6666-6666-666666666666'
+const META_EDITION = '66666666-6666-6666-6666-666666666667'
 
 const METAS = [
   {
@@ -256,6 +257,32 @@ const METAS = [
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   })),
+  // Alvo de produto e de turma — a mesma cadeia "Entre Donos" cobrindo os
+  // dois níveis abaixo de empresa, pra exercitar alvo em todo nível.
+  {
+    id: META_PRODUCT,
+    company_id: COMPANY_ID_2,
+    kpi_id: KPI_PRODUCT,
+    target_value: 400000,
+    due_date: '2026-12-31',
+    owner_id: null,
+    status: 'active',
+    archived_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: META_EDITION,
+    company_id: COMPANY_ID_2,
+    kpi_id: KPI_EDITION,
+    target_value: 35000,
+    due_date: '2026-09-17',
+    owner_id: null,
+    status: 'at_risk',
+    archived_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
 ]
 
 const PRODUCTS = [
@@ -423,10 +450,48 @@ const META_LATEST_VALUES = [
     status: 'active',
     archived_at: null as string | null,
   })),
-  // KPI_PRODUCT/KPI_EDITION (produto/turma) não entram aqui — meta só
-  // existe em indicador de empresa. Os dois continuam em KPIS/
-  // kpi_latest_values como medição pura (usada por ProductsPage/
-  // CompanyDashboard).
+  // Alvo de produto — KPI_PRODUCT não tem lançamento próprio (o valor dele
+  // vem só da soma da turma, calculada no cliente), por isso value: null
+  // aqui — mesmo comportamento de qualquer meta pai sem lançamento direto.
+  {
+    meta_id: META_PRODUCT,
+    kpi_id: KPI_PRODUCT,
+    company_id: COMPANY_ID_2,
+    name: 'Faturamento Entre Donos',
+    unit: 'currency',
+    direction: 'up',
+    product_id: PRODUCT_ID as string | null,
+    product_edition_id: null as string | null,
+    parent_kpi_id: null as string | null,
+    value: null as number | null,
+    period_start: null as string | null,
+    period_end: null as string | null,
+    target_value: 400000,
+    due_date: '2026-12-31' as string | null,
+    owner_id: null as string | null,
+    status: 'active',
+    archived_at: null as string | null,
+  },
+  // Alvo de turma.
+  {
+    meta_id: META_EDITION,
+    kpi_id: KPI_EDITION,
+    company_id: COMPANY_ID_2,
+    name: 'Faturamento Imersão Set/2026',
+    unit: 'currency',
+    direction: 'up',
+    product_id: PRODUCT_ID as string | null,
+    product_edition_id: EDITION_ID as string | null,
+    parent_kpi_id: KPI_PRODUCT as string | null,
+    value: 32000,
+    period_start: '2026-08-01' as string | null,
+    period_end: '2026-08-31' as string | null,
+    target_value: 35000,
+    due_date: '2026-09-17' as string | null,
+    owner_id: null as string | null,
+    status: 'at_risk',
+    archived_at: null as string | null,
+  },
 ]
 
 export const TASKS = [

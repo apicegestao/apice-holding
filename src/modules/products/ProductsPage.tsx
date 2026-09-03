@@ -4,16 +4,17 @@
 // Donos, Imersão) cadastra uma edição por turma/encontro; frente contínua
 // (Mentoria, Club) pode não ter edição nenhuma — funciona sozinha.
 //
-// Produto e edição são medição pura — nenhum dos dois tem alvo próprio (o
-// alvo de verdade vive só na meta de empresa inteira, na tela Metas). O
-// que esta tela mostra é o valor de cada meta ligada ao produto/edição, já
-// com a soma dos filhos incluída quando ela tiver sub-produtos (a cadeia
-// turma → produto → empresa via "Contribui para" continua igual, ver
-// `kpiRollup.ts`) — cadastro da meta e acompanhamento do valor na mesma
-// tela, e um lápis em cada linha pra editar sem sair daqui.
+// Esta tela é cadastro PURO: nome, descrição, edições (turma/encontro,
+// com data). Nenhuma meta é criada nem editada por aqui — vincular um
+// produto/turma a uma meta acontece de dentro do cartão dela, na tela de
+// Metas (?vincular produto"/"turma"). O que aparece aqui é só uma lista de
+// leitura mostrando em quais metas cada produto/turma já é acompanhado
+// (nome + valor atual, já com a soma dos filhos incluída — mesma cadeia
+// turma → produto → empresa de sempre, ver `kpiRollup.ts`), mais um atalho
+// pra vincular vários indicadores de uma vez.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarRange, ClipboardList, Pencil, Plus, Trash2 } from 'lucide-react'
+import { CalendarRange, ClipboardList, Pencil, Plus, Target, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { formatDate, formatValue } from '../../core/lib/format'
 import { buildChildrenByParent, effectiveKpiValue } from '../../core/lib/kpiRollup'
@@ -32,10 +33,13 @@ import {
   useToast,
 } from '../../core/ui'
 import { COMPANY_PALETTE } from '../companies/CompanyFields'
+import { type KpiTemplate } from '../../core/catalog'
+import KpiSuggestions from '../kpis/KpiSuggestions'
 import {
   PRODUCT_EDITION_STATUS_LABEL,
   type Kpi,
   type KpiDirection,
+  type KpiFrequency,
   type KpiLatestValue,
   type KpiUnit,
   type Product,
@@ -93,6 +97,7 @@ export default function ProductsPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [editionForm, setEditionForm] = useState<EditionForm>(blankEditionForm)
+  const [attachEditionFor, setAttachEditionFor] = useState<ProductEdition | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -183,6 +188,11 @@ export default function ProductsPage() {
     }
     return map
   }, [products, kpiRows, tasks])
+
+  // Toda meta raiz de empresa (sem produto, sem pai) — a lista que o atalho
+  // de vincular em lote oferece, sempre recalculada a partir do que já está
+  // em uso, nunca uma lista fixa.
+  const rootKpis = useMemo(() => kpiDefs.filter((kpi) => !kpi.parent_kpi_id && !kpi.product_id), [kpiDefs])
 
   const activeProduct = useMemo(() => products.find((item) => item.id === activeId) ?? null, [products, activeId])
   const activeEditions = useMemo(
@@ -400,39 +410,19 @@ export default function ProductsPage() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between gap-2">
-                <p className="label">Metas deste produto</p>
-                {canWrite && (
-                  <Link
-                    to={`/empresa/${company.id}/kpis?novo=1&product_id=${activeProduct.id}`}
-                    className="btn-ghost py-1 text-xs"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Meta
-                  </Link>
-                )}
-              </div>
+              <p className="label">Metas que acompanham este produto</p>
+              {/* Só leitura — nome + valor atual. Vincular uma meta nova
+                  acontece pelo atalho no form de editar produto, ou de
+                  dentro do cartão dela na tela de Metas. */}
               {(statsByProduct.get(activeProduct.id)?.indicators ?? []).length === 0 ? (
-                <p className="mt-1 text-sm text-content-soft">Nenhuma meta própria deste produto ainda.</p>
+                <p className="mt-1 text-sm text-content-soft">Nenhuma meta acompanha este produto ainda.</p>
               ) : (
                 <ul className="mt-2 space-y-2">
                   {(statsByProduct.get(activeProduct.id)?.indicators ?? []).map((row) => (
-                    <li
-                      key={row.kpi_id}
-                      className="flex items-center gap-1.5 rounded-lg border border-line p-2.5 transition hover:border-line-strong hover:bg-hover"
-                    >
-                      <Link to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}`} className="min-w-0 flex-1">
+                    <li key={row.kpi_id} className="rounded-lg border border-line p-2.5">
+                      <Link to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}`} className="block">
                         <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} />
                       </Link>
-                      {canWrite && (
-                        <Link
-                          to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}&editar=1`}
-                          className="shrink-0 rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
-                          aria-label="Editar meta"
-                          title="Editar"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Link>
-                      )}
                     </li>
                   ))}
                 </ul>
@@ -484,6 +474,17 @@ export default function ProductsPage() {
                             {canWrite && (
                               <button
                                 type="button"
+                                className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
+                                onClick={() => setAttachEditionFor(edition)}
+                                aria-label="Metas desta turma"
+                                title="Metas"
+                              >
+                                <Target className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {canWrite && (
+                              <button
+                                type="button"
                                 className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                                 onClick={() => editionDelete.ask(edition)}
                                 aria-label="Remover edição"
@@ -496,37 +497,17 @@ export default function ProductsPage() {
 
                         <div className="mt-2 border-t border-line pt-2">
                           {editionIndicators.length === 0 ? (
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs text-content-faint">Sem meta própria ainda.</p>
-                              {canWrite && (
-                                <Link
-                                  to={`/empresa/${company.id}/kpis?novo=1&product_id=${activeProduct.id}&product_edition_id=${edition.id}`}
-                                  className="shrink-0 text-xs text-brand-text hover:underline"
-                                >
-                                  + Meta desta turma
-                                </Link>
-                              )}
-                            </div>
+                            <p className="text-xs text-content-faint">Nenhuma meta acompanha esta turma ainda.</p>
                           ) : (
                             <ul className="space-y-2">
                               {editionIndicators.map((row) => (
-                                <li key={row.kpi_id} className="flex items-center gap-1 -mx-1 px-1">
+                                <li key={row.kpi_id}>
                                   <Link
                                     to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}`}
-                                    className="min-w-0 flex-1 rounded-md py-0.5 transition hover:bg-hover"
+                                    className="block rounded-md py-0.5 transition hover:bg-hover"
                                   >
                                     <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} size="xs" />
                                   </Link>
-                                  {canWrite && (
-                                    <Link
-                                      to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}&editar=1`}
-                                      className="shrink-0 rounded-md p-1 text-content-faint hover:bg-hover hover:text-content"
-                                      aria-label="Editar meta"
-                                      title="Editar"
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                    </Link>
-                                  )}
                                 </li>
                               ))}
                             </ul>
@@ -621,7 +602,48 @@ export default function ProductsPage() {
           )}
           {error && <ErrorText>{error}</ErrorText>}
         </form>
+
+        {/* Vincular este produto a uma ou várias metas de uma vez — só
+            existe editando um produto já cadastrado (precisa de um id de
+            verdade). Criar o produto primeiro, vincular depois. */}
+        {modal?.editing && (
+          <div className="mt-5 border-t border-line pt-4">
+            <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-content">
+              <Target className="h-4 w-4 text-content-faint" /> Vincular a metas
+            </p>
+            <AttachIndicatorsSection
+              companyId={company.id}
+              productId={modal.editing.id}
+              productEditionId={null}
+              targetLabel={modal.editing.name}
+              allRootKpis={rootKpis}
+              existingChildren={kpiDefs.filter(
+                (kpi) => kpi.product_id === modal.editing!.id && kpi.product_edition_id === null,
+              )}
+              onLinked={load}
+            />
+          </div>
+        )}
       </Modal>
+
+      {attachEditionFor && activeProduct && (
+        <Modal
+          open
+          title={`Metas de ${attachEditionFor.name}`}
+          onClose={() => setAttachEditionFor(null)}
+          width="max-w-md"
+        >
+          <AttachIndicatorsSection
+            companyId={company.id}
+            productId={activeProduct.id}
+            productEditionId={attachEditionFor.id}
+            targetLabel={`${activeProduct.name} · ${attachEditionFor.name}`}
+            allRootKpis={rootKpis}
+            existingChildren={kpiDefs.filter((kpi) => kpi.product_edition_id === attachEditionFor.id)}
+            onLinked={load}
+          />
+        </Modal>
+      )}
 
       <ConfirmDialog
         open={productDelete.target !== null}
@@ -653,10 +675,11 @@ export default function ProductsPage() {
   )
 }
 
-/** Nome da meta + valor atual — produto e turma são medição pura (o alvo
- *  de verdade vive só na meta de empresa inteira), então aqui não tem
- *  alvo, nem ratio, nem barra: só o valor, já com a soma dos filhos
- *  incluída quando a meta tiver sub-produtos. */
+/** Nome da meta + valor atual — linha compacta de só leitura, usada nesta
+ *  tela de cadastro. Produto e turma também podem ter alvo agora (ver tela
+ *  de Metas); aqui fica só o valor de propósito, pra manter esta lista
+ *  enxuta — já com a soma dos filhos incluída quando a meta tiver
+ *  sub-produtos. */
 function IndicatorLine({
   row,
   value,
@@ -673,6 +696,188 @@ function IndicatorLine({
       <p className={`mt-0.5 text-content-faint ${textSize}`}>
         {value === null ? 'sem lançamento ainda' : formatValue(value, row.unit)}
       </p>
+    </div>
+  )
+}
+
+// --------------------------------------------------- vincular em lote
+// Atalho pra vincular um produto/turma a várias metas de uma vez, em vez
+// de ir uma por uma no cartão de cada meta. A lista de metas existentes é
+// sempre recalculada a partir do que já está em uso (allRootKpis) — nunca
+// fixa — e dá pra criar uma meta nova ali mesmo, do catálogo ou com nome
+// livre, exatamente como o modal "Nova Meta" já faz.
+function AttachIndicatorsSection({
+  companyId,
+  productId,
+  productEditionId,
+  targetLabel,
+  allRootKpis,
+  existingChildren,
+  onLinked,
+}: {
+  companyId: string
+  productId: string
+  productEditionId: string | null
+  targetLabel: string
+  allRootKpis: Kpi[]
+  existingChildren: Kpi[]
+  onLinked: () => Promise<void>
+}) {
+  const { notify } = useToast()
+  const alreadyLinkedRootIds = new Set(
+    existingChildren.map((kpi) => kpi.parent_kpi_id).filter((id): id is string => Boolean(id)),
+  )
+  const available = allRootKpis.filter((kpi) => !alreadyLinkedRootIds.has(kpi.id))
+
+  const [checked, setChecked] = useState<Set<string>>(new Set())
+  const toggleChecked = (id: string) =>
+    setChecked((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const [showCreateNew, setShowCreateNew] = useState(false)
+  const [chosenTemplates, setChosenTemplates] = useState<KpiTemplate[]>([])
+  const toggleTemplate = (template: KpiTemplate) =>
+    setChosenTemplates((current) =>
+      current.some((item) => item.name === template.name)
+        ? current.filter((item) => item.name !== template.name)
+        : [...current, template],
+    )
+  const [customName, setCustomName] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const totalSelected = checked.size + chosenTemplates.length + (customName.trim() ? 1 : 0)
+
+  const submit = async () => {
+    if (totalSelected === 0) {
+      setError('Selecione ao menos uma meta.')
+      return
+    }
+    setError('')
+    setBusy(true)
+
+    // Passo 1: metas novas (do catálogo ou nome livre) primeiro viram
+    // linhas raiz novas em `kpis`.
+    const newRootPayloads = [
+      ...chosenTemplates.map((template) => ({
+        company_id: companyId,
+        name: template.name,
+        description: template.description,
+        category: template.category,
+        unit: template.unit,
+        direction: template.direction,
+        frequency: template.frequency,
+        display_order: allRootKpis.length,
+      })),
+      ...(customName.trim()
+        ? [
+            {
+              company_id: companyId,
+              name: customName.trim(),
+              unit: 'number' as KpiUnit,
+              direction: 'up' as KpiDirection,
+              frequency: 'monthly' as KpiFrequency,
+              display_order: allRootKpis.length,
+            },
+          ]
+        : []),
+    ]
+
+    let newRoots: Kpi[] = []
+    if (newRootPayloads.length > 0) {
+      const { data, error: rootError } = await supabase.from('kpis').insert(newRootPayloads).select('*')
+      if (rootError) {
+        setBusy(false)
+        setError(rootError.code === '23505' ? 'Já existe uma meta com esse nome.' : rootError.message)
+        return
+      }
+      newRoots = (data as Kpi[]) ?? []
+    }
+
+    // Passo 2: um vínculo por meta selecionada/criada — um insert em lote
+    // só, atômico, sem estado parcial se algo falhar no meio.
+    const targets = [...available.filter((kpi) => checked.has(kpi.id)), ...newRoots]
+    const childPayloads = targets.map((root) => ({
+      company_id: companyId,
+      name: `${root.name} · ${targetLabel}`,
+      category: root.category,
+      unit: root.unit,
+      direction: root.direction,
+      frequency: root.frequency,
+      product_id: productId,
+      product_edition_id: productEditionId,
+      parent_kpi_id: root.id,
+      is_active: true,
+    }))
+    const { error: linkError } = await supabase.from('kpis').insert(childPayloads)
+    setBusy(false)
+    if (linkError) {
+      setError(
+        linkError.code === '23505' ? 'Um dos vínculos já existe — tente de novo em instantes.' : linkError.message,
+      )
+      return
+    }
+    notify(targets.length === 1 ? 'Meta vinculada.' : `${targets.length} metas vinculadas.`)
+    setChecked(new Set())
+    setChosenTemplates([])
+    setCustomName('')
+    setShowCreateNew(false)
+    await onLinked()
+  }
+
+  return (
+    <div className="space-y-3">
+      {available.length === 0 ? (
+        <p className="text-xs text-content-faint">Nenhuma outra meta cadastrada ainda pra vincular.</p>
+      ) : (
+        <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-lg border border-line p-2">
+          {available.map((kpi) => (
+            <li key={kpi.id}>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={checked.has(kpi.id)} onChange={() => toggleChecked(kpi.id)} />
+                {kpi.name}
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {!showCreateNew ? (
+        <button
+          type="button"
+          className="text-xs text-brand-text hover:underline"
+          onClick={() => setShowCreateNew(true)}
+        >
+          + Criar uma meta nova
+        </button>
+      ) : (
+        <div className="space-y-3 rounded-lg border border-dashed border-line-strong p-3">
+          <KpiSuggestions
+            existingNames={allRootKpis.map((kpi) => kpi.name)}
+            selected={chosenTemplates.map((template) => template.name)}
+            onToggle={toggleTemplate}
+          />
+          <Field label="Ou nome livre" hint="Opcional — se nenhuma sugestão servir.">
+            <input
+              className="input"
+              placeholder="Nome da meta"
+              value={customName}
+              onChange={(event) => setCustomName(event.target.value)}
+            />
+          </Field>
+        </div>
+      )}
+
+      {error && <ErrorText>{error}</ErrorText>}
+
+      <button type="button" className="btn-primary" disabled={busy || totalSelected === 0} onClick={() => void submit()}>
+        {busy && <Spinner />}
+        Vincular{totalSelected > 1 ? ` (${totalSelected})` : ''}
+      </button>
     </div>
   )
 }

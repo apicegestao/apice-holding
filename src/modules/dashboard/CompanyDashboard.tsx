@@ -270,7 +270,12 @@ export default function CompanyDashboard() {
 
   // Cada meta ganha o nome/unidade/direção do indicador que ela mede e o
   // valor de verdade dele (soma incluída) — um indicador pode aparecer em
-  // mais de uma linha aqui (uma por meta que ele tem).
+  // mais de uma linha aqui (uma por meta que ele tem). Alvo agora existe em
+  // todo nível (empresa/produto/turma — ver tela de Metas), mas este
+  // resumo do painel continua escopado a alvo de empresa inteira, de
+  // propósito: pooling de alvo de turma com alvo de empresa no mesmo
+  // número misturaria grãos bem diferentes (mesma decisão já aplicada em
+  // company_snapshots() pro painel da holding).
   const metaRows = useMemo<MetaRow[]>(
     () =>
       metas
@@ -292,15 +297,14 @@ export default function CompanyDashboard() {
             value: effectiveValue(meta.kpi_id),
           }
         })
-        .filter((row): row is MetaRow => row !== null),
+        .filter((row): row is MetaRow => row !== null && row.product_id === null),
     [metas, kpiRowById, effectiveValue],
   )
 
-  // Produto e turma são medição pura — meta só existe no indicador de
-  // empresa inteira. O que o cartão do produto mostra é o valor dos
-  // indicadores próprios dele (sem edição — os de cada turma aparecem um
-  // nível abaixo, dentro de Produtos), mais quantas tarefas dele estão
-  // abertas.
+  // Este cartão compacto do painel mostra só o valor de cada produto (sem
+  // edição — as turmas aparecem um nível abaixo, dentro da tela de
+  // Metas/Produtos), mais quantas tarefas dele estão abertas — o detalhe
+  // completo, incluindo alvo de produto/turma, mora na tela de Metas.
   const productStats = useMemo(() => {
     const map = new Map<string, { open: number; indicators: KpiRow[] }>()
     for (const product of products) {

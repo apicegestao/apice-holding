@@ -6,14 +6,12 @@ import { expect, test } from '@playwright/test'
 import {
   COMPANY_ID,
   COMPANY_ID_2,
-  EDITION_ID,
-  EDITION_ID_2,
   HOLDING_ID,
   KPI_PRODUCT,
+  KPIS,
   login,
   mockSupabase,
   NOTES,
-  PRODUCT_ID,
   ROUTES,
   USER_ID,
 } from './fixtures'
@@ -437,28 +435,27 @@ test.describe('orçamentos', () => {
 })
 
 // Cadeia de valor turma → produto: "Entre Donos" (produto) nunca lança
-// direto — o valor dele é a soma das turmas, calculada no cliente. Alvo só
-// existe na meta de empresa; produto e turma são medição pura, sem
-// alvo/ratio/barra — só o nome da meta e o valor atual.
+// direto — o valor dele é a soma das turmas, calculada no cliente. Alvo
+// agora existe em todo nível (empresa, produto e turma) — a tela de
+// Produtos é cadastro puro, com uma lista de leitura de quais metas já
+// acompanham cada produto/turma; vincular (uma ou várias de uma vez)
+// acontece pelo form de editar produto, ou pelo botão "Metas" de cada
+// turma.
 test.describe('metas de produto e sub-produto', () => {
   test.beforeEach(async ({ page }) => {
     await login(page)
   })
 
-  test('cartão do produto mostra o valor somado das turmas, sem nenhum alvo', async ({ page }) => {
+  test('cartão do produto mostra o valor somado das turmas', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     // KPI_PRODUCT não tem lançamento nenhum — o valor exibido (32.000) só
     // pode vir da soma de KPI_EDITION (a turma de setembro).
     await expect(page.getByText('Faturamento Entre Donos')).toBeVisible()
     await expect(page.getByText(/R\$\s?32\.000,00/).first()).toBeVisible()
-    // Sem alvo, não tem "de R$ X" nenhum pra comparar.
-    await expect(page.getByText(/de R\$/)).not.toBeVisible()
   })
 
-  test('abrir o produto mostra a meta dele e a de cada turma, com o estado vazio de quem ainda não tem', async ({
-    page,
-  }) => {
+  test('abrir o produto mostra uma lista de leitura das metas que já o acompanham', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()
@@ -466,7 +463,7 @@ test.describe('metas de produto e sub-produto', () => {
     // O cartão do produto (atrás do modal) também mostra o nome da mesma
     // meta — por isso o link (role) em vez de texto solto, que pegaria
     // os dois.
-    await expect(page.getByText('Metas deste produto')).toBeVisible()
+    await expect(page.getByText('Metas que acompanham este produto')).toBeVisible()
     const productLink = page.getByRole('link', { name: /Faturamento Entre Donos/ })
     await expect(productLink).toContainText('R$ 32.000,00')
 
@@ -477,42 +474,61 @@ test.describe('metas de produto e sub-produto', () => {
     const modal = page.getByRole('dialog')
     await expect(modal.getByText('Imersão Setembro 2026')).toBeVisible()
 
-    // Turma de outubro não tem meta ainda — mostra o estado vazio com
-    // o atalho pra cadastrar, em vez de simplesmente não aparecer nada.
+    // Turma de outubro não tem meta ainda — mostra o estado vazio, e não
+    // tem link nenhum de criar/editar por aqui (isso agora só acontece
+    // pelo atalho de vincular).
     await expect(modal.getByText('Imersão Outubro 2026')).toBeVisible()
-    await expect(modal.getByText('Sem meta própria ainda.')).toBeVisible()
-    await expect(modal.getByRole('link', { name: '+ Meta desta turma' })).toBeVisible()
+    await expect(modal.getByText('Nenhuma meta acompanha esta turma ainda.')).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Editar meta' })).toHaveCount(0)
   })
 
-  test('+ Meta do produto leva pro formulário já com o produto preenchido', async ({ page }) => {
+  test('vincular este produto a uma meta existente pelo form de editar', async ({ page }) => {
+    // Mock com estado próprio — o vínculo criado precisa aparecer na
+    // recarga que a página faz depois de salvar, e o mock estático de
+    // TABLES não persiste POST nenhum.
+    const kpis = [...KPIS]
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        for (const row of Array.isArray(body) ? body : [body]) {
+          kpis.push({ id: `novo-kpi-${kpis.length}`, is_active: true, archived_at: null, entry_frequency: null, ...row })
+        }
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()
-    await page.getByRole('link', { name: 'Meta', exact: true }).click()
+    await page.getByRole('button', { name: 'Editar produto' }).click()
 
-    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis$`))
-    await expect(page.getByRole('heading', { name: 'Nova Meta' })).toBeVisible()
-    // A tela de Metas também tem um seletor "Filtrar por produto" com as
-    // mesmas opções — por isso escopado à caixa "Produto e sub-produto" do
-    // formulário, não ao <select> solto.
-    const productBox = page.getByText('Produto e sub-produto — opcional', { exact: true }).locator('..')
-    await expect(productBox.locator('select').first()).toHaveValue(PRODUCT_ID)
+    await expect(page.getByRole('heading', { name: 'Editar Entre Donos' })).toBeVisible()
+    await expect(page.getByText('Vincular a metas')).toBeVisible()
+    await page.getByRole('checkbox', { name: 'Ticket médio' }).check()
+    await page.getByRole('button', { name: /^Vincular/ }).click()
+
+    await expect(page.getByText('Meta vinculada.')).toBeVisible()
+    // Escopado ao modal de detalhe do produto (o primeiro aberto — o de
+    // editar fica por cima) — não ao card de prévia atrás dos dois, que
+    // agora também lista essa mesma meta recém-vinculada.
+    await expect(page.getByRole('dialog').first().getByText('Ticket médio · Entre Donos')).toBeVisible()
   })
 
-  test('+ Meta desta turma leva pro formulário já com produto e edição preenchidos', async ({ page }) => {
+  test('vincular uma turma a uma meta existente pelo botão "Metas"', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()
-    await page.getByRole('link', { name: '+ Meta desta turma' }).click()
+    await page.getByRole('button', { name: 'Metas desta turma' }).first().click()
 
-    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis$`))
-    await expect(page.getByRole('heading', { name: 'Nova Meta' })).toBeVisible()
-    const productBox = page.getByText('Produto e sub-produto — opcional', { exact: true }).locator('..')
-    await expect(productBox.locator('select').nth(0)).toHaveValue(PRODUCT_ID)
-    await expect(productBox.locator('select').nth(1)).toHaveValue(EDITION_ID_2)
+    await expect(page.getByRole('heading', { name: /^Metas de /, exact: false })).toBeVisible()
+    await page.getByRole('checkbox', { name: 'Churn' }).check()
+    await page.getByRole('button', { name: /^Vincular/ }).click()
+
+    await expect(page.getByText('Meta vinculada.')).toBeVisible()
   })
 
-  test('clicar numa meta do produto abre Metas e destaca a meta certa', async ({ page }) => {
+  test('clicar numa meta do produto abre Metas e destaca o cartão certo', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()
@@ -523,70 +539,66 @@ test.describe('metas de produto e sub-produto', () => {
     // na lista — confirma que a meta de verdade existe (e a soma bate lá).
     await expect(page.getByText(/R\$\s?32\.000,00/).first()).toBeVisible()
   })
-
-  // O lápis é o único jeito de EDITAR uma meta de produto/turma — o link do
-  // nome/valor só rola até o cartão e destaca (não abre edição nenhuma).
-  test('lápis de editar em Produtos abre o formulário de edição direto, sem precisar do link de destaque', async ({
-    page,
-  }) => {
-    await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
-    await page.waitForLoadState('networkidle')
-    await page.getByText('Entre Donos', { exact: true }).click()
-
-    await page.getByRole('link', { name: 'Editar meta' }).first().click()
-
-    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis\\?kpi=${KPI_PRODUCT}$`))
-    await expect(page.getByRole('heading', { name: /^Editar /, exact: false })).toBeVisible()
-    // A caixa de produto/sub-produto aparece porque está editando uma meta
-    // que já tem produto — mesmo sem ter vindo do fluxo "?novo=1".
-    await expect(page.getByText('Produto e sub-produto — opcional')).toBeVisible()
-  })
 })
 
-// Confirma que o formulário lê o atalho vindo de Produtos mesmo quando a
-// meta de edição já existe (EDITION_ID) — cobre a turma que estiver sendo
-// editada não afeta que outra turma diferente esteja com o atalho.
-test.describe('atalho de meta a partir de Produtos', () => {
+// Cartão único por meta, em cascata: empresa no topo, produtos/turmas
+// aninhados dentro, recolhidos por padrão. Alvo existe em todo nível.
+test.describe('cascata de metas (KpisPage)', () => {
   test.beforeEach(async ({ page }) => {
     await login(page)
   })
 
-  test('URL com ?novo=1 abre o formulário direto, sem precisar clicar em nada', async ({ page }) => {
-    await page.goto(`/empresa/${COMPANY_ID_2}/kpis?novo=1&product_id=${PRODUCT_ID}&product_edition_id=${EDITION_ID}`)
-    await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: 'Nova Meta' })).toBeVisible()
-    // Lançada a partir de Produtos: a caixa de produto/sub-produto aparece
-    // pré-preenchida com o que veio na URL.
-    await expect(page.getByText('Produto e sub-produto — opcional')).toBeVisible()
-    await expect(page.locator('select:has(option:text-is("Imersão Setembro 2026"))')).toHaveValue(EDITION_ID)
-    // Os parâmetros somem da URL depois de consumidos, pra um F5 não abrir
-    // o formulário de novo sozinho.
-    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis$`))
-  })
-
-  // O botão "Nova Meta" do topo (fora do fluxo de Produtos) NUNCA mostra a
-  // caixa de produto/sub-produto — criar meta de produto/turma só acontece
-  // de dentro de Produtos, pra não ter dois jeitos de fazer a mesma coisa.
-  test('botão "Nova Meta" do topo não mostra a caixa de produto/sub-produto', async ({ page }) => {
+  // O modal principal só cria/edita meta raiz de empresa — não existe mais
+  // seletor de produto/turma nenhum por aqui (isso agora só acontece pelo
+  // atalho de vincular, de dentro do cartão certo ou de Produtos).
+  test('botão "Nova Meta" do topo nunca mostra seletor de produto/turma', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
     await page.waitForLoadState('networkidle')
     await page.getByRole('button', { name: 'Nova Meta' }).click()
 
     await expect(page.getByRole('heading', { name: 'Nova Meta' })).toBeVisible()
-    await expect(page.getByText('Produto e sub-produto — opcional')).not.toBeVisible()
+    await expect(page.getByText('Produto e sub-produto')).not.toBeVisible()
   })
 
-  test('URL com ?kpi=<id>&editar=1 abre o formulário de edição direto', async ({ page }) => {
-    await page.goto(`/empresa/${COMPANY_ID_2}/kpis?kpi=${KPI_PRODUCT}&editar=1`)
+  test('alvo aparece em todo nível — produto e turma, dentro do cartão aninhado', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
     await page.waitForLoadState('networkidle')
 
-    await expect(page.getByRole('heading', { name: /^Editar /, exact: false })).toBeVisible()
-    await expect(page.getByText('Produto e sub-produto — opcional')).toBeVisible()
-    const productBox = page.getByText('Produto e sub-produto — opcional', { exact: true }).locator('..')
-    await expect(productBox.locator('select').first()).toHaveValue(PRODUCT_ID)
-    // "editar" some da URL depois de consumido, mas "kpi" fica — é o mesmo
-    // parâmetro que sustenta o destaque de 2.5s ao fechar o modal.
-    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis\\?kpi=${KPI_PRODUCT}$`))
+    const card = page.locator('[id^="kpi-"]', { hasText: 'Faturamento Entre Donos' })
+    // Alvo do nível produto (META_PRODUCT) já aparece sem precisar expandir.
+    await expect(card.getByText(/de R\$\s?400\.000,00/)).toBeVisible()
+
+    // A turma vem recolhida por padrão — expande pra ver o alvo dela.
+    await card.getByRole('button', { name: /Imersão Setembro 2026/ }).click()
+    await expect(card.getByText(/de R\$\s?35\.000,00/)).toBeVisible()
+    await expect(card.getByText('Em risco')).toBeVisible()
+  })
+
+  test('"+ Vincular produto" no cartão de uma meta anexa um produto já cadastrado', async ({ page }) => {
+    const kpis = [...KPIS]
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        for (const row of Array.isArray(body) ? body : [body]) {
+          kpis.push({ id: `novo-kpi-${kpis.length}`, is_active: true, archived_at: null, entry_frequency: null, ...row })
+        }
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+
+    const card = page.locator('[id^="kpi-"]', { hasText: 'Receita recorrente (MRR)' })
+    await card.getByRole('button', { name: 'Vincular produto' }).click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: /Vincular produto/ })).toBeVisible()
+    await dialog.getByRole('combobox').selectOption({ label: 'Entre Donos' })
+    await dialog.getByRole('button', { name: 'Vincular' }).click()
+
+    await expect(page.getByText('Vínculo criado.')).toBeVisible()
   })
 })
 

@@ -1866,3 +1866,101 @@ situação das rodadas anteriores (item 3 no topo deste documento): depende
 de rede + chave de API configurada, não exercitada de ponta a ponta neste
 ambiente — o redeploy em si foi confirmado pela resposta da própria API de
 deploy (`status: ACTIVE`, versão incrementada).
+
+---
+
+## 33. Metas em cascata — cartão único por indicador, alvo em todo nível
+
+O usuário trouxe uma visão diferente da página de Metas: em vez de cada
+nível (empresa/produto/turma) de um indicador virar um cartão separado
+numa grade corrida (ligados só por uma badge "contribui p/ X"), ele quer
+**um cartão só por indicador** (Faturamento, Ticket Médio...), que cresce
+verticalmente — o valor da empresa no topo, os produtos que contribuem
+aninhados dentro, as turmas de cada produto aninhadas mais um nível
+abaixo. Isso também expôs (e resolveu) dois problemas que nem tinham sido
+citados: o campo manual "Contribui para" virou desnecessário quando a
+criação já acontece de dentro do cartão certo; e a página de Produtos, que
+misturava cadastro com métricas, virou cadastro puro.
+
+Confirmado com o usuário (`AskUserQuestion`, respostas recomendadas):
+alvo passa a existir em **todo nível** (antes só em empresa); os
+cartões-resumo do topo do painel (empresa e holding) continuam contando
+só alvo de empresa inteira, sem misturar produto/turma; o atalho de
+vincular vários indicadores de uma vez fica no form de editar produto
+(nível produto) e num botão "Metas" em cada turma (nível turma); o
+cartão compacto "Produtos" do painel da empresa continua só com valor.
+
+**Migração `0034_metas_todo_nivel.sql`:** remove o gatilho
+`metas_company_level_guard`/função `app.assert_meta_kpi_company_level()`
+(única coisa no banco que impedia alvo em produto/turma) e redefine
+`company_snapshots()` com `and mv.product_id is null` na subquery lateral,
+mantendo os totais do painel da holding escopados a alvo de empresa.
+**Achado durante a implementação:** o RPC não é a única fonte desses
+resumos — `CompanyDashboard.tsx` e `HoldingDashboard.tsx` também calculam
+`stats`/`overallHealth`/`kpiAttainment`/`attainment`/`kpiHealth` etc.
+direto no cliente, a partir de `metas`/`meta_latest_values` sem filtro
+nenhum de produto. Corrigido nos dois: `metaRows`
+(`CompanyDashboard.tsx`) e o `setMetas` de carga (`HoldingDashboard.tsx`)
+agora filtram `product_id === null` na origem, antes de qualquer conta —
+os cartões-resumo do painel continuam com o mesmo significado de sempre.
+
+**`KpisPage.tsx`:** rollup consolidado em `core/lib/kpiRollup.ts`
+(`buildChildrenByParent`/`effectiveKpiValue`), mesma função que
+`ProductsPage.tsx` já usava — a reimplementação local foi removida.
+Cartão vira um componente recursivo (`renderNested`, `depth` 1 = produto,
+2 = turma, sem limite real) — recolhido por padrão, expande por clique;
+`Alvos` aparece em todo nível (removidos os três gates que espelhavam o
+gatilho do banco: o botão "+ Alvo", a checkbox "Definir um alvo agora", e
+a segunda guarda em `submitKpi`). A caixa "Produto e sub-produto"
+(incluindo o "Contribui para" manual) saiu do modal principal — ele só
+cria/edita meta raiz de empresa agora; editando uma meta que já tem
+produto, mostra uma linha somente-leitura ("Vinculado a: X · Y") em vez de
+selects. Novo `AttachProductModal` ("+ Vincular produto"/"Vincular
+turma") cria o vínculo com um produto/turma já cadastrado direto de
+dentro do cartão certo — sem escolha manual de pai, ele já é sabido pelo
+contexto. Removidos: `launchedFromProduct`, os efeitos de `?novo=1` e
+`?kpi=&editar=1` (Produtos não linka mais pra cá). O efeito de `?kpi=<id>`
+(scroll+destaque) ganhou um passo extra: sobe a cadeia `parent_kpi_id` do
+alvo e expande cada ancestral antes de rolar, senão o item focado fica
+escondido num bloco recolhido.
+
+**`ProductsPage.tsx`:** removida toda a UI de criar/editar meta (o link
+"+ Meta", os lápis de editar, o "+ Meta desta turma") — vira uma lista só
+de leitura (nome + valor, link só de navegação). Novo
+`AttachIndicatorsSection` (checkbox por meta raiz já existente — sempre
+recalculado, nunca fixo — + opção de criar uma nova pelo catálogo/nome
+livre, reaproveitando `<KpiSuggestions>`) embutido no form de editar
+produto (nível produto) e num modal aberto por um novo botão "Metas" em
+cada linha de turma (nível turma). Um envio só cria (se houver) as metas
+novas e depois todos os vínculos, num segundo insert em lote.
+
+**`ai-insights`:** o leitor de `kpis` ganhou `product_id`/
+`product_edition_id`/`parent_kpi_id` no select + busca de nomes de
+produtos/edições, expondo `nivel`/`produto`/`edicao` em cada item do JSON
+(mesmo tratamento aplicado em `holdingContext()`, que tinha a mesma
+lacuna). `SYSTEM_PROMPT` ganhou um parágrafo explicando a cascata de 3
+níveis e proibindo comparar/somar alvos de níveis diferentes como se
+fossem o mesmo objetivo. Redeploy feito (`ai-insights` v11).
+
+**Verificação:** `npx tsc --noEmit` e `npm run build` limpos após cada
+arquivo tocado. `npm run test`: 28, sem mudança. `npm run check:contrast`:
+24/24, sem mudança. `get_advisors` (security + performance): mesmos
+avisos de sempre, nenhum novo — confirmado também via
+`select proname from pg_proc where proname =
+'assert_meta_kpi_company_level'` retornando vazio após a migração.
+`npm run test:e2e`: fixtures ganharam `META_PRODUCT`/`META_EDITION` (alvo
+de produto e de turma, sobre `KPI_PRODUCT`/`KPI_EDITION`) e `KPIS` passou
+a ser exportado; describe `'metas de produto e sub-produto'` reescrito
+pra cadastro puro + lista de leitura + os dois atalhos de vincular (com
+mock de estado próprio pro POST em `kpis`, seguindo o mesmo padrão já
+usado pelo teste de notas); novo describe `'cascata de metas (KpisPage)'`
+cobrindo o modal principal sem seletor nenhum, alvo em todo nível dentro
+do cartão aninhado, e "+ Vincular produto". Suíte completa: 167 testes
+passando, 27 skipped (mesmos de sempre, condicionais de plataforma), sem
+falhas.
+
+Geração de insight de verdade pela `ai-insights` continua na mesma
+situação das rodadas anteriores (item 3 no topo deste documento) — não
+exercitada de ponta a ponta neste ambiente; o redeploy em si foi
+confirmado pela resposta da própria API de deploy (`status: ACTIVE`,
+versão incrementada).

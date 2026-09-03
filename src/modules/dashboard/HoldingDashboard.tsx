@@ -105,7 +105,11 @@ export default function HoldingDashboard() {
     ])
 
     setSnapshots((snapshotResult.data as CompanySnapshot[]) ?? [])
-    setMetas((metaResult.data as MetaLatestValue[]) ?? [])
+    // Alvo agora existe em todo nível (empresa/produto/turma — ver tela de
+    // Metas), mas os resumos deste painel continuam escopados a alvo de
+    // empresa inteira, de propósito — mesma decisão já aplicada em
+    // company_snapshots() (o RPC por trás dos totais deste painel).
+    setMetas(((metaResult.data as MetaLatestValue[]) ?? []).filter((meta) => meta.product_id === null))
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
     setLoading(false)

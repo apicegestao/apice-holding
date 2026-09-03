@@ -30,6 +30,13 @@ de eventos/projetos (previsto x realizado) e integrações. Ao escrever os insig
 "meta" e o valor-alvo/prazo/responsável dela de "alvo" — nunca use "KPI" ou "indicador". Devolve insights
 acionáveis para o administrador.
 
+Cada meta tem um campo "nivel": "empresa", "produto" ou "turma" (e, quando aplicável, "produto"/"edicao"
+com o nome). Isso é uma cascata: o valor de uma meta de turma soma automaticamente na do produto, que soma
+na da empresa — a mesma coisa medida em três grãos diferentes, não três metas independentes. Ao comentar
+um alvo de nível produto ou turma, deixe claro o nível ("o alvo da turma X do produto Y", não só "o alvo").
+Nunca compare ou some alvos de níveis diferentes como se fossem o mesmo objetivo — um alvo de turma perdido
+não é equivalente a um alvo de empresa perdido.
+
 Regras:
 - Responda SEMPRE em português do Brasil.
 - Trabalhe apenas com os números fornecidos. Nunca invente dados que não estão no retrato.
@@ -84,12 +91,29 @@ const MODULE_READERS: Record<string, ModuleReader> = {
   async kpis(companyId) {
     const { data: kpis } = await admin
       .from('kpis')
-      .select('id, name, unit, direction, frequency, category')
+      .select('id, name, unit, direction, frequency, category, product_id, product_edition_id, parent_kpi_id')
       .eq('company_id', companyId)
       .eq('is_active', true)
 
     const kpiIds = (kpis ?? []).map((k) => k.id)
     if (!kpiIds.length) return { kpis: [] }
+
+    // Nome do produto/turma de cada meta, pra IA saber o nível (empresa,
+    // produto ou turma) em vez de só ver kpi_id/product_id soltos.
+    const productIds = [...new Set((kpis ?? []).map((k) => k.product_id).filter((id): id is string => Boolean(id)))]
+    const editionIds = [
+      ...new Set((kpis ?? []).map((k) => k.product_edition_id).filter((id): id is string => Boolean(id))),
+    ]
+    const [{ data: products }, { data: editions }] = await Promise.all([
+      productIds.length
+        ? admin.from('products').select('id, name').in('id', productIds)
+        : { data: [] as { id: string; name: string }[] },
+      editionIds.length
+        ? admin.from('product_editions').select('id, name').in('id', editionIds)
+        : { data: [] as { id: string; name: string }[] },
+    ])
+    const productName = new Map((products ?? []).map((p) => [p.id, p.name]))
+    const editionName = new Map((editions ?? []).map((e) => [e.id, e.name]))
 
     const history: Record<string, { period: string; value: number }[]> = {}
 
@@ -155,6 +179,12 @@ const MODULE_READERS: Record<string, ModuleReader> = {
     return {
       kpis: (kpis ?? []).map((k) => ({
         nome: k.name,
+        // Cascata de 3 níveis: uma meta de turma soma na de produto, que
+        // soma na de empresa (parent_kpi_id) — nivel/produto/edicao dizem
+        // onde esta linha fica nessa cadeia.
+        nivel: k.product_edition_id ? 'turma' : k.product_id ? 'produto' : 'empresa',
+        produto: k.product_id ? (productName.get(k.product_id) ?? null) : null,
+        edicao: k.product_edition_id ? (editionName.get(k.product_edition_id) ?? null) : null,
         categoria: k.category,
         unidade: k.unit,
         direcao: k.direction, // "up" = quanto maior melhor
@@ -259,7 +289,9 @@ async function holdingContext() {
       admin.rpc('company_snapshots'),
       admin
         .from('meta_latest_values')
-        .select('company_id, name, value, target_value, unit, direction, period_start, due_date, status')
+        .select(
+          'company_id, name, value, target_value, unit, direction, period_start, due_date, status, product_id, product_edition_id',
+        )
         .limit(300),
       admin.from('companies').select('id, name, sector'),
       // Uma integração parada numa empresa explica um KPI congelado nela —
@@ -269,6 +301,26 @@ async function holdingContext() {
     ])
 
   const byId = new Map((companies ?? []).map((c) => [c.id, c.name]))
+
+  // Mesma cascata de 3 níveis do contexto de empresa — sem isso a IA veria
+  // alvo de turma e alvo de empresa misturados na mesma lista, sem saber
+  // que são grãos diferentes da mesma meta.
+  const metaProductIds = [
+    ...new Set((metas ?? []).map((m) => m.product_id).filter((id): id is string => Boolean(id))),
+  ]
+  const metaEditionIds = [
+    ...new Set((metas ?? []).map((m) => m.product_edition_id).filter((id): id is string => Boolean(id))),
+  ]
+  const [{ data: metaProducts }, { data: metaEditions }] = await Promise.all([
+    metaProductIds.length
+      ? admin.from('products').select('id, name').in('id', metaProductIds)
+      : { data: [] as { id: string; name: string }[] },
+    metaEditionIds.length
+      ? admin.from('product_editions').select('id, name').in('id', metaEditionIds)
+      : { data: [] as { id: string; name: string }[] },
+  ])
+  const metaProductName = new Map((metaProducts ?? []).map((p) => [p.id, p.name]))
+  const metaEditionName = new Map((metaEditions ?? []).map((e) => [e.id, e.name]))
 
   const budgetIds = (budgets ?? []).map((b) => b.id)
   const { data: budgetItems } = budgetIds.length
@@ -285,6 +337,9 @@ async function holdingContext() {
     metas_consolidadas: (metas ?? []).map((m) => ({
       empresa: byId.get(m.company_id) ?? m.company_id,
       nome: m.name,
+      nivel: m.product_edition_id ? 'turma' : m.product_id ? 'produto' : 'empresa',
+      produto: m.product_id ? (metaProductName.get(m.product_id) ?? null) : null,
+      edicao: m.product_edition_id ? (metaEditionName.get(m.product_edition_id) ?? null) : null,
       valor: m.value === null ? null : Number(m.value),
       meta: m.target_value === null ? null : Number(m.target_value),
       unidade: m.unit,
