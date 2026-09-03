@@ -1,5 +1,5 @@
-// Sugestões prontas de indicador: escolher e usar, sem preencher formulário.
-// O caminho de criar um KPI próprio continua ao lado, intacto.
+// Sugestões prontas de meta: escolher e usar, sem preencher formulário.
+// O caminho de criar uma meta própria continua ao lado, intacto.
 import { useMemo, useState } from 'react'
 import { Check, Search } from 'lucide-react'
 import { KPI_CATALOG, KPI_CATEGORIES, type KpiTemplate } from '../../core/catalog'
@@ -42,7 +42,7 @@ export default function KpiSuggestions({
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-content-faint" />
         <input
           className="input pl-9"
-          placeholder="Buscar indicador…"
+          placeholder="Buscar meta…"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
@@ -78,7 +78,7 @@ export default function KpiSuggestions({
 
       {results.length === 0 ? (
         <p className="rounded-lg border border-dashed border-line-strong px-4 py-8 text-center text-sm text-content-soft">
-          Nenhuma sugestão com esse termo. Você pode criar o indicador do zero na outra aba.
+          Nenhuma sugestão com esse termo. Você pode criar a meta do zero na outra aba.
         </p>
       ) : (
         <ul className="grid grid-cols-1 max-h-[46vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
@@ -111,7 +111,7 @@ export default function KpiSuggestions({
                       {template.name}
                       {added && (
                         <span className="ml-1.5 text-xs font-normal text-content-faint">
-                          já cadastrado
+                          já cadastrada
                         </span>
                       )}
                     </span>

@@ -1,7 +1,14 @@
-// Indicadores (KPIs) da empresa: cadastro, lançamento por período e
-// histórico. Meta — alvo, prazo, responsável, andamento — é uma coisa à
-// parte agora (tabela `metas`, uma ou várias por indicador); o indicador é
-// só a ferramenta de medição por trás dela.
+// Metas da empresa: cadastro, lançamento por período e histórico. Alvo —
+// valor-alvo, prazo, responsável, andamento — é uma coisa à parte (tabela
+// `metas`, uma ou várias por meta); a meta em si é só a ferramenta de
+// medição por trás do alvo.
+//
+// AVISO DE NOMENCLATURA: nesta tela e no resto da UI, o que o usuário vê
+// como "Meta" é o tipo `Kpi` (nome/unidade/direção/frequência) — a coisa
+// medida. O que o usuário vê como "Alvo" é o tipo `Meta` (target_value/
+// due_date/owner_id/status) — o objetivo sobre uma meta de empresa. Os
+// nomes de tipo, tabela, coluna, variável e rota NÃO mudaram; só o texto
+// exibido foi invertido. Ver core/types.ts para o mesmo aviso.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -101,8 +108,8 @@ const emptyKpi = {
   parent_kpi_id: '',
 }
 
-// Rascunho da primeira meta, oferecida junto na hora de criar o indicador —
-// opcional, cobre o caso comum (indicador + 1 meta) numa submissão só, sem
+// Rascunho do primeiro alvo, oferecido junto na hora de criar a meta —
+// opcional, cobre o caso comum (meta + 1 alvo) numa submissão só, sem
 // reintroduzir o fluxo de dois passos que motivou fundir os dois em 2026.
 const emptyMetaDraft = { target_value: null as number | null, due_date: '', owner_id: '' }
 
@@ -235,7 +242,13 @@ export default function KpisPage() {
     return map
   }, [metas])
 
-  const openCreate = (prefill?: Partial<typeof emptyKpi>) => {
+  // Produto/turma só se escolhe a partir de Produtos agora — o botão "Nova
+  // Meta" aqui dentro sempre cria meta de empresa inteira, sem seletor
+  // nenhum. Isso só fica `true` quando a criação foi lançada com produto
+  // já vindo da URL (ver efeito de ?novo=1 abaixo); reseta em closeCreate.
+  const [launchedFromProduct, setLaunchedFromProduct] = useState(false)
+
+  const openCreate = (prefill?: Partial<typeof emptyKpi>, opts?: { fromProduct?: boolean }) => {
     setKpiForm({ ...emptyKpi, ...prefill })
     setWantsInitialMeta(false)
     setMetaDraft(emptyMetaDraft)
@@ -243,23 +256,28 @@ export default function KpisPage() {
     // Vindo de um atalho com produto/edição já escolhidos, pula direto pro
     // formulário — a lista de sugestões não sabe de produto, não ajuda aqui.
     setCreateMode(prefill ? 'custom' : 'suggestions')
+    setLaunchedFromProduct(Boolean(opts?.fromProduct))
     setError('')
     setCreatingKpi(true)
   }
 
-  // Atalho vindo da tela de Produtos: "+ Nova meta" leva pra cá com
-  // ?novo=1&product_id=X (e, se for de uma turma, &product_edition_id=Y) —
-  // abre o formulário já com o produto/edição certos, sem a pessoa ter que
-  // escolher nada de novo. Os parâmetros somem da URL assim que consumidos,
-  // pra um F5 não abrir o formulário de novo sozinho.
+  // Atalho vindo da tela de Produtos: "+ Meta"/"+ Meta desta turma" leva
+  // pra cá com ?novo=1&product_id=X (e, se for de uma turma,
+  // &product_edition_id=Y) — abre o formulário já com o produto/edição
+  // certos, sem a pessoa ter que escolher nada de novo. Os parâmetros somem
+  // da URL assim que consumidos, pra um F5 não abrir o formulário de novo
+  // sozinho.
   useEffect(() => {
     if (loading || searchParams.get('novo') !== '1') return
     const productId = searchParams.get('product_id') ?? ''
     const editionId = searchParams.get('product_edition_id') ?? ''
-    openCreate({
-      product_id: products.some((item) => item.id === productId) ? productId : '',
-      product_edition_id: editions.some((item) => item.id === editionId) ? editionId : '',
-    })
+    openCreate(
+      {
+        product_id: products.some((item) => item.id === productId) ? productId : '',
+        product_edition_id: editions.some((item) => item.id === editionId) ? editionId : '',
+      },
+      { fromProduct: true },
+    )
     const next = new URLSearchParams(searchParams)
     next.delete('novo')
     next.delete('product_id')
@@ -268,10 +286,27 @@ export default function KpisPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, searchParams, products, editions])
 
+  // Atalho vindo de Produtos: ?kpi=<id>&editar=1 abre o formulário de
+  // edição direto, sem passar pela lista — usado pelo lápis em cada linha
+  // de meta na tela de Produtos. Só o "editar" some da URL: o "kpi" fica,
+  // pra o destaque/rolagem (efeito acima) continuar funcionando depois de
+  // fechar o modal.
+  useEffect(() => {
+    if (loading || searchParams.get('editar') !== '1') return
+    const kpiId = searchParams.get('kpi')
+    const target = kpiId ? kpis.find((item) => item.id === kpiId) : null
+    if (target) openEdit(target)
+    const next = new URLSearchParams(searchParams)
+    next.delete('editar')
+    setSearchParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, searchParams, kpis])
+
   const closeCreate = () => {
     setCreatingKpi(false)
     setEditingKpi(null)
     setChosen([])
+    setLaunchedFromProduct(false)
   }
 
   const toggleTemplate = (template: KpiTemplate) => {
@@ -308,8 +343,8 @@ export default function KpisPage() {
 
     notify(
       chosen.length === 1
-        ? `${chosen[0].name} adicionado.`
-        : `${chosen.length} indicadores adicionados.`,
+        ? `${chosen[0].name} adicionada.`
+        : `${chosen.length} metas adicionadas.`,
     )
     closeCreate()
     await load()
@@ -359,16 +394,16 @@ export default function KpisPage() {
           ? kpiForm.entry_frequency
           : null,
       // "Contribui para" existe pra turma (soma no produto) e pra produto
-      // (soma numa meta da empresa) — não pra um KPI sem produto nenhum.
+      // (soma numa meta da empresa) — não pra uma meta sem produto nenhum.
       parent_kpi_id: kpiForm.product_id ? kpiForm.parent_kpi_id || null : null,
     }
 
     if (!payload.name) {
-      setError('Dê um nome ao indicador.')
+      setError('Dê um nome à meta.')
       return
     }
     if (!editingKpi && wantsInitialMeta && !metaDraft.due_date) {
-      setError('Defina um prazo para a meta, ou desmarque "Definir uma meta agora".')
+      setError('Defina um prazo para o alvo, ou desmarque "Definir um alvo agora".')
       return
     }
 
@@ -379,11 +414,11 @@ export default function KpisPage() {
       setBusy(false)
       if (updateError) {
         setError(
-          updateError.code === '23505' ? 'Já existe um KPI com esse nome nesta empresa.' : updateError.message,
+          updateError.code === '23505' ? 'Já existe uma meta com esse nome nesta empresa.' : updateError.message,
         )
         return
       }
-      notify('KPI atualizado.')
+      notify('Meta atualizada.')
       setEditingKpi(null)
       await load()
       return
@@ -393,15 +428,15 @@ export default function KpisPage() {
     if (insertError) {
       setBusy(false)
       setError(
-        insertError.code === '23505' ? 'Já existe um KPI com esse nome nesta empresa.' : insertError.message,
+        insertError.code === '23505' ? 'Já existe uma meta com esse nome nesta empresa.' : insertError.message,
       )
       return
     }
 
     // Segunda linha de defesa (a primeira é a checkbox nem aparecer pra
-    // KPI de produto/turma) — o gatilho no banco (metas_company_level_guard)
+    // meta de produto/turma) — o gatilho no banco (metas_company_level_guard)
     // é o backstop de verdade, mas não faz sentido nem tentar se o próprio
-    // formulário já sabe que este KPI não é de empresa inteira.
+    // formulário já sabe que esta meta não é de empresa inteira.
     if (wantsInitialMeta && !payload.product_id) {
       const { error: metaError } = await supabase.from('metas').insert({
         company_id: company.id,
@@ -412,7 +447,7 @@ export default function KpisPage() {
       })
       if (metaError) {
         setBusy(false)
-        notify(`KPI criado, mas a meta não pôde ser salva: ${metaError.message}`, 'error')
+        notify(`Meta criada, mas o alvo não pôde ser salvo: ${metaError.message}`, 'error')
         setCreatingKpi(false)
         await load()
         return
@@ -420,7 +455,7 @@ export default function KpisPage() {
     }
 
     setBusy(false)
-    notify(wantsInitialMeta && !payload.product_id ? 'KPI e meta criados.' : 'KPI criado.')
+    notify(wantsInitialMeta && !payload.product_id ? 'Meta e alvo criados.' : 'Meta criada.')
     setCreatingKpi(false)
     await load()
   }
@@ -434,22 +469,22 @@ export default function KpisPage() {
       notify(deleteError.message, 'error')
       return
     }
-    notify('KPI excluído.')
+    notify('Meta excluída.')
     setRemovingKpi(null)
     await load()
   }
 
   // Arquivar não some com nada — só tira da tela de ativos. Ao contrário de
-  // antes, o indicador nunca mais arquiva sozinho por causa de uma meta
-  // vencida (isso agora é só da meta, automático) — este botão é sempre uma
-  // decisão manual, com o desfazer sempre à mão na aba de arquivados.
+  // antes, a meta nunca mais arquiva sozinha por causa de um alvo vencido
+  // (isso agora é só do alvo, automático) — este botão é sempre uma decisão
+  // manual, com o desfazer sempre à mão na aba de arquivados.
   const archiveKpi = async (kpi: Kpi) => {
     const { error } = await supabase.from('kpis').update({ archived_at: new Date().toISOString() }).eq('id', kpi.id)
     if (error) {
       notify(error.message, 'error')
       return
     }
-    notify('KPI arquivado.')
+    notify('Meta arquivada.')
     await load()
   }
 
@@ -459,7 +494,7 @@ export default function KpisPage() {
       notify(error.message, 'error')
       return
     }
-    notify('KPI reativado.')
+    notify('Meta reativada.')
     await load()
   }
 
@@ -607,7 +642,7 @@ export default function KpisPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title={`Metas · ${company.name}`}
-        subtitle="Indicadores desta empresa — cada um pode ter uma ou várias metas, com prazo, responsável e andamento."
+        subtitle="Metas desta empresa — cada uma pode ter um ou vários alvos, com prazo, responsável e andamento."
         actions={
           <>
             {products.length > 0 && (
@@ -627,7 +662,7 @@ export default function KpisPage() {
             )}
             {canWrite && !showArchived && (
               <button type="button" className="btn-primary" onClick={() => openCreate()}>
-                <Plus className="h-4 w-4" /> Novo KPI
+                <Plus className="h-4 w-4" /> Nova Meta
               </button>
             )}
           </>
@@ -663,23 +698,23 @@ export default function KpisPage() {
         <Loading />
       ) : kpis.length === 0 ? (
         <EmptyState
-          title="Nenhum indicador ainda"
+          title="Nenhuma meta ainda"
           description="Comece pelos números que você olharia primeiro se pudesse ver só três."
           action={
             canWrite && (
               <button type="button" className="btn-primary" onClick={() => openCreate()}>
-                <Plus className="h-4 w-4" /> Novo KPI
+                <Plus className="h-4 w-4" /> Nova Meta
               </button>
             )
           }
         />
       ) : visibleKpis.length === 0 ? (
         <EmptyState
-          title={showArchived ? 'Nenhum KPI arquivado' : 'Nenhum KPI neste produto'}
+          title={showArchived ? 'Nenhuma meta arquivada' : 'Nenhuma meta neste produto'}
           description={
             showArchived
-              ? 'Indicadores arquivados manualmente aparecem aqui.'
-              : 'Troque o filtro ou cadastre um indicador vinculado a este produto.'
+              ? 'Metas arquivadas manualmente aparecem aqui.'
+              : 'Troque o filtro ou cadastre uma meta vinculada a este produto.'
           }
         />
       ) : (
@@ -872,31 +907,30 @@ export default function KpisPage() {
                   </div>
                 )}
 
-                {/* Metas deste indicador — zero, uma ou várias ao mesmo
-                    tempo (ex. meta mensal e meta anual do mesmo indicador). */}
+                {/* Alvos desta meta — zero, um ou vários ao mesmo tempo
+                    (ex. alvo mensal e alvo anual da mesma meta). */}
                 <div className="mt-4 border-t border-line pt-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-content-soft">
-                      <Target className="h-3.5 w-3.5" /> Metas{kpiMetas.length > 0 && ` (${kpiMetas.length})`}
+                      <Target className="h-3.5 w-3.5" /> Alvos{kpiMetas.length > 0 && ` (${kpiMetas.length})`}
                     </p>
-                    {/* Meta só existe pra indicador de empresa inteira —
-                        produto e turma são medição pura. A lista abaixo
-                        continua aparecendo sem essa restrição, de
-                        propósito: é só leitura, e serve de rede de
-                        segurança caso sobre alguma meta antiga de
-                        produto/turma. */}
+                    {/* Alvo só existe pra meta de empresa inteira — produto
+                        e turma são medição pura. A lista abaixo continua
+                        aparecendo sem essa restrição, de propósito: é só
+                        leitura, e serve de rede de segurança caso sobre
+                        algum alvo antigo de produto/turma. */}
                     {canWrite && !kpi.product_id && (
                       <button
                         type="button"
                         className="text-xs text-brand-text hover:underline"
                         onClick={() => setMetaModalFor({ kpi, meta: null })}
                       >
-                        + Meta
+                        + Alvo
                       </button>
                     )}
                   </div>
                   {kpiMetas.length === 0 ? (
-                    <p className="mt-1.5 text-xs text-content-faint">Nenhuma meta ainda.</p>
+                    <p className="mt-1.5 text-xs text-content-faint">Nenhum alvo ainda.</p>
                   ) : (
                     <ul className="mt-2 space-y-3">
                       {kpiMetas.map((meta) => {
@@ -926,7 +960,7 @@ export default function KpisPage() {
                                     type="button"
                                     className="rounded p-0.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                                     onClick={() => setRemovingMeta(meta)}
-                                    aria-label="Excluir meta"
+                                    aria-label="Excluir alvo"
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </button>
@@ -968,10 +1002,10 @@ export default function KpisPage() {
         </div>
       )}
 
-      {/* ------------------------------------------------------ form de KPI */}
+      {/* ----------------------------------------------------- form de meta */}
       <Modal
         open={creatingKpi || Boolean(editingKpi)}
-        title={editingKpi ? `Editar ${editingKpi.name}` : 'Novo KPI'}
+        title={editingKpi ? `Editar ${editingKpi.name}` : 'Nova Meta'}
         width={!editingKpi && createMode === 'suggestions' ? 'max-w-3xl' : 'max-w-lg'}
         onClose={closeCreate}
         footer={
@@ -988,13 +1022,13 @@ export default function KpisPage() {
               >
                 {busy && <Spinner />}
                 {chosen.length <= 1
-                  ? 'Adicionar indicador'
-                  : `Adicionar ${chosen.length} indicadores`}
+                  ? 'Adicionar meta'
+                  : `Adicionar ${chosen.length} metas`}
               </button>
             ) : (
               <button type="submit" form="kpi-form" className="btn-primary" disabled={busy}>
                 {busy && <Spinner />}
-                {editingKpi ? 'Salvar' : 'Criar KPI'}
+                {editingKpi ? 'Salvar' : 'Criar Meta'}
               </button>
             )}
           </>
@@ -1042,7 +1076,7 @@ export default function KpisPage() {
           </>
         ) : (
         <form id="kpi-form" onSubmit={submitKpi} className="space-y-4">
-          <Field label="Nome do indicador">
+          <Field label="Nome da meta">
             <input
               className="input"
               required
@@ -1051,26 +1085,29 @@ export default function KpisPage() {
               onChange={(event) => setKpiForm((c) => ({ ...c, name: event.target.value }))}
             />
           </Field>
-          {/* Agrupado numa caixa só, como a de meta mais abaixo — três
+          {/* Agrupado numa caixa só, como a de alvo mais abaixo — três
               campos que só existem quando a empresa usa produtos, e o
               terceiro só quando o segundo aponta pra uma turma. Ver os três
               juntos deixa claro que "contribui para" é consequência de
-              "edição", que é consequência de "produto". */}
-          {products.length > 0 && (
+              "edição", que é consequência de "produto". Produto/turma só se
+              escolhe a partir de Produtos agora — essa caixa só aparece
+              vinda de lá (launchedFromProduct) ou editando uma meta que já
+              tem produto; o botão "Nova Meta" do topo nunca mostra isto. */}
+          {products.length > 0 && (editingKpi ? Boolean(editingKpi.product_id) : launchedFromProduct) && (
             <div className="rounded-lg border border-dashed border-line-strong p-3">
               <p className="mb-3 text-xs font-medium uppercase tracking-wide text-content-soft">
                 Produto e sub-produto — opcional
               </p>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Produto" hint="Deixe em branco pra um KPI geral da empresa.">
+                <Field label="Produto" hint="Deixe em branco pra uma meta geral da empresa.">
                   <select
                     className="input"
                     value={kpiForm.product_id}
                     onChange={(event) => {
-                      // Meta só existe pra indicador de empresa inteira —
+                      // Alvo só existe pra meta de empresa inteira —
                       // escolher um produto some com a checkbox (JSX acima)
                       // e, se ela já estava marcada, desliga também, senão
-                      // o submit tentaria gravar uma meta que não devia mais
+                      // o submit tentaria gravar um alvo que não devia mais
                       // existir.
                       if (event.target.value) setWantsInitialMeta(false)
                       setKpiForm((c) => ({
@@ -1081,7 +1118,7 @@ export default function KpisPage() {
                       }))
                     }}
                   >
-                    <option value="">Nenhum — indicador da empresa toda</option>
+                    <option value="">Nenhuma — meta geral da empresa</option>
                     {products.map((product) => (
                       <option key={product.id} value={product.id}>
                         {product.name}
@@ -1090,7 +1127,7 @@ export default function KpisPage() {
                   </select>
                 </Field>
                 {kpiForm.product_id && editionsForProduct(kpiForm.product_id).length > 0 && (
-                  <Field label="Edição" hint="Só se este KPI for de uma turma específica.">
+                  <Field label="Edição" hint="Só se esta meta for de uma turma específica.">
                     <select
                       className="input"
                       value={kpiForm.product_edition_id}
@@ -1111,10 +1148,10 @@ export default function KpisPage() {
 
               {/* A cadeia pode ter três elos: turma soma no produto, que por
                   sua vez pode somar numa meta da empresa toda. Uma turma
-                  mira num indicador do mesmo produto (sem edição); um
-                  indicador de produto (sem edição) mira num indicador sem
-                  produto nenhum — nunca os dois ao mesmo tempo, cada tela
-                  só sobe um elo por vez. */}
+                  mira numa meta do mesmo produto (sem edição); uma meta de
+                  produto (sem edição) mira numa meta sem produto nenhum —
+                  nunca os dois ao mesmo tempo, cada tela só sobe um elo por
+                  vez. */}
               {kpiForm.product_id &&
                 (() => {
                   const isEdition = Boolean(kpiForm.product_edition_id)
@@ -1130,8 +1167,8 @@ export default function KpisPage() {
                         label="Contribui para"
                         hint={
                           isEdition
-                            ? 'Opcional — o indicador do produto (sem edição) que recebe a soma desta turma.'
-                            : 'Opcional — um indicador da empresa toda que recebe a soma deste produto.'
+                            ? 'Opcional — a meta do produto (sem edição) que recebe a soma desta turma.'
+                            : 'Opcional — uma meta da empresa toda que recebe a soma deste produto.'
                         }
                       >
                         <select
@@ -1139,7 +1176,7 @@ export default function KpisPage() {
                           value={kpiForm.parent_kpi_id}
                           onChange={(event) => setKpiForm((c) => ({ ...c, parent_kpi_id: event.target.value }))}
                         >
-                          <option value="">Nenhum — não soma em nenhum outro indicador</option>
+                          <option value="">Nenhuma — não soma em nenhuma outra meta</option>
                           {candidates.map((candidate) => (
                             <option key={candidate.id} value={candidate.id}>
                               {candidate.name}
@@ -1150,8 +1187,8 @@ export default function KpisPage() {
                       {candidates.length === 0 && (
                         <p className="mt-1.5 text-xs text-content-faint">
                           {isEdition
-                            ? 'Ainda não existe um indicador deste produto sem edição — crie um primeiro (deixe "Edição" em branco nele) pra poder somar as turmas ali.'
-                            : 'Ainda não existe um indicador da empresa toda (sem produto) — crie um primeiro pra poder somar este produto ali.'}
+                            ? 'Ainda não existe uma meta deste produto sem edição — crie uma primeira (deixe "Edição" em branco nela) pra poder somar as turmas ali.'
+                            : 'Ainda não existe uma meta da empresa toda (sem produto) — crie uma primeira pra poder somar este produto ali.'}
                         </p>
                       )}
                     </div>
@@ -1254,12 +1291,11 @@ export default function KpisPage() {
             </Field>
           </div>
 
-          {/* Meta inicial, opcional — pode ser adicionada (ou uma segunda,
-              terceira...) depois, a qualquer momento, pelo "+ Meta" no
-              cartão do indicador. Só existe pra indicador de empresa
-              inteira — produto e turma são medição pura, a meta de
-              verdade vive lá em cima (o valor deles soma via "Contribui
-              para"). */}
+          {/* Alvo inicial, opcional — pode ser adicionado (ou um segundo,
+              terceiro...) depois, a qualquer momento, pelo "+ Alvo" no
+              cartão da meta. Só existe pra meta de empresa inteira —
+              produto e turma são medição pura, o alvo de verdade vive lá
+              em cima (o valor deles soma via "Contribui para"). */}
           {!editingKpi && kpiForm.product_id === '' && (
             <div className="rounded-lg border border-dashed border-line-strong p-3">
               <label className="flex items-center gap-2 text-sm font-medium text-content">
@@ -1268,10 +1304,10 @@ export default function KpisPage() {
                   checked={wantsInitialMeta}
                   onChange={(event) => setWantsInitialMeta(event.target.checked)}
                 />
-                Definir uma meta agora
+                Definir um alvo agora
               </label>
               <p className="mt-1 text-xs text-content-faint">
-                Opcional — um indicador pode ganhar metas depois, a qualquer momento.
+                Opcional — uma meta pode ganhar alvos depois, a qualquer momento.
               </p>
               {wantsInitialMeta && (
                 <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -1325,7 +1361,7 @@ export default function KpisPage() {
                 checked={kpiForm.is_active}
                 onChange={(event) => setKpiForm((c) => ({ ...c, is_active: event.target.checked }))}
               />
-              Indicador ativo
+              Meta ativa
             </label>
           </div>
           {error && <ErrorText>{error}</ErrorText>}
@@ -1380,14 +1416,14 @@ export default function KpisPage() {
 
       <ConfirmDialog
         open={Boolean(removingKpi)}
-        title="Excluir KPI"
+        title="Excluir meta"
         danger
         busy={busy}
         confirmLabel="Excluir"
         message={
           <>
             Excluir <strong>{removingKpi?.name}</strong> remove também todo o histórico de valores e
-            todas as metas ligadas a ele.
+            todos os alvos ligados a ela.
           </>
         }
         onConfirm={() => void removeKpi()}
@@ -1396,11 +1432,11 @@ export default function KpisPage() {
 
       <ConfirmDialog
         open={Boolean(removingMeta)}
-        title="Excluir meta"
+        title="Excluir alvo"
         danger
         busy={busy}
         confirmLabel="Excluir"
-        message="O indicador e o histórico dele continuam intactos — só esta meta some. Não dá pra desfazer."
+        message="A meta e o histórico dela continuam intactos — só este alvo some. Não dá pra desfazer."
         onConfirm={() => void removeMeta()}
         onCancel={() => setRemovingMeta(null)}
       />
@@ -1440,7 +1476,7 @@ function MetaFormModal({
     event.preventDefault()
     setError('')
     if (!form.due_date) {
-      setError('Defina um prazo para a meta.')
+      setError('Defina um prazo para o alvo.')
       return
     }
     const payload = {
@@ -1460,15 +1496,15 @@ function MetaFormModal({
       setError(result.error.message)
       return
     }
-    notify(meta ? 'Meta atualizada.' : 'Meta criada.')
+    notify(meta ? 'Alvo atualizado.' : 'Alvo criado.')
     await onSaved()
     onClose()
   }
 
-  // Divide o alvo final numa meta acumulada por semana — semana 1 pede uma
+  // Divide o alvo final num alvo semanal acumulado — semana 1 pede uma
   // fatia do total, a última semana pede o total inteiro. Refazer substitui
-  // a divisão anterior inteira, não soma em cima. Só existe editando uma
-  // meta que já foi salva (precisa de um meta_id de verdade pra gravar).
+  // a divisão anterior inteira, não soma em cima. Só existe editando um
+  // alvo que já foi salvo (precisa de um meta_id de verdade pra gravar).
   const repartirPorSemana = async () => {
     if (!meta || !meta.due_date || meta.target_value === null) return
     const start = new Date()
@@ -1495,7 +1531,7 @@ function MetaFormModal({
       notify(insertError.message, 'error')
       return
     }
-    notify(`Meta repartida em ${weeks} semana(s).`)
+    notify(`Alvo repartido em ${weeks} semana(s).`)
     await onSaved()
   }
 
@@ -1521,7 +1557,7 @@ function MetaFormModal({
     <>
     <Modal
       open
-      title={meta ? `Editar meta · ${kpi.name}` : `Nova meta · ${kpi.name}`}
+      title={meta ? `Editar alvo · ${kpi.name}` : `Novo alvo · ${kpi.name}`}
       onClose={onClose}
       width="max-w-md"
       footer={
@@ -1587,13 +1623,13 @@ function MetaFormModal({
         {error && <ErrorText>{error}</ErrorText>}
       </form>
 
-      {/* Repartição semanal só existe pra uma meta já salva (precisa de um
-          id de verdade) — some da tela na hora de criar uma meta nova. */}
+      {/* Repartição semanal só existe pra um alvo já salvo (precisa de um
+          id de verdade) — some da tela na hora de criar um alvo novo. */}
       {meta && (
         <div className="mt-5 rounded-lg border border-line p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="flex items-center gap-1.5 text-sm font-medium text-content">
-              <CalendarRange className="h-4 w-4 text-content-faint" /> Meta por semana
+              <CalendarRange className="h-4 w-4 text-content-faint" /> Alvo por semana
             </p>
             {meta.target_value !== null && (
               <div className="flex gap-2">
@@ -1656,7 +1692,7 @@ function MetaFormModal({
     <ConfirmDialog
       open={limparRepartição.target !== null}
       title="Limpar divisão semanal?"
-      message="As metas semanais já definidas são apagadas. Você pode repartir de novo depois."
+      message="Os alvos semanais já definidos são apagados. Você pode repartir de novo depois."
       confirmLabel="Limpar"
       danger
       busy={limparRepartição.busy}
@@ -1953,7 +1989,7 @@ function HistoryModal({
           description={
             kpi.entry_frequency
               ? 'Sem total ainda — registre o primeiro lançamento fino acima.'
-              : 'Registre o primeiro valor deste KPI.'
+              : 'Registre o primeiro valor desta meta.'
           }
         />
       ) : (
@@ -2024,7 +2060,7 @@ function HistoryModal({
     <ConfirmDialog
       open={removeValue.target !== null}
       title="Excluir lançamento?"
-      message="O valor sai do histórico e dos gráficos deste KPI. Não dá pra desfazer."
+      message="O valor sai do histórico e dos gráficos desta meta. Não dá pra desfazer."
       confirmLabel="Excluir"
       danger
       busy={removeValue.busy}

@@ -24,17 +24,19 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSess
 const SEVERITIES = ['info', 'opportunity', 'warning', 'critical']
 
 const SYSTEM_PROMPT = `Você é o analista de gestão da Ápice Holding, uma holding que controla várias empresas.
-Recebe um retrato em JSON com o estado inteiro da empresa (ou do grupo): KPIs — indicadores que medem algo,
-cada um podendo ter zero, uma ou várias metas (alvo, prazo, responsável e andamento) —, tarefas, orçamentos
-de eventos/projetos (previsto x realizado) e integrações. Devolve insights acionáveis para o administrador.
+Recebe um retrato em JSON com o estado inteiro da empresa (ou do grupo): metas — o que se mede —, cada uma
+podendo ter zero, um ou vários alvos (valor-alvo, prazo, responsável e andamento), tarefas, orçamentos
+de eventos/projetos (previsto x realizado) e integrações. Ao escrever os insights, chame a coisa medida de
+"meta" e o valor-alvo/prazo/responsável dela de "alvo" — nunca use "KPI" ou "indicador". Devolve insights
+acionáveis para o administrador.
 
 Regras:
 - Responda SEMPRE em português do Brasil.
 - Trabalhe apenas com os números fornecidos. Nunca invente dados que não estão no retrato.
 - Se os dados forem insuficientes para uma conclusão, diga isso explicitamente em vez de especular.
-- Cruze módulos quando fizer sentido: uma integração que parou de sincronizar e o KPI dela sem lançamento
-  recente, uma meta sem tarefa nenhuma andando por trás dela.
-- Priorize o que muda decisão: KPI fora da meta, meta em risco ou sem responsável, tarefa vencida, tendência
+- Cruze módulos quando fizer sentido: uma integração que parou de sincronizar e a meta dela sem lançamento
+  recente, um alvo sem tarefa nenhuma andando por trás dele.
+- Priorize o que muda decisão: meta fora do alvo, alvo em risco ou sem responsável, tarefa vencida, tendência
   de queda, integração falhando.
 - Entre 3 e 6 insights, do mais crítico para o menos crítico.
 
@@ -444,7 +446,7 @@ Deno.serve(async (req) => {
   const userMessage = isDailyCron
     ? `Resumo automático de hoje (${new Date().toISOString().slice(0, 10)}). Além dos insights de sempre, ` +
       `garanta que ao menos um insight liste as prioridades de HOJE especificamente — tarefa vencendo hoje ` +
-      `ou já vencida, meta em risco, KPI fora da meta que pede ação imediata.\n\n` +
+      `ou já vencida, alvo em risco, meta fora do alvo que pede ação imediata.\n\n` +
       `Retrato atual em JSON:\n\n${JSON.stringify(context, null, 2)}`
     : `Retrato atual em JSON:\n\n${JSON.stringify(context, null, 2)}`
 

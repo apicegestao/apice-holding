@@ -4,13 +4,13 @@
 // Donos, Imersão) cadastra uma edição por turma/encontro; frente contínua
 // (Mentoria, Club) pode não ter edição nenhuma — funciona sozinha.
 //
-// Produto e edição são medição pura — nenhum dos dois tem meta própria (a
-// meta de verdade vive só no indicador de empresa inteira, em KPIs). O que
-// esta tela mostra é o valor de cada indicador ligado ao produto/edição,
-// já com a soma dos filhos incluída quando ele tiver sub-produtos (a
-// cadeia turma → produto → empresa via "Contribui para" continua igual,
-// ver `kpiRollup.ts`) — cadastro do indicador e acompanhamento do valor na
-// mesma tela.
+// Produto e edição são medição pura — nenhum dos dois tem alvo próprio (o
+// alvo de verdade vive só na meta de empresa inteira, na tela Metas). O
+// que esta tela mostra é o valor de cada meta ligada ao produto/edição, já
+// com a soma dos filhos incluída quando ela tiver sub-produtos (a cadeia
+// turma → produto → empresa via "Contribui para" continua igual, ver
+// `kpiRollup.ts`) — cadastro da meta e acompanhamento do valor na mesma
+// tela, e um lápis em cada linha pra editar sem sair daqui.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarRange, ClipboardList, Pencil, Plus, Trash2 } from 'lucide-react'
@@ -60,11 +60,11 @@ const blankEditionForm: EditionForm = { name: '', start_date: '', end_date: '' }
 // título/descrição de toda tarefa da empresa à toa.
 type TaskCount = { id: string; product_id: string | null; status: string }
 
-// Um KPI (indicador) ativo entra aqui com lançamento ou não — um indicador
-// que só soma os filhos (ex. o do produto, que nunca lança direto) não pode
-// sumir da tela por nunca ter uma linha própria em kpi_values. Produto e
-// edição não têm meta própria — só medição, este é o único tipo de linha
-// que a tela usa pra "como está indo".
+// Uma meta ativa entra aqui com lançamento ou não — uma meta que só soma os
+// filhos (ex. a do produto, que nunca lança direto) não pode sumir da tela
+// por nunca ter uma linha própria em kpi_values. Produto e edição não têm
+// alvo próprio — só medição, este é o único tipo de linha que a tela usa
+// pra "como está indo".
 type ProductKpiRow = {
   kpi_id: string
   name: string
@@ -143,8 +143,8 @@ export default function ProductsPage() {
     [kpiDefs, kpiValues],
   )
 
-  // Soma em cadeia (turma → produto → empresa): um KPI com filhos nunca
-  // lança direto, o valor dele é sempre a soma deles.
+  // Soma em cadeia (turma → produto → empresa): uma meta com filhos nunca
+  // lança direto, o valor dela é sempre a soma deles.
   const childrenByParent = useMemo(() => buildChildrenByParent(kpiRows), [kpiRows])
   const kpiRowById = useMemo(() => new Map(kpiRows.map((row) => [row.kpi_id, row])), [kpiRows])
   const effectiveValue = useCallback(
@@ -152,7 +152,7 @@ export default function ProductsPage() {
     [childrenByParent, kpiRowById],
   )
 
-  // Indicadores próprios de cada turma (sem edição = do produto, ver
+  // Metas próprias de cada turma (sem edição = do produto, ver
   // `statsByProduct` abaixo) — mapa pra não refiltrar `kpiRows` inteiro a
   // cada edição renderizada.
   const indicatorsByEdition = useMemo(() => {
@@ -166,11 +166,10 @@ export default function ProductsPage() {
     return map
   }, [kpiRows])
 
-  // Produto e turma são medição pura — meta só existe no indicador de
-  // empresa inteira. O que o cartão do produto mostra é o valor dos
-  // indicadores PRÓPRIOS dele (sem edição — os de cada turma aparecem um
-  // nível abaixo, dentro do modal), mais quantas tarefas dele estão
-  // abertas.
+  // Produto e turma são medição pura — alvo só existe na meta de empresa
+  // inteira. O que o cartão do produto mostra é o valor das metas PRÓPRIAS
+  // dele (sem edição — as de cada turma aparecem um nível abaixo, dentro
+  // do modal), mais quantas tarefas dele estão abertas.
   const statsByProduct = useMemo(() => {
     const map = new Map<string, { open: number; indicators: ProductKpiRow[] }>()
     for (const product of products) {
@@ -355,7 +354,7 @@ export default function ProductsPage() {
                     ))}
                     {stats.indicators.length > 2 && (
                       <p className="text-[11px] text-content-faint">
-                        + {stats.indicators.length - 2} indicador{stats.indicators.length - 2 > 1 ? 'es' : ''}
+                        + {stats.indicators.length - 2} meta{stats.indicators.length - 2 > 1 ? 's' : ''}
                       </p>
                     )}
                   </div>
@@ -402,28 +401,38 @@ export default function ProductsPage() {
 
             <div>
               <div className="flex items-center justify-between gap-2">
-                <p className="label">Indicadores deste produto</p>
+                <p className="label">Metas deste produto</p>
                 {canWrite && (
                   <Link
                     to={`/empresa/${company.id}/kpis?novo=1&product_id=${activeProduct.id}`}
                     className="btn-ghost py-1 text-xs"
                   >
-                    <Plus className="h-3.5 w-3.5" /> Indicador
+                    <Plus className="h-3.5 w-3.5" /> Meta
                   </Link>
                 )}
               </div>
               {(statsByProduct.get(activeProduct.id)?.indicators ?? []).length === 0 ? (
-                <p className="mt-1 text-sm text-content-soft">Nenhum indicador próprio deste produto ainda.</p>
+                <p className="mt-1 text-sm text-content-soft">Nenhuma meta própria deste produto ainda.</p>
               ) : (
                 <ul className="mt-2 space-y-2">
                   {(statsByProduct.get(activeProduct.id)?.indicators ?? []).map((row) => (
-                    <li key={row.kpi_id}>
-                      <Link
-                        to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}`}
-                        className="block rounded-lg border border-line p-2.5 transition hover:border-line-strong hover:bg-hover"
-                      >
+                    <li
+                      key={row.kpi_id}
+                      className="flex items-center gap-1.5 rounded-lg border border-line p-2.5 transition hover:border-line-strong hover:bg-hover"
+                    >
+                      <Link to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}`} className="min-w-0 flex-1">
                         <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} />
                       </Link>
+                      {canWrite && (
+                        <Link
+                          to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}&editar=1`}
+                          className="shrink-0 rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content"
+                          aria-label="Editar meta"
+                          title="Editar"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Link>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -488,26 +497,36 @@ export default function ProductsPage() {
                         <div className="mt-2 border-t border-line pt-2">
                           {editionIndicators.length === 0 ? (
                             <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs text-content-faint">Sem indicador próprio ainda.</p>
+                              <p className="text-xs text-content-faint">Sem meta própria ainda.</p>
                               {canWrite && (
                                 <Link
                                   to={`/empresa/${company.id}/kpis?novo=1&product_id=${activeProduct.id}&product_edition_id=${edition.id}`}
                                   className="shrink-0 text-xs text-brand-text hover:underline"
                                 >
-                                  + Indicador desta turma
+                                  + Meta desta turma
                                 </Link>
                               )}
                             </div>
                           ) : (
                             <ul className="space-y-2">
                               {editionIndicators.map((row) => (
-                                <li key={row.kpi_id}>
+                                <li key={row.kpi_id} className="flex items-center gap-1 -mx-1 px-1">
                                   <Link
                                     to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}`}
-                                    className="block rounded-md -mx-1 px-1 py-0.5 transition hover:bg-hover"
+                                    className="min-w-0 flex-1 rounded-md py-0.5 transition hover:bg-hover"
                                   >
                                     <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} size="xs" />
                                   </Link>
+                                  {canWrite && (
+                                    <Link
+                                      to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}&editar=1`}
+                                      className="shrink-0 rounded-md p-1 text-content-faint hover:bg-hover hover:text-content"
+                                      aria-label="Editar meta"
+                                      title="Editar"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Link>
+                                  )}
                                 </li>
                               ))}
                             </ul>
@@ -612,7 +631,7 @@ export default function ProductsPage() {
         confirmLabel="Excluir"
         message={
           <>
-            Excluir <strong>{productDelete.target?.name}</strong> apaga também as edições dele. KPIs, tarefas e
+            Excluir <strong>{productDelete.target?.name}</strong> apaga também as edições dele. Metas, tarefas e
             orçamentos ligados a ele continuam existindo, só perdem o vínculo com o produto. Não dá pra desfazer.
           </>
         }
@@ -634,10 +653,10 @@ export default function ProductsPage() {
   )
 }
 
-/** Nome do indicador + valor atual — produto e turma são medição pura (a
- *  meta de verdade vive só no indicador de empresa inteira), então aqui não
- *  tem alvo, nem ratio, nem barra: só o valor, já com a soma dos filhos
- *  incluída quando o indicador tiver sub-produtos. */
+/** Nome da meta + valor atual — produto e turma são medição pura (o alvo
+ *  de verdade vive só na meta de empresa inteira), então aqui não tem
+ *  alvo, nem ratio, nem barra: só o valor, já com a soma dos filhos
+ *  incluída quando a meta tiver sub-produtos. */
 function IndicatorLine({
   row,
   value,

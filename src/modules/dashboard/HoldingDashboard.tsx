@@ -195,10 +195,10 @@ export default function HoldingDashboard() {
     [operating, metas],
   )
 
-  // ------------------------------------------------- KPIs na meta por empresa
-  // Comparação entre empresas, mas por SAÚDE do indicador (na meta / fora /
+  // ------------------------------------------------- metas no alvo por empresa
+  // Comparação entre empresas, mas por SAÚDE da meta (no alvo / fora /
   // sem lançamento ainda), não pelo valor bruto — que nem faria sentido
-  // somar entre empresas com KPIs de unidades diferentes.
+  // somar entre empresas com metas de unidades diferentes.
   const kpiHealth = useMemo(
     () =>
       operating
@@ -322,7 +322,7 @@ export default function HoldingDashboard() {
               <ProgressBar
                 ratio={groupHealth.ratio}
                 label="Saúde geral do grupo"
-                caption={`média de atingimento em ${groupHealth.medidos} meta(s) com alvo definido, em todas as empresas`}
+                caption={`média de atingimento em ${groupHealth.medidos} alvo(s) definido(s), em todas as empresas`}
               />
             </div>
           )}
@@ -340,7 +340,7 @@ export default function HoldingDashboard() {
               </div>,
               <div key="kpis" className="card p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
-                  Metas na meta
+                  Metas no alvo
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-emerald-600 dark:text-emerald-400">
                   {totals.kpisOnTarget}
@@ -348,11 +348,11 @@ export default function HoldingDashboard() {
                     /{totals.kpisOnTarget + totals.kpisOffTarget}
                   </span>
                 </p>
-                <p className="text-xs text-content-soft">metas com alvo definido</p>
+                <p className="text-xs text-content-soft">alvos definidos</p>
               </div>,
               <div key="metas" className="card p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
-                  Metas em risco
+                  Alvos em risco
                 </p>
                 <p
                   className={`mt-2 text-2xl font-semibold ${
@@ -522,7 +522,7 @@ export default function HoldingDashboard() {
                       stroke={chart.reference}
                       strokeDasharray="4 4"
                       ifOverflow="extendDomain"
-                      label={{ value: 'meta', position: 'right', fontSize: 10, fill: chart.tick }}
+                      label={{ value: 'alvo', position: 'right', fontSize: 10, fill: chart.tick }}
                     />
                     <Line dataKey="atingimento" stroke={chart.axis} strokeWidth={2} dot={attainmentDot}>
                       <LabelList
@@ -538,15 +538,15 @@ export default function HoldingDashboard() {
             )}
           </Card>
 
-          {/* ------------------------------------------- KPIs na meta por empresa */}
+          {/* ------------------------------------------- metas no alvo por empresa */}
           <Card
-            title="Metas na meta por empresa"
-            description="Quantas metas de cada empresa estão na meta, fora dela ou ainda sem lançamento."
+            title="Metas no alvo por empresa"
+            description="Quantas metas de cada empresa estão no alvo, fora dele ou ainda sem lançamento."
           >
             {kpiHealth.length === 0 ? (
               <EmptyState
-                title="Nenhum KPI cadastrado ainda"
-                description="Cadastre indicadores nas empresas para comparar aqui."
+                title="Nenhuma meta cadastrada ainda"
+                description="Cadastre metas nas empresas para comparar aqui."
               />
             ) : (
               <div className="h-64">
@@ -583,8 +583,8 @@ export default function HoldingDashboard() {
                         <span style={{ color: chart.label }}>{value}</span>
                       )}
                     />
-                    <Bar dataKey="naMeta" name="Na meta" stackId="kpis" fill="#10B981" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="fora" name="Fora da meta" stackId="kpis" fill="#F43F5E" />
+                    <Bar dataKey="naMeta" name="No alvo" stackId="kpis" fill="#10B981" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="fora" name="Fora do alvo" stackId="kpis" fill="#F43F5E" />
                     <Bar
                       dataKey="semLancamento"
                       name="Sem lançamento"
@@ -600,7 +600,7 @@ export default function HoldingDashboard() {
 
           {/* -------------------------------------------- cartão por empresa —
               a que precisa de mais atenção vem primeiro (mais vencida,
-              metas em risco, KPI fora), não em ordem alfabética */}
+              metas em risco, meta fora do alvo), não em ordem alfabética */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {byUrgency.map((snapshot) => {
               const companyMetas = metas.filter((meta) => meta.company_id === snapshot.company_id)
@@ -625,7 +625,7 @@ export default function HoldingDashboard() {
                               status === 'red'
                                 ? 'Precisa de atenção agora'
                                 : status === 'amber'
-                                  ? 'Algum KPI fora da meta'
+                                  ? 'Alguma meta fora do alvo'
                                   : 'Tudo em dia'
                             }
                           />
@@ -657,11 +657,11 @@ export default function HoldingDashboard() {
                           /{Number(snapshot.kpis_on_target) + Number(snapshot.kpis_off_target)}
                         </span>
                       </p>
-                      <p className="text-[11px] text-content-soft">Metas na meta</p>
+                      <p className="text-[11px] text-content-soft">Metas no alvo</p>
                     </div>
                     <div className="rounded-lg bg-hover py-2">
                       <p className="text-lg font-semibold">{snapshot.goals_active}</p>
-                      <p className="text-[11px] text-content-soft">metas ativas</p>
+                      <p className="text-[11px] text-content-soft">alvos ativos</p>
                     </div>
                     <div className="rounded-lg bg-hover py-2">
                       <p className="text-lg font-semibold">{snapshot.tasks_open}</p>

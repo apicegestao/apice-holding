@@ -11,7 +11,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const ROLE_HINT: Record<Role, string> = {
   admin: 'Configura a empresa, gerencia acessos e integrações.',
-  collaborator: 'Lança KPIs e cria tarefas.',
+  collaborator: 'Lança metas e cria tarefas.',
   viewer: 'Só visualiza — e conclui as tarefas atribuídas a ele.',
 }
 
@@ -145,6 +145,12 @@ export const FINER_FREQUENCIES: Record<KpiFrequency, KpiFrequency[]> = {
   yearly: ['daily', 'weekly', 'biweekly', 'monthly', 'quarterly'],
 }
 
+// AVISO DE NOMENCLATURA: no texto que o usuário vê, o tipo `Kpi` aparece
+// como "Meta" (a coisa medida) e o tipo `Meta` aparece como "Alvo" (o
+// alvo/prazo/responsável de uma meta). Os nomes técnicos abaixo (tipos,
+// tabelas, colunas) continuam os mesmos de sempre — é só o texto da tela
+// que mudou.
+//
 // Indicador: o que se mede (unidade, direção, frequência, de qual
 // produto/edição é, histórico via kpi_values) — a ferramenta de medição.
 // A meta (alvo, prazo, responsável, andamento) mora em `Meta`, à parte: um

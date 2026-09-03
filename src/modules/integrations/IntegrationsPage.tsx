@@ -1,4 +1,4 @@
-// Integrações: conecta uma API externa e joga o resultado direto nos KPIs.
+// Integrações: conecta uma API externa e joga o resultado direto nas metas.
 // O segredo de autenticação é gravado numa tabela sem policy de SELECT —
 // nem o admin lê de volta pelo navegador.
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
@@ -255,7 +255,7 @@ export default function IntegrationsPage() {
     <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader
         title={`Integrações · ${company.name}`}
-        subtitle="Puxe números de outros sistemas por API e alimente os KPIs automaticamente."
+        subtitle="Puxe números de outros sistemas por API e alimente as metas automaticamente."
         actions={
           <button type="button" className="btn-primary" onClick={openCreate}>
             <Plus className="h-4 w-4" /> Nova integração
@@ -268,7 +268,7 @@ export default function IntegrationsPage() {
       ) : integrations.length === 0 ? (
         <EmptyState
           title="Nenhuma integração configurada"
-          description="Aponte uma URL que devolva JSON, escolha qual campo alimenta qual KPI e o sistema cuida do resto."
+          description="Aponte uma URL que devolva JSON, escolha qual campo alimenta qual meta e o sistema cuida do resto."
           action={
             <button type="button" className="btn-primary" onClick={openCreate}>
               <Plus className="h-4 w-4" /> Nova integração
@@ -341,7 +341,7 @@ export default function IntegrationsPage() {
                 <div className="mt-3 border-t border-line pt-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs font-medium uppercase tracking-wide text-content-soft">
-                      Campos ligados a KPIs
+                      Campos ligados a metas
                     </p>
                     <button
                       type="button"
@@ -361,7 +361,7 @@ export default function IntegrationsPage() {
                         <li key={mapping.id} className="text-xs text-content-muted">
                           <code className="rounded bg-hover px-1">{mapping.json_path}</code>
                           {' → '}
-                          {kpis.find((kpi) => kpi.id === mapping.kpi_id)?.name ?? 'KPI removido'}
+                          {kpis.find((kpi) => kpi.id === mapping.kpi_id)?.name ?? 'Meta removida'}
                           {' · '}
                           {PERIOD_LABEL[mapping.period_mode]}
                         </li>
@@ -584,7 +584,7 @@ export default function IntegrationsPage() {
         message={
           <>
             Excluir <strong>{removing?.name}</strong> remove os mapeamentos e o histórico de
-            execuções. Os valores já gravados nos KPIs permanecem.
+            execuções. Os valores já gravados nas metas permanecem.
           </>
         }
         onConfirm={() => void remove()}
@@ -617,7 +617,7 @@ function MappingModal({
 
   const add = async () => {
     if (!kpiId || !jsonPath.trim()) {
-      notify('Escolha o KPI e informe o caminho do campo.', 'error')
+      notify('Escolha a meta e informe o caminho do campo.', 'error')
       return
     }
     setBusy(true)
@@ -654,7 +654,7 @@ function MappingModal({
     <Modal
       open
       title={`Campos · ${integration.name}`}
-      description="Diga qual pedaço da resposta JSON vira valor de qual KPI."
+      description="Diga qual pedaço da resposta JSON vira valor de qual meta."
       onClose={onClose}
       footer={
         <button type="button" className="btn-ghost" onClick={onClose}>
@@ -669,7 +669,7 @@ function MappingModal({
               <li key={mapping.id} className="flex items-center justify-between gap-2 px-3 py-2">
                 <span className="min-w-0 text-xs">
                   <code className="rounded bg-hover px-1">{mapping.json_path}</code> →{' '}
-                  {kpis.find((kpi) => kpi.id === mapping.kpi_id)?.name ?? 'KPI removido'}
+                  {kpis.find((kpi) => kpi.id === mapping.kpi_id)?.name ?? 'Meta removida'}
                   <span className="block text-content-faint">
                     {PERIOD_LABEL[mapping.period_mode]}
                     {Number(mapping.multiplier) !== 1 && ` · ×${mapping.multiplier}`}
@@ -690,11 +690,11 @@ function MappingModal({
 
         {kpis.length === 0 ? (
           <p className="text-sm text-content-soft">
-            Cadastre pelo menos um KPI nesta empresa para poder mapear campos.
+            Cadastre pelo menos uma meta nesta empresa para poder mapear campos.
           </p>
         ) : (
           <div className="space-y-3 rounded-lg border border-dashed border-line-strong p-3">
-            <Field label="KPI que recebe o valor">
+            <Field label="Meta que recebe o valor">
               <select className="input" value={kpiId} onChange={(event) => setKpiId(event.target.value)}>
                 {kpis.map((kpi) => (
                   <option key={kpi.id} value={kpi.id}>
@@ -743,7 +743,7 @@ function MappingModal({
     <ConfirmDialog
       open={removeMapping.target !== null}
       title="Excluir mapeamento?"
-      message="O campo deixa de alimentar o KPI automaticamente. Não dá pra desfazer."
+      message="O campo deixa de alimentar a meta automaticamente. Não dá pra desfazer."
       confirmLabel="Excluir"
       danger
       busy={removeMapping.busy}

@@ -1780,3 +1780,89 @@ fixture `METAS`/`META_LATEST_VALUES` perdeu as duas entradas de
 produto/turma (`META_PRODUCT`/`META_EDITION`), mantendo `KPI_PRODUCT`/
 `KPI_EDITION` como indicador puro. Suíte completa: 190 testes, sem
 falhas.
+
+---
+
+## 32. Nomenclatura única "Meta"/"Alvo" + consolidar criação via Produtos
+
+Duas confusões apontadas pelo usuário depois da rodada anterior: (1) dois
+jeitos de criar a mesma coisa — o botão "Novo KPI" na página Metas deixava
+escolher produto/turma num dropdown, e os links de dentro de Produtos
+levavam pro mesmo formulário pré-preenchido, com experiências diferentes
+(um abre aba de sugestões, o outro pula direto pro form); o usuário prefere
+claramente o caminho de Produtos. (2) três palavras — "KPI", "indicador" e
+"meta" — pra uma coisa só, mesmo depois das rodadas anteriores terem
+corrigido parte disso.
+
+Confirmado com o usuário (`AskUserQuestion`, 3 perguntas): tirar o seletor
+de produto do fluxo de criação da página Metas (criar pra produto/turma só
+acontece de dentro de Produtos, que ganha um atalho de editar em cada
+linha); padronizar o texto visível pra usar só **"Meta"** no lugar de
+"KPI"/"indicador" (o `Kpi`/tabela `kpis` de sempre); e, como isso colide
+com o uso atual de "meta" pro alvo/prazo/responsável, chamar essa segunda
+coisa de **"Alvo"** (o `Meta`/tabela `metas` de sempre). Escopo
+deliberadamente restrito a texto + fluxo de criação — nenhuma migração de
+banco, nenhuma mudança de rota (`/kpis` continua), tipo ou nome de
+variável/coluna.
+
+**Consolidar criação (`KpisPage.tsx`):** novo estado
+`launchedFromProduct`, setado só pelo efeito de `?novo=1` (o atalho vindo
+de Produtos); a caixa "Produto e sub-produto" só aparece quando
+`launchedFromProduct` é `true` ou, editando, quando a meta já tem produto
+(`editingKpi.product_id`). O botão "Nova Meta" do topo e o do estado vazio
+continuam chamando `openCreate()` sem esse parâmetro — nunca mostram a
+caixa, sempre criam meta de empresa.
+
+**Editar direto de Produtos:** novo parâmetro `?kpi=<id>&editar=1`, lido
+por um efeito dedicado em `KpisPage.tsx` que chama `openEdit` e remove só
+o `editar` da URL (mantém `kpi=` pro highlight de sempre). `ProductsPage`
+ganhou um ícone de lápis (`Pencil`) ao lado do link de nome/valor em cada
+linha (produto e cada turma), apontando pra essa URL — como um `<Link>`
+não aninha outro, cada `<li>` virou um flex com dois links irmãos.
+
+**Renomear texto:** troca de "KPI"/"indicador" por "Meta" (concordância
+feminina) e de "meta" (alvo/prazo/responsável) por "Alvo" (concordância
+masculina) em `KpisPage.tsx`, `KpiSuggestions.tsx`, `ProductsPage.tsx`,
+`CompanyDashboard.tsx`, `HoldingDashboard.tsx`, `IntegrationsPage.tsx`,
+`CompaniesPage.tsx`, `LoginPage.tsx`, `InsightsPage.tsx` e
+`core/types.ts` (`ROLE_HINT.collaborator` + comentário de aviso da
+inversão perto dos tipos `Kpi`/`Meta`). Duas colisões de nome resolvidas
+com uma tabela de decisão: "Metas na meta" → "Metas no alvo"; "Metas em
+aberto"/"em risco" → "Alvos em aberto"/"em risco"; card de valor puro
+("Indicadores") → "Metas"; card de acompanhamento de alvo ("Metas") →
+"Alvos". `supabase/functions/ai-insights/index.ts`: `SYSTEM_PROMPT`
+reescrito pra ensinar a IA a chamar a coisa medida de "meta" e o
+alvo/prazo/responsável de "alvo", proibindo "KPI"/"indicador" no texto
+gerado; frase do resumo diário (prioridades de HOJE) também atualizada.
+Redeploy feito (`ai-insights` v10, `verify_jwt: false` preservado — mesma
+chamada sem usuário logado do pg_cron de sempre).
+
+**Fora de escopo, deixado como está:** comentários internos de código
+(ex. `// Indicador: o que se mede...` em `core/types.ts`) e nomes de
+tipo/tabela/coluna/variável (`Kpi`, `kpis`, `kpi_id`, `kpiForm` etc.) — a
+troca é só do texto que o usuário vê, como decidido com o usuário.
+
+**Verificação:** `npx tsc --noEmit` e `npm run build` limpos após cada
+arquivo tocado. `npm run test`: 28, sem mudança. `npm run check:contrast`:
+24/24, sem mudança (nenhuma cor tocada). Varredura final
+(`grep -rn "KPI\|Indicador\|indicador" src/`) só encontrou comentários
+internos e nomes de identificador — nenhuma string visível esquecida.
+`get_advisors`: mesmos dois avisos de sempre (RLS sem policy em
+`app.system_settings`, proteção de senha vazada desligada), nenhum novo —
+sem mudança de banco nesta rodada. `npm run test:e2e`: describe
+`'indicadores de produto e sub-produto'` virou `'metas de produto e
+sub-produto'` (textos atualizados + 2 testes novos: lápis de editar em
+Produtos abre edição direto; `?kpi=<id>&editar=1` abre edição sem clique
+extra); describe `'atalho de KPI a partir de Produtos'` virou `'atalho de
+meta a partir de Produtos'` (+ 1 teste novo: botão "Nova Meta" do topo não
+mostra a caixa de produto/sub-produto); `HoldingDashboard`: assinatura do
+gráfico "Metas na meta por empresa" atualizada pra "Metas no alvo por
+empresa"; fixture `INSIGHTS` com os dois `body` de exemplo reescritos pro
+vocabulário novo. Suíte completa: 169 testes passando, 27 skipped (mesmos
+de sempre, condicionais de plataforma), sem falhas.
+
+Geração de insight de verdade pela `ai-insights` continua na mesma
+situação das rodadas anteriores (item 3 no topo deste documento): depende
+de rede + chave de API configurada, não exercitada de ponta a ponta neste
+ambiente — o redeploy em si foi confirmado pela resposta da própria API de
+deploy (`status: ACTIVE`, versão incrementada).

@@ -135,7 +135,7 @@ export default function CompaniesPage() {
     <div className="mx-auto max-w-5xl">
       <PageHeader
         title="Empresas do grupo"
-        subtitle="Cada empresa é um ambiente isolado: dados, KPIs e acessos próprios."
+        subtitle="Cada empresa é um ambiente isolado: dados, metas e acessos próprios."
         actions={
           <button type="button" className="btn-primary" onClick={openCreate}>
             <Plus className="h-4 w-4" /> Nova empresa
@@ -148,7 +148,7 @@ export default function CompaniesPage() {
       ) : companies.length === 0 ? (
         <EmptyState
           title="Nenhuma empresa cadastrada"
-          description="Crie a primeira empresa para começar a organizar KPIs, metas e tarefas."
+          description="Crie a primeira empresa para começar a organizar metas, alvos e tarefas."
           action={
             <button type="button" className="btn-primary" onClick={openCreate}>
               <Plus className="h-4 w-4" /> Nova empresa
@@ -250,8 +250,8 @@ export default function CompaniesPage() {
         confirmLabel="Excluir definitivamente"
         message={
           <>
-            Excluir <strong>{removing?.name}</strong> apaga junto todos os KPIs, metas, tarefas,
-            mapas mentais e integrações dela. Esta ação não tem volta.
+            Excluir <strong>{removing?.name}</strong> apaga junto tudo relacionado a ela: metas,
+            alvos, tarefas, mapas mentais e integrações. Esta ação não tem volta.
           </>
         }
         onConfirm={() => void confirmRemove()}

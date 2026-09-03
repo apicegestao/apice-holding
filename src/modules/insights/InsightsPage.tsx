@@ -1,4 +1,4 @@
-// Insights de IA. A geração roda numa Edge Function que lê KPIs, metas e
+// Insights de IA. A geração roda numa Edge Function que lê metas, alvos e
 // tarefas do escopo e devolve leituras acionáveis para o admin.
 import { useCallback, useEffect, useState } from 'react'
 import { Archive, Sparkles } from 'lucide-react'
@@ -181,7 +181,7 @@ function CompanyInsights() {
     <div className="mx-auto max-w-4xl">
       <PageHeader
         title={`Insights · ${company.name}`}
-        subtitle="A IA lê os KPIs, metas e tarefas desta empresa e aponta o que merece decisão."
+        subtitle="A IA lê as metas, os alvos e as tarefas desta empresa e aponta o que merece decisão."
         actions={
           <button type="button" className="btn-primary" disabled={generating} onClick={() => void generate()}>
             {generating ? <Spinner /> : <Sparkles className="h-4 w-4" />}

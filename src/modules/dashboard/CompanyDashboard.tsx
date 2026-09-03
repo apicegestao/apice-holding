@@ -350,9 +350,9 @@ export default function CompanyDashboard() {
     [stats.open],
   )
 
-  // Saúde geral: a média do atingimento de toda meta com alvo definido — um
-  // único número pra bater o olho e já saber como a empresa anda, antes de
-  // entrar cartão por cartão. Só conta meta com alvo; sem alvo não tem o
+  // Saúde geral: a média do atingimento de todo alvo definido — um único
+  // número pra bater o olho e já saber como a empresa anda, antes de
+  // entrar cartão por cartão. Só conta alvo definido; sem alvo não tem o
   // que medir atingimento.
   const overallHealth = useMemo(() => {
     const ratios = metaRows
@@ -365,11 +365,11 @@ export default function CompanyDashboard() {
     }
   }, [metaRows])
 
-  // Comparação entre metas desta empresa: % do alvo atingido. Unidades
+  // Comparação entre alvos desta empresa: % do alvo atingido. Unidades
   // diferentes (R$, %, dias) não podem virar barra na mesma escala — só o
-  // atingimento é comparável entre metas distintas.
+  // atingimento é comparável entre alvos distintos.
   //
-  // Numa meta "up" (maior é melhor), atingimento = valor / alvo. Numa "down"
+  // Num alvo "up" (maior é melhor), atingimento = valor / alvo. Num "down"
   // (menor é melhor, ex. churn), a mesma conta inverteria o sentido — por isso
   // usamos alvo / valor, que também sobe acima de 100% quando o resultado é
   // melhor que o alvo. Limitamos a 300% só para o gráfico não esticar demais
@@ -385,7 +385,7 @@ export default function CompanyDashboard() {
             : row.value! > 0
               ? row.target_value! / row.value!
               : 3
-        // Duas metas do mesmo indicador (ex. meta mensal e anual) teriam o
+        // Dois alvos da mesma meta (ex. alvo mensal e anual) teriam o
         // mesmo rótulo no eixo — numera a partir da segunda pra distinguir.
         const seen = seenNames.get(row.name) ?? 0
         seenNames.set(row.name, seen + 1)
@@ -431,8 +431,8 @@ export default function CompanyDashboard() {
         <div className="card p-4">
           <ProgressBar
             ratio={overallHealth.ratio}
-            label="Saúde geral das metas"
-            caption={`média de atingimento em ${overallHealth.medidos} meta(s) com alvo definido`}
+            label="Saúde geral dos alvos"
+            caption={`média de atingimento em ${overallHealth.medidos} alvo(s) definido(s)`}
           />
         </div>
       )}
@@ -446,15 +446,15 @@ export default function CompanyDashboard() {
         const cards = [
           <StatTile
             key="metas-na-meta"
-            label="Metas na meta"
+            label="Metas no alvo"
             value={`${stats.onTarget.length}/${stats.onTarget.length + stats.offTarget.length}`}
-            hint={`${stats.onTarget.length + stats.offTarget.length} meta(s) com alvo`}
+            hint={`${stats.onTarget.length + stats.offTarget.length} alvo(s) definido(s)`}
             tone={stats.offTarget.length === 0 ? 'green' : 'slate'}
             icon={CheckCircle2}
           />,
           <StatTile
             key="metas"
-            label="Metas em aberto"
+            label="Alvos em aberto"
             value={openMetas.length}
             hint={`${openMetas.filter((meta) => meta.status === 'at_risk').length} em risco`}
             tone={openMetas.some((meta) => meta.status === 'at_risk') ? 'amber' : 'slate'}
@@ -489,7 +489,7 @@ export default function CompanyDashboard() {
       {products.length > 0 && (
         <Card
           title="Produtos"
-          description="O valor atual de cada frente — clique pra abrir edições, KPIs e tarefas dela."
+          description="O valor atual de cada frente — clique pra abrir edições, metas e tarefas dela."
           actions={
             <Link to={`/empresa/${company.id}/produtos`} className="btn-ghost py-1.5 text-xs">
               Gerenciar
@@ -521,7 +521,7 @@ export default function CompanyDashboard() {
                       ))}
                       {indicators.length > 2 && (
                         <p className="text-[11px] text-content-faint">
-                          + {indicators.length - 2} indicador{indicators.length - 2 > 1 ? 'es' : ''}
+                          + {indicators.length - 2} meta{indicators.length - 2 > 1 ? 's' : ''}
                         </p>
                       )}
                     </div>
@@ -536,8 +536,8 @@ export default function CompanyDashboard() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card
           className="lg:col-span-2"
-          title="Indicadores"
-          description="Último valor apurado de cada KPI. Clique num cartão para abrir o indicador."
+          title="Metas"
+          description="Último valor apurado de cada meta. Clique num cartão para abrir a meta."
           actions={
             <Link to={`/empresa/${company.id}/kpis`} className="btn-ghost py-1.5 text-xs">
               Ver Todos
@@ -546,11 +546,11 @@ export default function CompanyDashboard() {
         >
           {kpiRows.length === 0 ? (
             <EmptyState
-              title="Nenhum KPI cadastrado"
-              description="Cadastre indicadores e registre o primeiro valor."
+              title="Nenhuma meta cadastrada"
+              description="Cadastre metas e registre o primeiro valor."
               action={
                 <Link to={`/empresa/${company.id}/kpis`} className="btn-primary">
-                  Ir para KPIs
+                  Ir para Metas
                 </Link>
               }
             />
@@ -625,11 +625,11 @@ export default function CompanyDashboard() {
           </Card>
 
           <Card
-            title="Metas"
+            title="Alvos"
             description="Alvo, prazo e andamento de cada meta desta empresa."
             actions={
               <Link to={`/empresa/${company.id}/kpis`} className="btn-ghost py-1.5 text-xs">
-                Ver KPIs
+                Ver Metas
               </Link>
             }
           >
@@ -683,7 +683,7 @@ export default function CompanyDashboard() {
           {kpiAttainment.length === 0 ? (
             <EmptyState
               title="Nada para comparar ainda"
-              description="Defina uma meta e lance ao menos um valor no indicador dela."
+              description="Defina um alvo e lance ao menos um valor na meta dela."
             />
           ) : (
             <div className="h-64">
