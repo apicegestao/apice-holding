@@ -61,6 +61,24 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
     })
   }, [ctx, kpi])
 
+  // Soma dos alvos dos produtos/turmas diretos — pra comparar com o alvo
+  // definido aqui em cima (os dois são independentes: nada impede o alvo
+  // da empresa ser diferente da soma dos alvos que cada produto assumiu).
+  // null (não 0) quando nenhum filho tem alvo ainda. Mesma exigência de
+  // ordem que `children` acima: hook antes de qualquer return condicional.
+  const childrenAlvoSum = useMemo(() => {
+    let sum = 0
+    let any = false
+    for (const child of children) {
+      const childAlvo = (ctx.metasByKpi.get(child.id) ?? [])[0]
+      if (childAlvo?.target_value != null) {
+        sum += Number(childAlvo.target_value)
+        any = true
+      }
+    }
+    return any ? sum : null
+  }, [children, ctx.metasByKpi])
+
   if (ctx.loading) return <Loading />
 
   if (!kpi) {
@@ -176,6 +194,13 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
                 'Nenhum alvo definido ainda.'
               )}
             </p>
+            {/* Soma dos alvos dos produtos — independente do alvo definido
+                aqui em cima, útil pra conferir se um bate com o outro. */}
+            {childrenAlvoSum !== null && (
+              <p className="mt-0.5 text-xs text-content-faint">
+                Soma dos alvos dos produtos: {formatValue(childrenAlvoSum, kpi.unit)}
+              </p>
+            )}
 
             {chartData.length > 1 && (
               <div className="mt-3 h-10 w-56">
@@ -329,12 +354,42 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
                 {children.map((child) => (
                   <ChildRow key={child.id} kpi={child} ctx={ctx} parentValue={value} />
                 ))}
+                {/* Total — soma do que já foi lançado e soma dos alvos que
+                    cada produto/turma assumiu (os dois são contas
+                    independentes: nada garante que a soma dos alvos bate
+                    com o alvo definido lá em cima no cartão). */}
+                <div
+                  className="grid items-center gap-4 border-t border-line-strong bg-hover/40 px-5 py-2.5 text-sm font-semibold text-content"
+                  style={{ gridTemplateColumns: 'minmax(200px, 2fr) 110px 90px 110px 150px 110px 130px 20px' }}
+                >
+                  <div>Total</div>
+                  <div className="text-right">{value !== null ? formatValue(value, kpi.unit) : '—'}</div>
+                  <div />
+                  <div className="text-right">
+                    {childrenAlvoSum !== null ? formatValue(childrenAlvoSum, kpi.unit) : '—'}
+                  </div>
+                  <div />
+                  <div />
+                  <div />
+                  <div />
+                </div>
               </div>
             </div>
-            <div className="divide-y divide-line sm:hidden">
-              {children.map((child) => (
-                <ChildCard key={child.id} kpi={child} ctx={ctx} parentValue={value} />
-              ))}
+            <div className="sm:hidden">
+              <div className="divide-y divide-line">
+                {children.map((child) => (
+                  <ChildCard key={child.id} kpi={child} ctx={ctx} parentValue={value} />
+                ))}
+              </div>
+              <div className="flex items-center justify-between border-t border-line-strong bg-hover/40 px-4 py-3 text-sm font-semibold text-content">
+                <span>Total</span>
+                <span className="flex gap-3">
+                  <span>{value !== null ? formatValue(value, kpi.unit) : '—'}</span>
+                  {childrenAlvoSum !== null && (
+                    <span className="text-content-soft">de {formatValue(childrenAlvoSum, kpi.unit)}</span>
+                  )}
+                </span>
+              </div>
             </div>
           </div>
         </div>

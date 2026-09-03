@@ -915,6 +915,16 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await expect(row).toBeVisible()
     await expect(row).toContainText('100%')
   })
+
+  // Pedido explícito: somatória dos alvos dos produtos, pra comparar com o
+  // alvo definido no nível de cima. KPI_PRODUCT tem uma única turma-filha
+  // (KPI_EDITION, alvo de 35.000) — soma esperada é exatamente esse valor.
+  test('soma dos alvos dos produtos aparece no cartão e na tabela de quebra', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_PRODUCT}`)
+    await page.waitForLoadState('networkidle')
+
+    await expect(page.getByText('Soma dos alvos dos produtos: R$ 35.000,00')).toBeVisible()
+  })
 })
 
 // Item: nenhuma tela pode abrir com zoom aplicado no celular — o caso
