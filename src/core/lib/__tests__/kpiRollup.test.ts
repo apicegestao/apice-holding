@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildChildrenByParent, effectiveKpiValue, type RollupRow } from '../kpiRollup'
+import { buildChildrenByParent, contributionRatio, effectiveKpiValue, type RollupRow } from '../kpiRollup'
 
 function row(kpi_id: string, value: number | null, parent_kpi_id: string | null = null): RollupRow {
   return { kpi_id, value, parent_kpi_id }
@@ -65,5 +65,23 @@ describe('effectiveKpiValue', () => {
     const children = buildChildrenByParent(rows)
     const byId = new Map(rows.map((r) => [r.kpi_id, r]))
     expect(() => effectiveKpiValue('a', children, byId)).not.toThrow()
+  })
+})
+
+describe('contributionRatio', () => {
+  it('fração simples do filho sobre o pai', () => {
+    expect(contributionRatio(900, 10000)).toBeCloseTo(0.09)
+  })
+
+  it('sem valor do filho, é nulo (não é 0%)', () => {
+    expect(contributionRatio(null, 10000)).toBeNull()
+  })
+
+  it('sem valor do pai, é nulo', () => {
+    expect(contributionRatio(900, null)).toBeNull()
+  })
+
+  it('pai zerado, é nulo (não dá pra dividir por zero)', () => {
+    expect(contributionRatio(900, 0)).toBeNull()
   })
 })

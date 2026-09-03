@@ -11,6 +11,7 @@ import {
   HOLDING_ID,
   KPI_EDITION,
   KPI_PRODUCT,
+  KPI_WITH,
   KPIS,
   login,
   mockSupabase,
@@ -98,7 +99,11 @@ test.describe('painel', () => {
   test('gráfico comparativo entre empresas aparece no painel da holding', async ({ page }) => {
     await page.goto('/holding')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByText('Metas no alvo por empresa')).toBeVisible()
+    await expect(page.getByText('Metas x realizado')).toBeVisible()
+    // Ranking de faturamento por produto no grupo — substituiu o gráfico
+    // "Metas no alvo por empresa" (redundante com a barrinha compacta que
+    // passou a viver dentro de cada cartão de empresa).
+    await expect(page.getByText('Faturamento por produto no grupo')).toBeVisible()
   })
 
   // Item 3: no celular a troca de empresa é um menu suspenso; no desktop
@@ -783,6 +788,132 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
 
     await expect(page.getByRole('link', { name: /Ticket médio/ })).toBeVisible()
     await expect(page.getByRole('link', { name: /Receita recorrente/ })).not.toBeVisible()
+  })
+
+  // Pedido explícito do usuário: repartir por qualquer período (não só
+  // semana), em parcelas iguais — "R$ 100.000 em 4 meses = 4x R$ 25.000" —
+  // com progresso/% por parcela visível fora do modal (Acompanhamento por
+  // período, no Detalhe). Data travada em 2026-09-03 pra o cálculo do
+  // cliente (a partir de "hoje" até o prazo do alvo) dar sempre o mesmo
+  // resultado: alvo de 80.000 até 31/12/2026, por mês, vira 4 parcelas
+  // iguais de 20.000 (3/set–2/out, 3/out–2/nov, 3/nov–2/dez, 3/dez–30/dez).
+  test('repartir o alvo por mês (não só semana) mostra progresso por parcela no Detalhe', async ({ page }) => {
+    const checkpoints: Record<string, unknown>[] = []
+    // beforeEach já loga — só falta travar o relógio (repartir() parte de
+    // "agora") antes de qualquer navegação.
+    await page.clock.setFixedTime(new Date(2026, 8, 3, 12, 0, 0))
+    await page.route('**/rest/v1/kpi_checkpoints*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'GET') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(checkpoints) })
+        return
+      }
+      if (req.method() === 'DELETE') {
+        checkpoints.length = 0
+        await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+        return
+      }
+      const body = JSON.parse(req.postData() || '[]')
+      for (const row of Array.isArray(body) ? body : [body]) {
+        checkpoints.push({ id: `cp-${checkpoints.length}`, company_id: COMPANY_ID_2, ...row })
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(checkpoints) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('link', { name: /Receita recorrente/ }).click()
+
+    // Abre o alvo existente (META_WITH: 80.000 até 2026-12-31) pra repartir.
+    await page.getByRole('button', { name: /R\$\s?80\.000,00/ }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: /Editar alvo/ })).toBeVisible()
+
+    await dialog.getByLabel('Periodicidade da repartição').selectOption('monthly')
+    await dialog.getByRole('button', { name: 'Repartir' }).click()
+    await expect(page.getByText('Alvo repartido em 4 parcela(s) de mês.')).toBeVisible()
+
+    // A lista de parcelas aparece dentro do próprio modal...
+    await expect(dialog.getByText('Mês 1')).toBeVisible()
+    await expect(dialog.getByText('Mês 4')).toBeVisible()
+
+    await dialog.getByRole('button', { name: 'Cancelar' }).click()
+
+    // ...e, com mais espaço, também no Detalhe — "Acompanhamento por
+    // período", fora do modal, uma parcela por cartão.
+    await expect(page.getByText('Acompanhamento por período')).toBeVisible()
+    // Escopado por tag (o toast da confirmação é um <span>, esta descrição é
+    // um <p>) — sem isso bate tanto na seção quanto no toast ainda visível.
+    await expect(page.locator('p', { hasText: /repartido em 4 parcela\(s\) de mês/ })).toBeVisible()
+    const cards = page.locator('.card', { hasText: 'Mês' })
+    await expect(cards).toHaveCount(4)
+    // Divide exato (80.000 / 4) — nenhuma parcela sobra com arredondamento.
+    await expect(page.getByText('R$ 20.000,00').first()).toBeVisible()
+    // Nenhum lançamento cai dentro de nenhuma das 4 parcelas (o único
+    // lançamento do fixture é de agosto, antes da primeira parcela).
+    await expect(page.getByText('sem lançamento').first()).toBeVisible()
+  })
+
+  // Pedido explícito: editar (não só excluir) um lançamento já registrado.
+  test('editar um lançamento existente pelo histórico', async ({ page }) => {
+    const values = [
+      {
+        id: 'v-mrr-ago',
+        kpi_id: KPI_WITH,
+        company_id: COMPANY_ID_2,
+        period_start: '2026-08-01',
+        period_end: '2026-08-31',
+        value: 92345.67,
+        target_value: null,
+        note: null,
+        source: 'manual',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+    await page.route('**/rest/v1/kpi_values*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'GET') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(values) })
+        return
+      }
+      const body = JSON.parse(req.postData() || '{}')
+      for (const row of Array.isArray(body) ? body : [body]) {
+        const idx = values.findIndex((v) => v.kpi_id === row.kpi_id && v.period_start === row.period_start)
+        if (idx >= 0) values[idx] = { ...values[idx], ...row }
+        else values.push({ id: `v-novo-${values.length}`, target_value: null, note: null, source: 'manual', created_at: '2026-01-01T00:00:00Z', ...row })
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(values) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_WITH}`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Histórico' }).click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText('R$ 92.345,67')).toBeVisible()
+    await dialog.getByRole('button', { name: 'Editar lançamento' }).click()
+
+    await expect(page.getByRole('heading', { name: /Editar lançamento · Receita recorrente/ })).toBeVisible()
+    await page.getByLabel('Valor apurado (R$)').fill('99999,99')
+    await page.getByRole('button', { name: 'Salvar' }).click()
+
+    await expect(page.getByText('Lançamento atualizado.')).toBeVisible()
+    await page.getByRole('button', { name: 'Histórico' }).click()
+    await expect(page.getByRole('dialog').getByText('R$ 99.999,99')).toBeVisible()
+  })
+
+  // Pedido explícito: indicador de contribuição de um filho pro total do
+  // pai ("Entre Donos representa 9% do faturamento total"). KPI_EDITION é
+  // o único filho de KPI_PRODUCT, então soma 100% — o caso mais simples de
+  // conferir sem depender de mais fixtures.
+  test('contribuição do filho pro total do pai aparece no Detalhe', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_PRODUCT}`)
+    await page.waitForLoadState('networkidle')
+
+    await expect(page.getByText('Como este número se divide')).toBeVisible()
+    const row = page.getByRole('link', { name: /Imersão Setembro 2026/ })
+    await expect(row).toBeVisible()
+    await expect(row).toContainText('100%')
   })
 })
 

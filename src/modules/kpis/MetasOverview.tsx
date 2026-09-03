@@ -255,7 +255,11 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
         />
       ) : (
         <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Cabeçalho de coluna só existe a partir de sm: (a versão mobile
+              não tem coluna nenhuma pra rotular). O rótulo de categoria, em
+              compensação, é UM só por grupo — nunca duplicado entre as duas
+              apresentações, senão qualquer busca por texto vira ambígua. */}
+          <div className="hidden overflow-x-auto sm:block">
             <div className="min-w-[900px]">
               <div
                 className="grid items-center gap-4 border-b border-line px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-content-faint"
@@ -270,25 +274,39 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
                 <div>Responsável</div>
                 <div />
               </div>
-              {groups.map((group) => (
-                <div key={group.label}>
-                  <p className="px-5 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wide text-brand-text">
-                    {group.label}
-                  </p>
+            </div>
+          </div>
+          {groups.map((group) => (
+            <div key={group.label}>
+              <p className="px-4 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wide text-brand-text sm:px-5">
+                {group.label}
+              </p>
+              {/* A partir de sm: tabela em grid. Abaixo de sm: cartão
+                  empilhado por meta — 8 colunas nunca cabem legíveis num
+                  celular. */}
+              <div className="hidden overflow-x-auto sm:block">
+                <div className="min-w-[900px]">
                   {group.items.map((kpi) => (
                     <MetaRow key={kpi.id} kpi={kpi} ctx={ctx} />
                   ))}
                 </div>
-              ))}
+              </div>
+              <div className="divide-y divide-line sm:hidden">
+                {group.items.map((kpi) => (
+                  <MetaCard key={kpi.id} kpi={kpi} ctx={ctx} />
+                ))}
+              </div>
             </div>
-          </div>
+          ))}
         </div>
       )}
     </>
   )
 }
 
-function MetaRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
+/** Cálculo compartilhado entre a linha (sm:+) e o cartão (mobile) da mesma
+ *  meta — um lugar só pra não divergir entre as duas apresentações. */
+function useMetaRowStats(kpi: Kpi, ctx: KpisCtx) {
   const value = ctx.effectiveValue(kpi.id)
   const childCount = (ctx.childrenByParent.get(kpi.id) ?? []).length
   const levelSummary = childCount > 0 ? `Empresa + ${childCount} produto(s)` : 'Empresa'
@@ -298,16 +316,19 @@ function MetaRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
   const alvo = (ctx.metasByKpi.get(kpi.id) ?? [])[0] ?? null
   const ratio = alvo && value !== null ? attainmentRatio(value, alvo.target_value, kpi.direction) : null
   const pct = ratio !== null ? Math.round(ratio * 100) : null
-  const barColor =
-    pct === null ? '' : pct >= 100 ? 'bg-emerald-500' : pct >= 70 ? 'bg-amber-500' : 'bg-rose-500'
-  const pctColor =
-    pct === null
-      ? ''
-      : pct >= 100
-        ? 'text-emerald-600 dark:text-emerald-400'
-        : pct >= 70
-          ? 'text-amber-600 dark:text-amber-400'
-          : 'text-rose-600 dark:text-rose-400'
+  return { value, levelSummary, alvo, pct }
+}
+
+function pctTone(pct: number | null) {
+  if (pct === null) return { bar: '', text: '' }
+  if (pct >= 100) return { bar: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' }
+  if (pct >= 70) return { bar: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-400' }
+  return { bar: 'bg-rose-500', text: 'text-rose-600 dark:text-rose-400' }
+}
+
+function MetaRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
+  const { value, levelSummary, alvo, pct } = useMetaRowStats(kpi, ctx)
+  const { bar: barColor, text: pctColor } = pctTone(pct)
 
   // Sem isso, o nome acessível do link vira o texto da linha inteira
   // (nome+valor+alvo+status+prazo+responsável concatenados) — ruim tanto
@@ -368,6 +389,60 @@ function MetaRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
         {alvo ? (ctx.ownerName(alvo.owner_id) ?? 'Sem responsável') : '—'}
       </div>
       <ChevronRight className="h-4 w-4 text-content-faint" />
+    </Link>
+  )
+}
+
+/** Mesma informação de MetaRow, empilhada em cartão — usada abaixo de sm:. */
+function MetaCard({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
+  const { value, levelSummary, alvo, pct } = useMetaRowStats(kpi, ctx)
+  const { bar: barColor, text: pctColor } = pctTone(pct)
+  const ariaLabel = `${kpi.name}, atual ${value !== null ? formatValue(value, kpi.unit) : 'sem lançamento'}${
+    alvo ? `, alvo ${formatValue(alvo.target_value, kpi.unit)}, ${GOAL_STATUS_LABEL[alvo.status]}` : ', sem alvo'
+  }`
+
+  return (
+    <Link
+      to={kpi.id}
+      aria-label={ariaLabel}
+      className={`block px-4 py-3.5 transition hover:bg-hover ${kpi.is_active ? '' : 'opacity-60'}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-content">{kpi.name}</p>
+          <p className="text-xs text-content-faint">{levelSummary}</p>
+        </div>
+        <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-content-faint" />
+      </div>
+      <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-content-faint">Atual</p>
+          <p className="font-semibold text-content">{value !== null ? formatValue(value, kpi.unit) : '—'}</p>
+        </div>
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-content-faint">Alvo</p>
+          <p className="text-content-soft">{alvo?.target_value != null ? formatValue(alvo.target_value, kpi.unit) : '—'}</p>
+        </div>
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-content-faint">Prazo</p>
+          <p className="text-content-soft">{alvo?.due_date ? formatDate(alvo.due_date) : '—'}</p>
+        </div>
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-content-faint">Responsável</p>
+          <p className="truncate text-content-soft">{alvo ? (ctx.ownerName(alvo.owner_id) ?? 'Sem responsável') : '—'}</p>
+        </div>
+      </div>
+      <div className="mt-2.5 flex items-center gap-3">
+        {alvo ? <Badge tone={statusTone(alvo.status)}>{GOAL_STATUS_LABEL[alvo.status]}</Badge> : <Badge tone="slate">Sem alvo</Badge>}
+        {pct !== null && (
+          <div className="min-w-0 flex-1">
+            <div className="h-1.5 overflow-hidden rounded-full bg-hover">
+              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
+            </div>
+          </div>
+        )}
+        {pct !== null && <span className={`shrink-0 text-xs font-semibold ${pctColor}`}>{pct}%</span>}
+      </div>
     </Link>
   )
 }

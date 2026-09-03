@@ -1,4 +1,4 @@
-import type { KpiUnit } from '../types'
+import type { CheckpointFrequency, KpiUnit } from '../types'
 
 const currency = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -127,6 +127,86 @@ export function labelPeriod(periodStart: string, frequency: string) {
     default:
       return date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
   }
+}
+
+// Quantos meses de calendário cada periodicidade de repartição cobre — as
+// que usam meses de verdade (fevereiro tem 28, não 30) em vez de múltiplo
+// fixo de dias. As que faltam aqui (dia/semana/quinzena) usam CHECKPOINT_DAYS.
+const CHECKPOINT_CALENDAR_MONTHS: Partial<Record<CheckpointFrequency, number>> = {
+  monthly: 1,
+  bimonthly: 2,
+  quarterly: 3,
+  semiannual: 6,
+  yearly: 12,
+}
+const CHECKPOINT_DAYS: Partial<Record<CheckpointFrequency, number>> = {
+  daily: 1,
+  weekly: 7,
+  biweekly: 14,
+}
+
+/**
+ * Reparte um alvo por qualquer periodicidade (dia/semana/quinzena/mês/
+ * bimestre/trimestre/semestre/ano) entre `start` e `end`, em parcelas
+ * IGUAIS — alvo de 100 em 4 meses vira 4 parcelas de 25, não um acumulado
+ * (a última parcela absorve o resto do arredondamento, pra soma bater
+ * exatamente com `total`). Periodicidades mensais e maiores avançam por mês
+ * de calendário de verdade; dia/semana/quinzena avançam por dias fixos —
+ * mesma convenção de `periodBounds`.
+ */
+export function splitTargetIntoPeriods(
+  start: Date,
+  end: Date,
+  frequency: CheckpointFrequency,
+  total: number,
+): Array<{ seq: number; period_start: string; period_end: string; target_value: number }> {
+  const iso = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const months = CHECKPOINT_CALENDAR_MONTHS[frequency]
+  const days = CHECKPOINT_DAYS[frequency] ?? 7
+
+  const chunks: Array<{ period_start: string; period_end: string }> = []
+  let cursor = new Date(start)
+  // Teto de segurança: nunca mais de 120 parcelas (evita loop indevido se
+  // as datas vierem trocadas — 120 dias já cobre 4 meses de repartição
+  // diária, o caso mais "denso" de todos).
+  while (cursor < end && chunks.length < 120) {
+    const next = new Date(cursor)
+    if (months) next.setMonth(next.getMonth() + months)
+    else next.setDate(next.getDate() + days)
+
+    let periodEnd = new Date(next)
+    periodEnd.setDate(periodEnd.getDate() - 1)
+    if (periodEnd > end) periodEnd = new Date(end)
+
+    chunks.push({ period_start: iso(cursor), period_end: iso(periodEnd) })
+    cursor = next
+  }
+  if (!chunks.length) chunks.push({ period_start: iso(start), period_end: iso(end) })
+
+  const n = chunks.length
+  const share = Math.round((total / n) * 100) / 100
+  let allocated = 0
+  return chunks.map((chunk, index) => {
+    const isLast = index === n - 1
+    const target_value = isLast ? Math.round((total - allocated) * 100) / 100 : share
+    allocated += target_value
+    return { seq: index + 1, ...chunk, target_value }
+  })
+}
+
+/** Soma dos lançamentos cujo período começa dentro de [start, end] — a cota
+ *  real lançada naquele pedaço do cronograma do alvo (não o valor corrente/
+ *  acumulado do indicador). `null` quando não há nenhum lançamento no
+ *  intervalo, pra distinguir de "lançou zero". */
+export function sumValuesInRange(
+  series: Array<{ period_start: string; value: number | string }>,
+  start: string,
+  end: string,
+): number | null {
+  const matching = series.filter((item) => item.period_start >= start && item.period_start <= end)
+  if (!matching.length) return null
+  return matching.reduce((sum, item) => sum + Number(item.value), 0)
 }
 
 export function slugify(value: string) {

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { attainmentRatio, formatNumberInput, formatValue, labelPeriod, parseNumberInput, periodBounds } from '../format'
+import {
+  attainmentRatio,
+  formatNumberInput,
+  formatValue,
+  labelPeriod,
+  parseNumberInput,
+  periodBounds,
+  splitTargetIntoPeriods,
+  sumValuesInRange,
+} from '../format'
 import { FINER_FREQUENCIES, FREQUENCIES } from '../../types'
 
 describe('parseNumberInput', () => {
@@ -138,5 +147,61 @@ describe("'daily' não pode ser frequência principal de KPI", () => {
     for (const frequency of FREQUENCIES) {
       expect(FINER_FREQUENCIES[frequency]).toContain('daily')
     }
+  })
+})
+
+describe('splitTargetIntoPeriods', () => {
+  it('reparte em parcelas iguais, não acumuladas — exemplo do usuário: 100.000 em 4 meses = 4x 25.000', () => {
+    const chunks = splitTargetIntoPeriods(new Date(2026, 8, 3), new Date(2026, 11, 30), 'monthly', 100_000)
+    expect(chunks).toHaveLength(4)
+    expect(chunks.map((c) => c.target_value)).toEqual([25_000, 25_000, 25_000, 25_000])
+    expect(chunks.map((c) => c.seq)).toEqual([1, 2, 3, 4])
+  })
+
+  it('a soma das parcelas bate exatamente com o total, mesmo quando não divide exato (100/3)', () => {
+    const chunks = splitTargetIntoPeriods(new Date(2026, 8, 3), new Date(2026, 11, 3), 'monthly', 100)
+    expect(chunks).toHaveLength(3)
+    expect(chunks[0].target_value).toBe(33.33)
+    const total = chunks.reduce((sum, c) => sum + c.target_value, 0)
+    expect(Math.round(total * 100) / 100).toBe(100)
+  })
+
+  it('meses de calendário de verdade — fevereiro (28 dias em 2026) não vira "30 dias fixos"', () => {
+    const chunks = splitTargetIntoPeriods(new Date(2026, 0, 1), new Date(2026, 2, 1), 'monthly', 90)
+    expect(chunks.map((c) => c.period_start)).toEqual(['2026-01-01', '2026-02-01'])
+    expect(chunks.map((c) => c.period_end)).toEqual(['2026-01-31', '2026-02-28'])
+  })
+
+  it('dia/semana/quinzena avançam por dias fixos, não por mês', () => {
+    const chunks = splitTargetIntoPeriods(new Date(2026, 0, 1), new Date(2026, 0, 15), 'weekly', 200)
+    expect(chunks).toHaveLength(2)
+    expect(chunks[0].period_start).toBe('2026-01-01')
+    expect(chunks[0].period_end).toBe('2026-01-07')
+  })
+
+  it('período curto demais pra periodicidade escolhida ainda gera uma parcela só', () => {
+    const chunks = splitTargetIntoPeriods(new Date(2026, 0, 1), new Date(2026, 0, 5), 'yearly', 500)
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0].target_value).toBe(500)
+  })
+})
+
+describe('sumValuesInRange', () => {
+  const series = [
+    { period_start: '2026-01-01', value: 10 },
+    { period_start: '2026-02-01', value: 20 },
+    { period_start: '2026-03-01', value: 5 },
+  ]
+
+  it('soma só os lançamentos cujo período começa dentro do intervalo', () => {
+    expect(sumValuesInRange(series, '2026-01-01', '2026-02-28')).toBe(30)
+  })
+
+  it('sem nenhum lançamento no intervalo, é nulo (não é zero)', () => {
+    expect(sumValuesInRange(series, '2026-06-01', '2026-06-30')).toBeNull()
+  })
+
+  it('aceita value como string (vindo direto do supabase)', () => {
+    expect(sumValuesInRange([{ period_start: '2026-01-01', value: '15.5' }], '2026-01-01', '2026-01-31')).toBe(15.5)
   })
 })

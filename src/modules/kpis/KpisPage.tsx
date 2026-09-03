@@ -22,7 +22,7 @@
 // exibido foi invertido. Ver core/types.ts para o mesmo aviso.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useParams } from 'react-router-dom'
-import { CalendarRange, Layers, Trash2 } from 'lucide-react'
+import { CalendarRange, Pencil, Layers, Trash2 } from 'lucide-react'
 import {
   CartesianGrid,
   Line,
@@ -33,7 +33,14 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
-import { formatDate, formatValue, labelPeriod, periodBounds } from '../../core/lib/format'
+import {
+  formatDate,
+  formatValue,
+  labelPeriod,
+  periodBounds,
+  splitTargetIntoPeriods,
+  sumValuesInRange,
+} from '../../core/lib/format'
 import { buildChildrenByParent, effectiveKpiValue, type RollupRow } from '../../core/lib/kpiRollup'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { useCompany } from '../../core/company/CompanyProvider'
@@ -55,11 +62,14 @@ import KpiSuggestions from './KpiSuggestions'
 import MetasOverview from './MetasOverview'
 import MetaDetail from './MetaDetail'
 import {
+  CHECKPOINT_FREQUENCIES,
+  CHECKPOINT_FREQUENCY_LABEL,
   FINER_FREQUENCIES,
   FREQUENCIES,
   FREQUENCY_LABEL,
   GOAL_STATUS_LABEL,
   UNIT_LABEL,
+  type CheckpointFrequency,
   type GoalStatus,
   type Kpi,
   type KpiCheckpoint,
@@ -135,7 +145,7 @@ export type KpisCtx = {
   setRemovingKpi: (kpi: Kpi | null) => void
   setRemovingMeta: (meta: Meta | null) => void
   setMetaModalFor: (v: { kpi: Kpi; meta: Meta | null } | null) => void
-  setEntryFor: (kpi: Kpi | null) => void
+  setEntryFor: (kpi: Kpi | null, reference?: string) => void
   setHistoryFor: (kpi: Kpi | null) => void
   setAttachingTo: (kpi: Kpi | null) => void
   setEditingEntity: (kpi: Kpi | null) => void
@@ -167,6 +177,13 @@ export default function KpisPage() {
   const [metaModalFor, setMetaModalFor] = useState<{ kpi: Kpi; meta: Meta | null } | null>(null)
   const [removingMeta, setRemovingMeta] = useState<Meta | null>(null)
   const [entryFor, setEntryFor] = useState<Kpi | null>(null)
+  // Período pré-selecionado ao abrir "Lançar valor" a partir de um lápis de
+  // editar no Histórico — null quando é um lançamento novo (padrão: hoje).
+  const [entryReference, setEntryReference] = useState<string | null>(null)
+  const openEntry = useCallback((kpi: Kpi | null, reference?: string) => {
+    setEntryReference(reference ?? null)
+    setEntryFor(kpi)
+  }, [])
   const [historyFor, setHistoryFor] = useState<Kpi | null>(null)
   const [attachingTo, setAttachingTo] = useState<Kpi | null>(null)
   // Meta (kpi) de um nó de produto/turma cujo produto/edição em si (nome,
@@ -632,7 +649,7 @@ export default function KpisPage() {
     setRemovingKpi,
     setRemovingMeta,
     setMetaModalFor,
-    setEntryFor,
+    setEntryFor: openEntry,
     setHistoryFor,
     setAttachingTo,
     setEditingEntity,
@@ -973,15 +990,7 @@ export default function KpisPage() {
           kpi={metaModalFor.kpi}
           meta={metaModalFor.meta}
           people={people}
-          latestValue={
-            rollupFor(metaModalFor.kpi.id)
-              ? effectiveValue(metaModalFor.kpi.id)
-              : (() => {
-                  const s = seriesByKpi.get(metaModalFor.kpi.id) ?? []
-                  const last = s[s.length - 1]
-                  return last ? Number(last.value) : null
-                })()
-          }
+          series={seriesByKpi.get(metaModalFor.kpi.id) ?? []}
           checkpoints={metaModalFor.meta ? checkpointsByMeta.get(metaModalFor.meta.id) ?? [] : []}
           onClose={() => setMetaModalFor(null)}
           onSaved={load}
@@ -1019,9 +1028,14 @@ export default function KpisPage() {
           companyId={company.id}
           existing={seriesByKpi.get(entryFor.id) ?? []}
           entries={entriesByKpi.get(entryFor.id) ?? []}
-          onClose={() => setEntryFor(null)}
+          initialReference={entryReference ?? undefined}
+          onClose={() => {
+            setEntryFor(null)
+            setEntryReference(null)
+          }}
           onSaved={async () => {
             setEntryFor(null)
+            setEntryReference(null)
             await load()
           }}
         />
@@ -1035,6 +1049,12 @@ export default function KpisPage() {
           canWrite={canWrite}
           onClose={() => setHistoryFor(null)}
           onChanged={load}
+          onEdit={(periodStart) => {
+            // Fecha o Histórico ao abrir o lançamento — dois modais
+            // empilhados nunca é a intenção (mesma convenção do resto).
+            setHistoryFor(null)
+            openEntry(historyFor, periodStart)
+          }}
         />
       )}
 
@@ -1325,7 +1345,7 @@ export function MetaFormModal({
   kpi,
   meta,
   people,
-  latestValue,
+  series,
   checkpoints,
   onClose,
   onSaved,
@@ -1333,12 +1353,15 @@ export function MetaFormModal({
   kpi: Kpi
   meta: Meta | null
   people: Profile[]
-  latestValue: number | null
+  series: KpiValue[]
   checkpoints: KpiCheckpoint[]
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
   const { notify } = useToast()
+  const [splitFrequency, setSplitFrequency] = useState<CheckpointFrequency>(
+    checkpoints[0]?.frequency ?? 'monthly',
+  )
   const [form, setForm] = useState({
     target_value: meta?.target_value ?? null,
     due_date: meta?.due_date ?? '',
@@ -1377,27 +1400,23 @@ export function MetaFormModal({
     onClose()
   }
 
-  // Divide o alvo final num alvo semanal acumulado — semana 1 pede uma
-  // fatia do total, a última semana pede o total inteiro. Refazer substitui
-  // a divisão anterior inteira, não soma em cima. Só existe editando um
-  // alvo que já foi salvo (precisa de um meta_id de verdade pra gravar).
-  const repartirPorSemana = async () => {
+  // Divide o alvo final em parcelas iguais na periodicidade escolhida — alvo
+  // de 100 em 4 meses vira 4 parcelas de 25 (não mais um acumulado: ver
+  // splitTargetIntoPeriods). Refazer substitui a divisão anterior inteira,
+  // não soma em cima. Só existe editando um alvo que já foi salvo (precisa
+  // de um meta_id de verdade pra gravar).
+  const repartir = async () => {
     if (!meta || !meta.due_date || meta.target_value === null) return
-    const start = new Date()
-    const end = new Date(`${meta.due_date}T00:00:00`)
-    const weeks = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (7 * 24 * 3600 * 1000)))
-    const rows = Array.from({ length: weeks }, (_, i) => {
-      const periodStart = new Date(start.getTime() + i * 7 * 24 * 3600 * 1000)
-      const periodEnd = new Date(Math.min(periodStart.getTime() + 6 * 24 * 3600 * 1000, end.getTime()))
-      return {
-        meta_id: meta.id,
-        company_id: kpi.company_id,
-        seq: i + 1,
-        period_start: periodStart.toISOString().slice(0, 10),
-        period_end: periodEnd.toISOString().slice(0, 10),
-        target_value: Math.round((meta.target_value! * ((i + 1) / weeks)) * 100) / 100,
-      }
-    })
+    const chunks = splitTargetIntoPeriods(new Date(), new Date(`${meta.due_date}T00:00:00`), splitFrequency, meta.target_value)
+    const rows = chunks.map((chunk) => ({
+      meta_id: meta.id,
+      company_id: kpi.company_id,
+      seq: chunk.seq,
+      period_start: chunk.period_start,
+      period_end: chunk.period_end,
+      target_value: chunk.target_value,
+      frequency: splitFrequency,
+    }))
 
     setBusy(true)
     await supabase.from('kpi_checkpoints').delete().eq('meta_id', meta.id)
@@ -1407,7 +1426,7 @@ export function MetaFormModal({
       notify(insertError.message, 'error')
       return
     }
-    notify(`Alvo repartido em ${weeks} semana(s).`)
+    notify(`Alvo repartido em ${rows.length} parcela(s) de ${CHECKPOINT_FREQUENCY_LABEL[splitFrequency].toLowerCase()}.`)
     await onSaved()
   }
 
@@ -1418,7 +1437,7 @@ export function MetaFormModal({
       notify(deleteError.message, 'error')
       return
     }
-    notify('Divisão semanal removida.')
+    notify('Divisão removida.')
     await onSaved()
   })
 
@@ -1506,23 +1525,38 @@ export function MetaFormModal({
         {error && <ErrorText>{error}</ErrorText>}
       </form>
 
-      {/* Repartição semanal só existe pra um alvo já salvo (precisa de um
-          id de verdade) — some da tela na hora de criar um alvo novo. */}
+      {/* Repartição por período só existe pra um alvo já salvo (precisa de
+          um id de verdade) — some da tela na hora de criar um alvo novo. O
+          progresso detalhado de cada parcela (valor lançado x cota, %) fica
+          no Detalhe da meta, com mais espaço — aqui só a divisão em si. */}
       {meta && (
         <div className="mt-5 rounded-lg border border-line p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="flex items-center gap-1.5 text-sm font-medium text-content">
-              <CalendarRange className="h-4 w-4 text-content-faint" /> Alvo por semana
+              <CalendarRange className="h-4 w-4 text-content-faint" /> Repartir por período
             </p>
             {meta.target_value !== null && (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  className="input py-1 text-xs"
+                  value={splitFrequency}
+                  disabled={busy}
+                  aria-label="Periodicidade da repartição"
+                  onChange={(event) => setSplitFrequency(event.target.value as CheckpointFrequency)}
+                >
+                  {CHECKPOINT_FREQUENCIES.map((freq) => (
+                    <option key={freq} value={freq}>
+                      {CHECKPOINT_FREQUENCY_LABEL[freq]}
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
                   className="btn-ghost py-1 text-xs"
                   disabled={busy}
-                  onClick={() => void repartirPorSemana()}
+                  onClick={() => void repartir()}
                 >
-                  {checkpoints.length ? 'Refazer divisão' : 'Repartir por semana'}
+                  {checkpoints.length ? 'Refazer divisão' : 'Repartir'}
                 </button>
                 {checkpoints.length > 0 && (
                   <button
@@ -1538,23 +1572,22 @@ export function MetaFormModal({
             )}
           </div>
           {meta.target_value === null ? (
-            <p className="mt-2 text-xs text-content-soft">Defina um alvo pra poder repartir por semana.</p>
+            <p className="mt-2 text-xs text-content-soft">Defina um alvo pra poder repartir por período.</p>
           ) : checkpoints.length === 0 ? (
             <p className="mt-2 text-xs text-content-soft">
-              Sem divisão ainda — cada semana pede uma fatia acumulada do alvo final.
+              Sem divisão ainda — cada período pede uma cota igual do alvo final.
             </p>
           ) : (
             <ul className="mt-3 space-y-1.5">
               {checkpoints.map((checkpoint) => {
-                const reached =
-                  latestValue !== null &&
-                  (kpi.direction === 'up'
-                    ? latestValue >= checkpoint.target_value
-                    : latestValue <= checkpoint.target_value)
+                const actual = sumValuesInRange(series, checkpoint.period_start, checkpoint.period_end)
+                const pct =
+                  actual !== null && checkpoint.target_value ? Math.round((actual / checkpoint.target_value) * 100) : null
                 return (
                   <li key={checkpoint.id} className="flex items-center justify-between gap-2 text-sm">
                     <span className="text-content-soft">
-                      Semana {checkpoint.seq} · {formatDate(checkpoint.period_start)}–{formatDate(checkpoint.period_end)}
+                      {CHECKPOINT_FREQUENCY_LABEL[checkpoint.frequency]} {checkpoint.seq} ·{' '}
+                      {formatDate(checkpoint.period_start)}–{formatDate(checkpoint.period_end)}
                     </span>
                     <span className="flex items-center gap-2">
                       <NumberInput
@@ -1562,7 +1595,9 @@ export function MetaFormModal({
                         value={checkpoint.target_value}
                         onChange={(value) => void updateCheckpoint(checkpoint.id, value)}
                       />
-                      <Badge tone={reached ? 'green' : 'slate'}>{reached ? 'em dia' : 'a caminho'}</Badge>
+                      <Badge tone={pct === null ? 'slate' : pct >= 100 ? 'green' : pct >= 70 ? 'amber' : 'red'}>
+                        {pct === null ? 'sem lanç.' : `${pct}%`}
+                      </Badge>
                     </span>
                   </li>
                 )
@@ -1574,8 +1609,8 @@ export function MetaFormModal({
     </Modal>
     <ConfirmDialog
       open={limparRepartição.target !== null}
-      title="Limpar divisão semanal?"
-      message="Os alvos semanais já definidos são apagados. Você pode repartir de novo depois."
+      title="Limpar divisão?"
+      message="As parcelas já definidas são apagadas. Você pode repartir de novo depois."
       confirmLabel="Limpar"
       danger
       busy={limparRepartição.busy}
@@ -1592,6 +1627,7 @@ export function ValueEntryModal({
   companyId,
   existing,
   entries,
+  initialReference,
   onClose,
   onSaved,
 }: {
@@ -1599,6 +1635,9 @@ export function ValueEntryModal({
   companyId: string
   existing: KpiValue[]
   entries: KpiValueEntry[]
+  // Período pré-selecionado ao abrir a partir do lápis de editar no
+  // Histórico — undefined/omitido = lançamento novo (padrão: hoje).
+  initialReference?: string
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
@@ -1607,14 +1646,18 @@ export function ValueEntryModal({
   // Quando o KPI tem uma cadência de lançamento mais fina (entry_frequency),
   // é ela que decide o período do formulário — o banco soma sozinho pro
   // total no período da frequência declarada (frequency), via gatilho.
-  const usesEntries = kpi.entry_frequency !== null
+  // Checagem por "falso" (não por === null) de propósito: em dado vindo de
+  // fora do banco de verdade (ex. simulação de teste) o campo pode vir
+  // ausente (undefined) em vez de nulo — mesma classe de bug já corrigida
+  // em MetaDetail.tsx (canAttachChild).
+  const usesEntries = Boolean(kpi.entry_frequency)
   const entryFrequency = kpi.entry_frequency ?? kpi.frequency
 
   // A frequência já diz o tamanho do período — pedir início E fim toda vez
   // que alguém lança um valor é redundante. Um único campo de referência
   // basta: a pessoa escolhe qualquer dia dentro do período (hoje, por
   // padrão) e o sistema calcula o intervalo certo sozinho.
-  const [reference, setReference] = useState(() => new Date().toISOString().slice(0, 10))
+  const [reference, setReference] = useState(() => initialReference ?? new Date().toISOString().slice(0, 10))
   const [value, setValue] = useState<number | null>(null)
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
@@ -1646,6 +1689,12 @@ export function ValueEntryModal({
     [entries, coarseBounds, periodStart],
   )
   const coarseTotal = coarseEntries.reduce((sum, item) => sum + Number(item.value), 0)
+
+  // Se já existe lançamento no período escolhido, o formulário vira edição —
+  // só afeta o título/description, o upsert é o mesmo dos dois casos.
+  const isEditing = usesEntries
+    ? entries.some((item) => item.period_start === periodStart)
+    : existing.some((item) => item.period_start === periodStart)
 
   // Se já existe lançamento no período escolhido, o formulário vira edição.
   useEffect(() => {
@@ -1700,7 +1749,7 @@ export function ValueEntryModal({
       setError(upsertError.message)
       return
     }
-    notify('Valor lançado.')
+    notify(isEditing ? 'Lançamento atualizado.' : 'Valor lançado.')
     await onSaved()
     onClose()
   }
@@ -1708,7 +1757,7 @@ export function ValueEntryModal({
   return (
     <Modal
       open
-      title={`Lançar valor · ${kpi.name}`}
+      title={`${isEditing ? 'Editar lançamento' : 'Lançar valor'} · ${kpi.name}`}
       description={
         usesEntries
           ? `Lançamento ${FREQUENCY_LABEL[entryFrequency].toLowerCase()} — soma pro total ${FREQUENCY_LABEL[kpi.frequency].toLowerCase()}`
@@ -1791,6 +1840,7 @@ export function HistoryModal({
   canWrite,
   onClose,
   onChanged,
+  onEdit,
 }: {
   kpi: Kpi
   series: KpiValue[]
@@ -1798,6 +1848,9 @@ export function HistoryModal({
   canWrite: boolean
   onClose: () => void
   onChanged: () => Promise<void>
+  // Abre "Lançar valor" pré-preenchido com este período — mesmo modal usado
+  // pra lançamento novo, só que a existência do lançamento faz virar edição.
+  onEdit: (periodStart: string) => void
 }) {
   const { notify } = useToast()
   const chart = useChartTheme()
@@ -1849,14 +1902,24 @@ export function HistoryModal({
                   <span className="flex items-center gap-2">
                     <span className="font-medium text-content">{formatValue(Number(item.value), kpi.unit)}</span>
                     {canWrite && (
-                      <button
-                        type="button"
-                        className="rounded-md p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
-                        onClick={() => removeEntry.ask(item)}
-                        aria-label="Remover lançamento fino"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          className="rounded-md p-1 text-content-faint hover:bg-hover hover:text-content"
+                          onClick={() => onEdit(item.period_start)}
+                          aria-label="Editar lançamento fino"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
+                          onClick={() => removeEntry.ask(item)}
+                          aria-label="Remover lançamento fino"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </>
                     )}
                   </span>
                 </li>
@@ -1922,6 +1985,14 @@ export function HistoryModal({
                   <td className="py-2 text-xs text-content-soft">{item.note ?? '—'}</td>
                   {canWrite && (
                     <td className="py-2 text-right">
+                      <button
+                        type="button"
+                        className="rounded-md p-1 text-content-faint hover:bg-hover hover:text-content"
+                        onClick={() => onEdit(item.period_start)}
+                        aria-label="Editar lançamento"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
                       <button
                         type="button"
                         className="rounded-md p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"

@@ -99,7 +99,7 @@ const COMPANIES = [
 // KPI sem nenhum lançamento — é exatamente o caso do bug relatado (item 1):
 // um KPI cadastrado que não tinha valor nenhum sumia do painel.
 const KPI_NOVALUE = '44444444-4444-4444-4444-444444444441'
-const KPI_WITH = '44444444-4444-4444-4444-444444444442'
+export const KPI_WITH = '44444444-4444-4444-4444-444444444442'
 const KPI_EXTRA = ['3', '4', '5'].map((n) => `44444444-4444-4444-4444-44444444444${n}`)
 // Cadeia produto → sub-produto: "Entre Donos" (produto, sem edição) nunca
 // lança direto — o valor dele é a soma das turmas. "Imersão Set/2026" é a

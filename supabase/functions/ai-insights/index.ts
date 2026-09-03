@@ -37,6 +37,11 @@ um alvo de nível produto ou turma, deixe claro o nível ("o alvo da turma X do 
 Nunca compare ou some alvos de níveis diferentes como se fossem o mesmo objetivo — um alvo de turma perdido
 não é equivalente a um alvo de empresa perdido.
 
+Um alvo pode vir repartido em "parcelas" (dia/semana/quinzena/mês/bimestre/trimestre/semestre/ano,
+campo "periodicidade") — cada parcela é uma cota daquele período específico, não um acumulado. Se o
+retrato trouxer parcelas, cite qual período especificamente ficou devendo (ex. "o mês de agosto ficou
+20% abaixo da cota"), em vez de falar só do alvo final.
+
 Regras:
 - Responda SEMPRE em português do Brasil.
 - Trabalhe apenas com os números fornecidos. Nunca invente dados que não estão no retrato.
@@ -146,19 +151,35 @@ const MODULE_READERS: Record<string, ModuleReader> = {
       metaIds.length
         ? admin
             .from('kpi_checkpoints')
-            .select('meta_id, period_start, period_end, target_value')
+            .select('meta_id, period_start, period_end, target_value, frequency')
             .in('meta_id', metaIds)
             .order('seq', { ascending: true })
-        : { data: [] as { meta_id: string; period_start: string; period_end: string; target_value: number }[] },
+        : {
+            data: [] as {
+              meta_id: string
+              period_start: string
+              period_end: string
+              target_value: number
+              frequency: string
+            }[],
+          },
       ownerIds.length
         ? admin.from('profiles').select('id, full_name').in('id', ownerIds)
         : { data: [] as { id: string; full_name: string }[] },
     ])
 
-    const checkpointsByMeta: Record<string, { periodo: string; alvo: number }[]> = {}
+    // Cada parcela é uma COTA do próprio período (não mais um acumulado) —
+    // pode ser dia/semana/quinzena/mês/bimestre/trimestre/semestre/ano
+    // (frequency), então "alvo" aqui é sempre "o que esse pedaço precisa",
+    // nunca "o que deveria estar acumulado até aqui".
+    const checkpointsByMeta: Record<string, { periodo: string; periodicidade: string; alvo: number }[]> = {}
     for (const row of checkpoints ?? []) {
       const bucket = (checkpointsByMeta[row.meta_id] ??= [])
-      bucket.push({ periodo: `${row.period_start}..${row.period_end}`, alvo: Number(row.target_value) })
+      bucket.push({
+        periodo: `${row.period_start}..${row.period_end}`,
+        periodicidade: row.frequency,
+        alvo: Number(row.target_value),
+      })
     }
     const ownerName = new Map((owners ?? []).map((o) => [o.id, o.full_name]))
 
@@ -195,7 +216,7 @@ const MODULE_READERS: Record<string, ModuleReader> = {
           prazo: m.due_date,
           andamento: m.status,
           responsavel: m.owner_id ? (ownerName.get(m.owner_id) ?? null) : null,
-          parcelas_semanais: checkpointsByMeta[m.id] ?? [],
+          parcelas: checkpointsByMeta[m.id] ?? [],
         })),
       })),
     }

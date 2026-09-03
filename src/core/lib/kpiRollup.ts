@@ -50,3 +50,19 @@ export function effectiveKpiValue<T extends RollupRow>(
   }
   return rowById.get(kpiId)?.value ?? null
 }
+
+/**
+ * Fração que um filho representa do total do pai (ex.: "Entre Donos"
+ * responde por 9% do faturamento da empresa). `null` quando falta algum
+ * dos dois valores ou o pai é zero — não dá pra calcular contribuição
+ * nesses casos. Retorna a fração (0–1); quem exibe multiplica por 100.
+ *
+ * Recebe o valor do pai já calculado (`parentValue`) em vez de recalculá-lo
+ * — quem itera vários filhos do mesmo pai deve chamar `effectiveKpiValue`
+ * uma vez só pro pai e reusar o resultado, senão a soma da árvore inteira
+ * é refeita a cada irmão (O(n²) sem necessidade).
+ */
+export function contributionRatio(childValue: number | null, parentValue: number | null): number | null {
+  if (childValue === null || parentValue === null || parentValue === 0) return null
+  return childValue / parentValue
+}

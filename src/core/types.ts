@@ -213,8 +213,47 @@ export type Meta = {
   updated_at: string
 }
 
-/** Uma parcela semanal do alvo de uma meta — "essa semana precisa de X" em
- *  vez de só o número final. Opcional; gerada sob pedido. */
+// Periodicidade de repartição de um alvo — independente de KpiFrequency:
+// aquela é "de quanto em quanto tempo o indicador é medido", esta é "em
+// quantos pedaços o CRONOGRAMA do alvo se divide" (dá pra medir um
+// indicador mensalmente e ainda repartir o alvo anual dele por trimestre).
+export type CheckpointFrequency =
+  | 'daily'
+  | 'weekly'
+  | 'biweekly'
+  | 'monthly'
+  | 'bimonthly'
+  | 'quarterly'
+  | 'semiannual'
+  | 'yearly'
+
+export const CHECKPOINT_FREQUENCY_LABEL: Record<CheckpointFrequency, string> = {
+  daily: 'Dia',
+  weekly: 'Semana',
+  biweekly: 'Quinzena',
+  monthly: 'Mês',
+  bimonthly: 'Bimestre',
+  quarterly: 'Trimestre',
+  semiannual: 'Semestre',
+  yearly: 'Ano',
+}
+
+// Ordem da mais fina pra mais larga — mesma convenção de FREQUENCIES.
+export const CHECKPOINT_FREQUENCIES: CheckpointFrequency[] = [
+  'daily',
+  'weekly',
+  'biweekly',
+  'monthly',
+  'bimonthly',
+  'quarterly',
+  'semiannual',
+  'yearly',
+]
+
+/** Uma parcela do alvo de uma meta — "esse mês precisa de X" em vez de só o
+ *  número final. Opcional; gerada sob pedido. Cada parcela é uma COTA do
+ *  próprio período (alvo de 100 em 4 meses = 4 parcelas de 25), não mais um
+ *  acumulado — comparável contra o que foi lançado naquele período. */
 export type KpiCheckpoint = {
   id: string
   meta_id: string
@@ -223,6 +262,7 @@ export type KpiCheckpoint = {
   period_start: string
   period_end: string
   target_value: number
+  frequency: CheckpointFrequency
 }
 
 export type KpiValue = {

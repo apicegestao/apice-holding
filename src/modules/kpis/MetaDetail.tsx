@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom'
 import {
   Archive,
   ArchiveRestore,
+  CalendarRange,
   ChevronRight,
   History,
   Layers,
@@ -20,9 +21,10 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { Line, LineChart, ResponsiveContainer } from 'recharts'
-import { attainmentRatio, formatDate, formatValue, relativeDays } from '../../core/lib/format'
+import { attainmentRatio, formatDate, formatValue, relativeDays, sumValuesInRange } from '../../core/lib/format'
+import { contributionRatio } from '../../core/lib/kpiRollup'
 import { Badge, Card, EmptyState, Loading } from '../../core/ui'
-import { GOAL_STATUS_LABEL, type Kpi } from '../../core/types'
+import { CHECKPOINT_FREQUENCY_LABEL, GOAL_STATUS_LABEL, type Kpi, type Meta } from '../../core/types'
 import { statusTone, type KpisCtx } from './KpisPage'
 
 export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string }) {
@@ -41,6 +43,24 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
     return list
   }, [kpi, ctx.kpiById])
 
+  // Do maior pro menor contribuinte — quem puxa mais o número do pai
+  // aparece primeiro (pedido explícito: "do maior/melhor pro menor/pior").
+  // Sem lançamento (null) vai pro fim, não pro topo — não é "zero". Precisa
+  // vir ANTES dos returns condicionais abaixo (loading / meta não achada) —
+  // hook nunca pode ser pulado em algumas renderizações e chamado em
+  // outras, senão o React perde a contagem de hooks entre uma e outra.
+  const children = useMemo(() => {
+    if (!kpi) return []
+    return [...(ctx.childrenByParent.get(kpi.id) ?? [])].sort((a, b) => {
+      const va = ctx.effectiveValue(a.id)
+      const vb = ctx.effectiveValue(b.id)
+      if (va === null && vb === null) return 0
+      if (va === null) return 1
+      if (vb === null) return -1
+      return vb - va
+    })
+  }, [ctx, kpi])
+
   if (ctx.loading) return <Loading />
 
   if (!kpi) {
@@ -57,7 +77,6 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
     )
   }
 
-  const children = ctx.childrenByParent.get(kpi.id) ?? []
   const rollup = ctx.rollupFor(kpi.id)
   const value = ctx.effectiveValue(kpi.id)
   const displayName = ctx.nestedLabel(kpi)
@@ -269,6 +288,9 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
         </div>
       </Card>
 
+      {/* ------------------------------------------- acompanhamento por período */}
+      {primaryAlvo && <PeriodTracker meta={primaryAlvo} kpi={kpi} ctx={ctx} />}
+
       {/* ---------------------------------------------------- quebra por filho */}
       {children.length > 0 && (
         <div>
@@ -286,14 +308,18 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
             )}
           </div>
           <div className="card overflow-hidden">
-            <div className="overflow-x-auto">
-              <div className="min-w-[720px]">
+            {/* A partir de sm: tabela em grid (rolagem horizontal só em
+                telas bem estreitas). Abaixo de sm: cartão empilhado por
+                filho — mesma informação, sem espremer 8 colunas num celular. */}
+            <div className="hidden overflow-x-auto sm:block">
+              <div className="min-w-[820px]">
                 <div
                   className="grid items-center gap-4 border-b border-line px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-content-faint"
-                  style={{ gridTemplateColumns: 'minmax(240px, 2fr) 130px 130px 150px 110px 130px 20px' }}
+                  style={{ gridTemplateColumns: 'minmax(200px, 2fr) 110px 90px 110px 150px 110px 130px 20px' }}
                 >
                   <div>{kpi.product_id ? 'Turma' : 'Produto'}</div>
                   <div className="text-right">Atual</div>
+                  <div className="text-right">Contrib.</div>
                   <div className="text-right">Alvo</div>
                   <div>Progresso</div>
                   <div>Status</div>
@@ -301,9 +327,14 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
                   <div />
                 </div>
                 {children.map((child) => (
-                  <ChildRow key={child.id} kpi={child} ctx={ctx} />
+                  <ChildRow key={child.id} kpi={child} ctx={ctx} parentValue={value} />
                 ))}
               </div>
+            </div>
+            <div className="divide-y divide-line sm:hidden">
+              {children.map((child) => (
+                <ChildCard key={child.id} kpi={child} ctx={ctx} parentValue={value} />
+              ))}
             </div>
           </div>
         </div>
@@ -320,23 +351,31 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
   )
 }
 
-function ChildRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
+/** Cálculo compartilhado entre a linha (sm:+) e o cartão (mobile) do mesmo
+ *  filho — um lugar só pra não divergir entre as duas apresentações. */
+function useChildStats(kpi: Kpi, ctx: KpisCtx, parentValue: number | null) {
   const value = ctx.effectiveValue(kpi.id)
   const grandchildren = ctx.childrenByParent.get(kpi.id) ?? []
   const alvo = (ctx.metasByKpi.get(kpi.id) ?? [])[0] ?? null
   const ratio = alvo && value !== null ? attainmentRatio(value, alvo.target_value, kpi.direction) : null
   const pct = ratio !== null ? Math.round(ratio * 100) : null
-  const barColor = pct === null ? '' : pct >= 100 ? 'bg-emerald-500' : pct >= 70 ? 'bg-amber-500' : 'bg-rose-500'
-  const pctColor =
-    pct === null
-      ? ''
-      : pct >= 100
-        ? 'text-emerald-600 dark:text-emerald-400'
-        : pct >= 70
-          ? 'text-amber-600 dark:text-amber-400'
-          : 'text-rose-600 dark:text-rose-400'
-
+  const contribution = contributionRatio(value, parentValue)
+  const contributionPct = contribution !== null ? Math.round(contribution * 100) : null
   const label = ctx.nestedLabel(kpi)
+  return { value, grandchildren, alvo, pct, contributionPct, label }
+}
+
+function pctTone(pct: number | null) {
+  if (pct === null) return { bar: '', text: '' }
+  if (pct >= 100) return { bar: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' }
+  if (pct >= 70) return { bar: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-400' }
+  return { bar: 'bg-rose-500', text: 'text-rose-600 dark:text-rose-400' }
+}
+
+function ChildRow({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentValue: number | null }) {
+  const { value, grandchildren, alvo, pct, contributionPct, label } = useChildStats(kpi, ctx, parentValue)
+  const { bar: barColor, text: pctColor } = pctTone(pct)
+
   // Ver comentário equivalente em MetasOverview.tsx: sem isso, o nome
   // acessível do link vira a linha inteira concatenada.
   const ariaLabel = `${label}, atual ${value !== null ? formatValue(value, kpi.unit) : 'sem lançamento'}${
@@ -350,7 +389,7 @@ function ChildRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
       className={`grid items-center gap-4 border-b border-line px-5 py-3.5 text-sm transition last:border-b-0 hover:bg-hover ${
         kpi.is_active ? '' : 'opacity-60'
       }`}
-      style={{ gridTemplateColumns: 'minmax(240px, 2fr) 130px 130px 150px 110px 130px 20px' }}
+      style={{ gridTemplateColumns: 'minmax(200px, 2fr) 110px 90px 110px 150px 110px 130px 20px' }}
     >
       <div className="min-w-0">
         <p className="truncate font-semibold text-content">{label}</p>
@@ -361,6 +400,7 @@ function ChildRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
       <div className="text-right font-semibold text-content">
         {value !== null ? formatValue(value, kpi.unit) : '—'}
       </div>
+      <div className="text-right text-content-soft">{contributionPct !== null ? `${contributionPct}%` : '—'}</div>
       <div className="text-right text-content-soft">
         {alvo?.target_value != null ? formatValue(alvo.target_value, kpi.unit) : '—'}
       </div>
@@ -386,5 +426,118 @@ function ChildRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
       <div className="text-xs text-content-soft">{alvo?.due_date ? formatDate(alvo.due_date) : '—'}</div>
       <ChevronRight className="h-4 w-4 text-content-faint" />
     </Link>
+  )
+}
+
+/** Mesma informação de ChildRow, empilhada em cartão — usada abaixo de sm:
+ *  pra nunca precisar espremer 8 colunas num celular. */
+function ChildCard({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentValue: number | null }) {
+  const { value, grandchildren, alvo, pct, contributionPct, label } = useChildStats(kpi, ctx, parentValue)
+  const { bar: barColor, text: pctColor } = pctTone(pct)
+  const ariaLabel = `${label}, atual ${value !== null ? formatValue(value, kpi.unit) : 'sem lançamento'}${
+    alvo ? `, alvo ${formatValue(alvo.target_value, kpi.unit)}, ${GOAL_STATUS_LABEL[alvo.status]}` : ', sem alvo'
+  }`
+
+  return (
+    <Link
+      to={`/empresa/${ctx.companyId}/kpis/${kpi.id}`}
+      aria-label={ariaLabel}
+      className={`block px-4 py-3.5 transition hover:bg-hover ${kpi.is_active ? '' : 'opacity-60'}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-content">{label}</p>
+          {grandchildren.length > 0 && (
+            <p className="text-xs text-content-faint">{grandchildren.length} turma(s)</p>
+          )}
+        </div>
+        <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-content-faint" />
+      </div>
+      <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-content-faint">Atual</p>
+          <p className="font-semibold text-content">{value !== null ? formatValue(value, kpi.unit) : '—'}</p>
+        </div>
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-content-faint">Contribuição</p>
+          <p className="text-content-soft">{contributionPct !== null ? `${contributionPct}%` : '—'}</p>
+        </div>
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-content-faint">Alvo</p>
+          <p className="text-content-soft">{alvo?.target_value != null ? formatValue(alvo.target_value, kpi.unit) : '—'}</p>
+        </div>
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-content-faint">Prazo</p>
+          <p className="text-content-soft">{alvo?.due_date ? formatDate(alvo.due_date) : '—'}</p>
+        </div>
+      </div>
+      <div className="mt-2.5 flex items-center gap-3">
+        {alvo ? <Badge tone={statusTone(alvo.status)}>{GOAL_STATUS_LABEL[alvo.status]}</Badge> : <Badge tone="slate">Sem alvo</Badge>}
+        {pct !== null && (
+          <div className="min-w-0 flex-1">
+            <div className="h-1.5 overflow-hidden rounded-full bg-hover">
+              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
+            </div>
+          </div>
+        )}
+        {pct !== null && <span className={`shrink-0 text-xs font-semibold ${pctColor}`}>{pct}%</span>}
+      </div>
+    </Link>
+  )
+}
+
+/** Progresso e % de cada parcela do alvo (dia/semana/.../ano) — só existe
+ *  quando o alvo primário já foi repartido (ver "Repartir por período" no
+ *  modal de editar alvo). Full-width, fora do Card, com espaço de sobra —
+ *  era isso que faltava: antes só cabia uma lista apertada dentro do modal. */
+function PeriodTracker({ meta, kpi, ctx }: { meta: Meta; kpi: Kpi; ctx: KpisCtx }) {
+  const checkpoints = ctx.checkpointsByMeta.get(meta.id) ?? []
+  const series = ctx.seriesByKpi.get(kpi.id) ?? []
+  if (!checkpoints.length) return null
+
+  return (
+    <div>
+      <div className="mb-3">
+        <p className="flex items-center gap-1.5 text-sm font-bold text-content">
+          <CalendarRange className="h-4 w-4 text-content-faint" /> Acompanhamento por período
+        </p>
+        <p className="text-xs text-content-faint">
+          Alvo de {formatValue(meta.target_value, kpi.unit)} repartido em {checkpoints.length} parcela(s) de{' '}
+          {CHECKPOINT_FREQUENCY_LABEL[checkpoints[0].frequency].toLowerCase()} — cada uma comparada com o que foi
+          lançado naquele período.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {checkpoints.map((checkpoint) => {
+          const actual = sumValuesInRange(series, checkpoint.period_start, checkpoint.period_end)
+          const pct =
+            actual !== null && checkpoint.target_value ? Math.round((actual / checkpoint.target_value) * 100) : null
+          const { bar, text } = pctTone(pct)
+          return (
+            <div key={checkpoint.id} className="card p-3.5">
+              <p className="text-xs font-semibold text-content">
+                {CHECKPOINT_FREQUENCY_LABEL[checkpoint.frequency]} {checkpoint.seq}
+              </p>
+              <p className="text-[11px] text-content-faint">
+                {formatDate(checkpoint.period_start)}–{formatDate(checkpoint.period_end)}
+              </p>
+              <p className="mt-2 text-lg font-bold text-content">
+                {actual !== null ? formatValue(actual, kpi.unit) : '—'}
+              </p>
+              <p className="text-xs text-content-soft">de {formatValue(checkpoint.target_value, kpi.unit)}</p>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-hover">
+                <div
+                  className={`h-full rounded-full ${bar}`}
+                  style={{ width: `${pct !== null ? Math.min(100, Math.max(3, pct)) : 0}%` }}
+                />
+              </div>
+              <p className={`mt-1 text-xs font-semibold ${text || 'text-content-faint'}`}>
+                {pct !== null ? `${pct}%` : 'sem lançamento'}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }

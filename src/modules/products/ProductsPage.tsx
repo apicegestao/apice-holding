@@ -527,13 +527,24 @@ export default function ProductsPage() {
                 <p className="mt-1 text-sm text-content-soft">Nenhuma meta acompanha este produto ainda.</p>
               ) : (
                 <ul className="mt-2 space-y-2">
-                  {(statsByProduct.get(activeProduct.id)?.indicators ?? []).map((row) => (
-                    <li key={row.kpi_id} className="rounded-lg border border-line p-2.5">
-                      <Link to={`/empresa/${company.id}/kpis/${row.kpi_id}`} className="block">
-                        <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} contribution={contributionFor(row)} />
-                      </Link>
-                    </li>
-                  ))}
+                  {(statsByProduct.get(activeProduct.id)?.indicators ?? []).map((row) => {
+                    const rowValue = effectiveValue(row.kpi_id)
+                    return (
+                      <li key={row.kpi_id} className="rounded-lg border border-line p-2.5">
+                        {/* aria-label explícito: sem isso, o nome acessível do
+                            link vira nome+valor+contribuição concatenados —
+                            e "X% de {nome de outra meta}" na contribuição pode
+                            criar falso-positivo em busca por texto/regex. */}
+                        <Link
+                          to={`/empresa/${company.id}/kpis/${row.kpi_id}`}
+                          className="block"
+                          aria-label={`${row.name}, ${rowValue !== null ? formatValue(rowValue, row.unit) : 'sem lançamento ainda'}`}
+                        >
+                          <IndicatorLine row={row} value={rowValue} contribution={contributionFor(row)} />
+                        </Link>
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
             </div>
@@ -620,21 +631,23 @@ export default function ProductsPage() {
                             <p className="text-xs text-content-faint">Nenhuma meta acompanha esta turma ainda.</p>
                           ) : (
                             <ul className="space-y-2">
-                              {editionIndicators.map((row) => (
-                                <li key={row.kpi_id}>
-                                  <Link
-                                    to={`/empresa/${company.id}/kpis/${row.kpi_id}`}
-                                    className="block rounded-md py-0.5 transition hover:bg-hover"
-                                  >
-                                    <IndicatorLine
-                                      row={row}
-                                      value={effectiveValue(row.kpi_id)}
-                                      contribution={contributionFor(row)}
-                                      size="xs"
-                                    />
-                                  </Link>
-                                </li>
-                              ))}
+                              {editionIndicators.map((row) => {
+                                const rowValue = effectiveValue(row.kpi_id)
+                                return (
+                                  <li key={row.kpi_id}>
+                                    {/* Ver comentário equivalente acima — aria-label
+                                        evita que a contribuição ("X% de {outro
+                                        nome}") vaze pro nome acessível do link. */}
+                                    <Link
+                                      to={`/empresa/${company.id}/kpis/${row.kpi_id}`}
+                                      className="block rounded-md py-0.5 transition hover:bg-hover"
+                                      aria-label={`${row.name}, ${rowValue !== null ? formatValue(rowValue, row.unit) : 'sem lançamento ainda'}`}
+                                    >
+                                      <IndicatorLine row={row} value={rowValue} contribution={contributionFor(row)} size="xs" />
+                                    </Link>
+                                  </li>
+                                )
+                              })}
                             </ul>
                           )}
                         </div>

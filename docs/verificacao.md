@@ -2187,3 +2187,143 @@ o mock de teste) confirmou o layout — achado e corrigido nessa conferência:
 a coluna de nome da lista/tabela estava sendo espremida demais dentro do
 `min-w` do wrapper de rolagem horizontal; corrigido com `minmax(240px,
 2fr)` no lugar de `2fr` puro nas duas tabelas.
+
+## 38. Repartir alvo por qualquer período, editar lançamento/turma, contribuição %, gráficos da holding, revisão de responsividade
+
+Lista de 8 pedidos do usuário numa tacada só. Dividido em frentes paralelas
+(3 agentes em background — Produtos, gráficos da holding, revisão de
+usabilidade fora de Metas — enquanto a parte mais delicada, em `KpisPage.tsx`/
+`MetaDetail.tsx`, foi feita em série):
+
+**1. "Vincular a metas" em Produtos — era intencional, não erro.** Conferido
+pelo histórico (`04adfc8`, tarefa da rodada "cascata de metas") e pela lista
+de tasks do projeto: o atalho de vincular um produto/turma a várias metas de
+uma vez, de dentro do form de editar produto, foi combinado numa rodada
+anterior e mantido de propósito na reformulação da tela de Metas (que só
+mexeu em `KpisPage.tsx`/`MetasOverview.tsx`/`MetaDetail.tsx`, nunca em
+`ProductsPage.tsx`). O que estava bagunçado era a UI: um segundo
+`btn-primary` competindo com o "Salvar" do form, botão "Vincular" aparecendo
+mesmo sem nada pra vincular, e "+ Criar uma meta nova" com peso visual
+desproporcional ao lado do botão grande. Reestruturado: botão de vincular
+secundário (`btn-ghost`) na versão inline do form de produto, no `footer` do
+`Modal` (mesmo padrão do `AttachProductModal` de Metas) na versão em modal
+próprio de turma, oculto quando não há nada pra vincular.
+
+**2. Editar sub-produto (turma).** `product_editions` só tinha criar,
+mudar status e excluir — sem como corrigir nome/data depois. Adicionado
+lápis de editar por turma, reaproveitando o mesmo form (alterna entre
+"Adicionar edição"/"Salvar edição"), com mensagem amigável pro erro de
+nome duplicado (`unique(product_id, name)`, código `23505`).
+
+**3-4. Repartir alvo por qualquer período + progresso/% por parcela.**
+Antes só existia "Repartir por semana", com parcela ACUMULADA (semana 1
+pedia uma fatia do total, a última pedia o total inteiro — só dava pra
+comparar contra o valor corrente do indicador). Duas mudanças:
+
+- Migração `0035_checkpoint_periodicidade.sql`: novo enum
+  `checkpoint_frequency` (dia/semana/quinzena/mês/bimestre/trimestre/
+  semestre/ano) e coluna `kpi_checkpoints.frequency` — independente de
+  `kpis.frequency`/`entry_frequency` (repartir o CRONOGRAMA do alvo é uma
+  decisão diferente de com que cadência o indicador é medido).
+- `splitTargetIntoPeriods` (novo, `core/lib/format.ts`) generaliza a
+  divisão pra qualquer periodicidade — mensal/bimestral/trimestral/
+  semestral/anual avançam por mês de calendário de verdade (fevereiro tem
+  28 dias, não 30); dia/semana/quinzena avançam por dias fixos, mesma
+  convenção de `periodBounds`. **Mudança de semântica, deliberada e
+  alinhada ao exemplo do próprio usuário** ("R$ 100.000 em 4 meses = 4x
+  R$ 25.000"): cada parcela agora é uma COTA IGUAL do período (não mais
+  acumulada) — a última parcela absorve o resto do arredondamento, pra
+  soma bater exato com o total.
+- Progresso por parcela: `sumValuesInRange` (novo) soma os lançamentos
+  cujo período cai dentro do intervalo da parcela — a cota real lançada
+  naquele pedaço do cronograma, não o valor corrente/acumulado do
+  indicador. Antes ficava espremido numa lista de `<li>` dentro do modal
+  (`max-w-md`); agora tem uma seção própria e espaçosa no Detalhe,
+  "Acompanhamento por período" — fora do modal, um cartão por parcela
+  (nome do período, valor lançado, cota, % e barrinha), full-width. O
+  modal de editar alvo continua com a divisão em si (seletor de
+  periodicidade + botão Repartir/Refazer/Limpar) e os números editáveis
+  de cada parcela, mas sem tentar caber o progresso detalhado ali também.
+
+**5. Editar/excluir lançamento.** `HistoryModal` já tinha excluir; ganhou
+um lápis por linha (histórico principal e lançamentos finos por
+`entry_frequency`) que abre `ValueEntryModal` pré-preenchido com aquele
+período — o modal já fazia upsert por período, só faltava um jeito de
+chegar nele a partir de um lançamento específico em vez de digitar a data
+certa às cegas. Título muda pra "Editar lançamento" quando é o caso.
+
+**Bug real achado nesse meio-tempo:** `ValueEntryModal` decidia usar
+`kpi_value_entries` (cadência fina) com `kpi.entry_frequency !== null` —
+falha quando o campo vem `undefined` em vez de `null` (mesma classe de bug
+já corrigida em `canAttachChild`, item 37). Um KPI de teste sem esse campo
+setado explicitamente acabava lançando na tabela errada. Trocado por
+`Boolean(kpi.entry_frequency)`.
+
+**6-7. Contribuição % + ordenar por contribuição/faturamento.** Novo
+helper `contributionRatio` (`core/lib/kpiRollup.ts`) — fração do valor do
+filho sobre o valor do pai, `null` (não 0%) quando falta algum dos dois ou
+o pai é zero. Usado em três lugares: tabela de quebra do Detalhe (coluna
+"Contrib." + filhos ordenados do maior pro menor contribuinte, nulo por
+último — não é "zero"), e em Produtos (produtos/edições ordenados por
+valor efetivo, badge "X% de {meta-mãe}" quando aplicável).
+
+**8. Gráficos da holding repensados.** O gráfico "Metas no alvo por
+empresa" (barra empilhada on-target/off-target/sem-lançamento) respondia
+basicamente a mesma pergunta do "Metas x realizado" (linha) logo acima —
+virou uma barrinha compacta dentro de cada cartão de empresa. No lugar,
+um gráfico novo: "Faturamento por produto no grupo" — ranking horizontal
+(maior pro menor) somando o faturamento de cada produto (turmas/edições
+incluídas) em TODAS as empresas, cor da barra = empresa dona — pergunta
+que nenhuma tela do sistema respondia antes (todo lugar mostra produtos de
+uma empresa só). O gráfico de atingimento por empresa ganhou um encoding a
+mais (tamanho do ponto = quantidade de metas na média), recuperando o
+sinal que a barra removida carregava. Grid de 3 cartões-resumo, que
+espremia num celular, virou 2 colunas com o terceiro ocupando a linha
+inteira abaixo de `sm:`.
+
+**Revisão de responsividade/usabilidade (fora de Metas/Produtos/Holding):**
+`TaskFormModal` (grid de 3 botões de visibilidade viravam 1 coluna
+primeiro, item de checklist deixou de truncar e passou a quebrar linha),
+`TasksPage`/`HoldingTasksPage` (nome do responsável com mais espaço +
+tooltip nativo), `BudgetsPage`/`IntegrationsPage` (dica de "arraste pra o
+lado" nas tabelas largas, célula de item de orçamento parou de truncar
+duas linhas espremidas), `NotesPage` (título quebra em vez de truncar),
+`UsersPage` (e-mail nunca mais corta — prioridade sobre truncar o nome,
+já que um e-mail cortado às vezes é a única forma de diferenciar dois
+usuários), `ProgressBar` (tooltip nativo no rótulo truncado).
+
+**Responsividade própria de Metas:** `MetasOverview`/`MetaDetail` tinham
+tabelas de 7-8 colunas dentro de `min-w-[900px]`/`min-w-[720px]` —
+utilizáveis (com scroll horizontal), mas apertadas num celular. Abaixo de
+`sm:`, viram cartão empilhado por linha (mesmos dados, sem espremer
+coluna nenhuma); o rótulo de categoria da Visão Geral passou a existir
+UMA vez só por grupo (compartilhado entre as duas apresentações) — tinha
+sido duplicado numa primeira versão e quebrava `getByText` em teste
+(ambíguo mesmo com uma das duas cópias escondida por CSS, porque busca de
+texto puro não filtra por visibilidade do jeito que `getByRole` filtra).
+
+**Bug real achado ao rodar e2e (não um problema do teste):** o novo
+`useMemo` de ordenar `children` em `MetaDetail.tsx` foi colocado DEPOIS
+dos `return` condicionais (`ctx.loading`/`!kpi`) — hook pulado nalgumas
+renderizações e chamado em outras quebra a contagem de hooks do React
+(erro minificado #300), estourando o ErrorBoundary bem no meio do fluxo de
+"vincular produto" (o `load()` do `onSaved` liga `loading` por um
+instante). Corrigido: hook sempre antes de qualquer return condicional,
+com guarda de `kpi` opcional dentro dele (mesmo padrão que `chain` já
+usava).
+
+**ai-insights:** `kpi_checkpoints` agora expõe `frequency` pro leitor de
+metas; campo do retrato renomeado de `parcelas_semanais` pra `parcelas`
+(com `periodicidade`), e o prompt ganhou um parágrafo explicando que
+parcela é cota do período (não acumulado) e pedindo pra IA citar o período
+específico que ficou devendo, não só o alvo final. Redeploy feito.
+
+**Verificação:** `npx tsc --noEmit`, `npm run build` e `npm run test`
+(40/40 — 12 testes novos: `splitTargetIntoPeriods`, `sumValuesInRange`,
+`contributionRatio`) limpos. `npm run check:contrast`: 24/24. `npm run
+test:e2e`: suíte completa 189 passando, 27 skipped, sem falhas (Desktop e
+Mobile 390) — 4 testes novos (repartir por mês com data travada via
+`page.clock.setFixedTime` pra resultado determinístico, editar lançamento,
+contribuição do filho no Detalhe) mais o teste do gráfico da holding
+atualizado pro novo título. `mcp__Supabase__get_advisors`: nenhum item
+novo (security/performance) depois da migração 0035.
