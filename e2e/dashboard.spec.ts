@@ -600,6 +600,65 @@ test.describe('cascata de metas (KpisPage)', () => {
 
     await expect(page.getByText('Vínculo criado.')).toBeVisible()
   })
+
+  // Bug relatado: no fluxo padrão ("Usar sugestões"), não havia como definir
+  // o alvo já na criação — só existia dentro da aba "Criar o meu". Escolhendo
+  // uma única sugestão, a opção precisa aparecer e funcionar igual.
+  test('escolhendo uma única sugestão, dá pra definir o alvo já na criação', async ({ page }) => {
+    const kpis = [...KPIS]
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        for (const row of Array.isArray(body) ? body : [body]) {
+          kpis.push({ id: `novo-kpi-${kpis.length}`, is_active: true, archived_at: null, entry_frequency: null, ...row })
+        }
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+    const metas: Record<string, unknown>[] = []
+    await page.route('**/rest/v1/metas*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        metas.push({ id: `nova-meta-${metas.length}`, archived_at: null, status: 'active', ...body })
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(metas) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Nova Meta' }).click()
+
+    const dialog = page.getByRole('dialog')
+    // "Inadimplência" não colide com nenhuma meta já cadastrada nos fixtures
+    // (o mock de REST não filtra por empresa — ver comentário acima sobre
+    // "Faturamento Entre Donos"/"Faturamento" já aparecerem cadastrados).
+    await dialog.getByPlaceholder('Buscar meta…').fill('Inadimplência')
+    // Só uma sugestão escolhida — a opção de definir o alvo agora aparece.
+    await dialog.getByRole('button', { name: /^Inadimplência\b/ }).click()
+    await expect(dialog.getByText('Definir um alvo agora')).toBeVisible()
+
+    await dialog.getByLabel('Definir um alvo agora').check()
+    await dialog.getByLabel('Prazo').fill('2026-12-31')
+    // O campo "Alvo" some com o sufixo "%" no rótulo acessível (não bate
+    // exato com getByLabel) — isola pelo <label> que começa com "Alvo".
+    await dialog.locator('label').filter({ hasText: /^Alvo/ }).locator('input').fill('5')
+
+    await dialog.getByRole('button', { name: 'Adicionar meta e alvo' }).click()
+    await expect(page.getByText('Inadimplência e alvo criados.')).toBeVisible()
+  })
+
+  // Bug relatado: o valor do alvo ficava escondido no cartão — só aparecia
+  // dentro da legenda da barra de progresso, que nem existe sem um valor
+  // medido ainda. Precisa aparecer mesmo sem nenhum lançamento.
+  test('valor do alvo aparece no cartão mesmo sem nenhum valor lançado ainda', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID}/kpis`)
+    await page.waitForLoadState('networkidle')
+
+    const card = page.locator('[id^="kpi-"]', { hasText: 'Faturamento' })
+    await expect(card.getByText('R$ 500.000,00')).toBeVisible()
+  })
 })
 
 // Item: nenhuma tela pode abrir com zoom aplicado no celular — o caso

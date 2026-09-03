@@ -1964,3 +1964,66 @@ situação das rodadas anteriores (item 3 no topo deste documento) — não
 exercitada de ponta a ponta neste ambiente; o redeploy em si foi
 confirmado pela resposta da própria API de deploy (`status: ACTIVE`,
 versão incrementada).
+
+## 34. Três bugs relatados no uso real da cascata de metas
+
+Logo depois do item 33 ir ao ar, o usuário relatou três problemas usando
+a tela de verdade: (1) criar uma meta pelo fluxo padrão ("Usar
+sugestões") não deixava definir o valor do alvo — só existia dentro da
+aba "Criar o meu"; (2) o valor do alvo ficava escondido no cartão — só
+aparecia dentro da legenda da barra de progresso, que nem existe sem um
+valor medido lançado antes; (3) ao tentar preencher o alvo, o campo
+"Andamento" atrapalhava e cancelar a janela travava a tela por completo,
+exigindo recarregar a página.
+
+**Bug 1 — alvo na criação por sugestões.** O caminho "Usar sugestões" (a
+aba padrão) nunca teve a caixa "Definir um alvo agora" — só a aba "Criar
+o meu" tinha. `KpisPage.tsx`: quando exatamente uma sugestão está
+marcada (com várias, não haveria a qual delas aplicar o valor), a mesma
+caixa passa a aparecer também ali, reaproveitando o estado
+`wantsInitialMeta`/`metaDraft` já existente. `addChosen` ganhou
+`.select('id')` no insert dos indicadores e, se o alvo foi pedido, insere
+a `meta` logo em seguida usando o id do indicador recém-criado — mesma
+validação de prazo obrigatório do fluxo "Criar o meu". Botão do rodapé
+muda pra "Adicionar meta e alvo" quando aplicável.
+
+**Bug 2 — valor do alvo escondido.** Em `renderAlvoSection`, a linha de
+cada alvo mostrava só responsável e prazo — o valor buscado só existia
+dentro do `caption` da `ProgressBar` (que só renderiza quando já há um
+valor medido pra comparar, ou seja: nunca num alvo recém-criado). Agora o
+valor do alvo é a informação principal, em destaque (`text-sm
+font-semibold`) acima de responsável/prazo, sempre visível — a barra de
+progresso com a legenda "X de Y" continua existindo como detalhe
+adicional quando há valor medido.
+
+**Bug 3 — campo "Andamento" atrapalhando e tela travando ao cancelar.**
+Não foi possível reproduzir o travamento em si neste ambiente (só
+Chromium disponível; o relato sugere um dispositivo/navegador
+específico), mas duas coisas concretas saltaram aos olhos e foram
+corrigidas:
+- No formulário do `MetaFormModal` ("Novo alvo"/"Editar alvo"), "Alvo" e
+  "Andamento" ficavam exatamente na mesma coluna de uma grade 2×2 (Alvo
+  em cima, Andamento embaixo) — a formação mais propensa a um toque errado
+  encostar no campo errado (ex. teclado virtual reposicionando a tela no
+  celular). O formulário foi reordenado: "Alvo" agora fica sozinho, em
+  destaque, logo no topo (é o campo mais importante); "Prazo" e
+  "Responsável" dividem a linha seguinte; "Andamento" fica isolado por
+  último, com uma dica explícita ("Não é o valor medido — isso é lançado
+  à parte, no cartão da meta") pra não confundir com lançar um valor.
+- **Não havia nenhum `ErrorBoundary` no app inteiro.** Sem um, qualquer
+  erro não tratado durante a renderização derruba a árvore do React
+  inteira e deixa a tela em branco/travada, sem forma de sair a não ser
+  recarregar na unha — exatamente o sintoma relatado. Novo
+  `src/core/ui/ErrorBoundary.tsx`, envolvendo `<App />` em `main.tsx`:
+  qualquer erro futuro (deste fluxo ou de qualquer outro) agora cai numa
+  tela de recuperação com um botão "Recarregar página", em vez de travar
+  em silêncio.
+
+**Verificação:** `npx tsc --noEmit` e `npm run build` limpos. `npm run
+test`: 28, sem mudança. `npm run check:contrast`: 24/24, sem mudança.
+`npm run test:e2e`: dois testes novos no describe `'cascata de metas
+(KpisPage)'` — um cobrindo o bug 1 (escolher uma única sugestão, marcar
+"Definir um alvo agora", confirmar que a meta e o alvo saem criados
+juntos) e outro cobrindo o bug 2 (o valor do alvo aparece no cartão de um
+indicador sem nenhum valor lançado ainda). Suíte completa: 171 passando,
+27 skipped, sem falhas (Desktop e Mobile 390).

@@ -313,31 +313,61 @@ export default function KpisPage() {
   /** Sugestões viram KPIs de uma vez, prontos para receber valores. */
   const addChosen = async () => {
     if (!chosen.length) return
+    // Alvo inicial só é possível quando é uma meta só (ver o box condicional
+    // no JSX) — com várias, não haveria como saber a qual delas aplicá-lo.
+    const withInitialMeta = chosen.length === 1 && wantsInitialMeta
+    if (withInitialMeta && !metaDraft.due_date) {
+      setError('Defina um prazo para o alvo, ou desmarque "Definir um alvo agora".')
+      return
+    }
     setError('')
     setBusy(true)
-    const { error: insertError } = await supabase.from('kpis').insert(
-      chosen.map((template, index) => ({
-        company_id: company.id,
-        name: template.name,
-        description: template.description,
-        category: template.category,
-        unit: template.unit,
-        direction: template.direction,
-        frequency: template.frequency,
-        display_order: kpis.length + index,
-      })),
-    )
-    setBusy(false)
+    const { data: created, error: insertError } = await supabase
+      .from('kpis')
+      .insert(
+        chosen.map((template, index) => ({
+          company_id: company.id,
+          name: template.name,
+          description: template.description,
+          category: template.category,
+          unit: template.unit,
+          direction: template.direction,
+          frequency: template.frequency,
+          display_order: kpis.length + index,
+        })),
+      )
+      .select('id')
 
     if (insertError) {
+      setBusy(false)
       setError(insertError.message)
       return
     }
 
+    if (withInitialMeta && created?.[0]) {
+      const { error: metaError } = await supabase.from('metas').insert({
+        company_id: company.id,
+        kpi_id: created[0].id,
+        target_value: metaDraft.target_value,
+        due_date: metaDraft.due_date,
+        owner_id: metaDraft.owner_id || null,
+      })
+      if (metaError) {
+        setBusy(false)
+        notify(`Meta criada, mas o alvo não pôde ser salvo: ${metaError.message}`, 'error')
+        closeCreate()
+        await load()
+        return
+      }
+    }
+
+    setBusy(false)
     notify(
-      chosen.length === 1
-        ? `${chosen[0].name} adicionada.`
-        : `${chosen.length} metas adicionadas.`,
+      withInitialMeta
+        ? `${chosen[0].name} e alvo criados.`
+        : chosen.length === 1
+          ? `${chosen[0].name} adicionada.`
+          : `${chosen.length} metas adicionadas.`,
     )
     closeCreate()
     await load()
@@ -693,16 +723,25 @@ export default function KpisPage() {
                   : undefined
               return (
                 <li key={meta.id}>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
                     <button
                       type="button"
-                      className="min-w-0 truncate text-left text-xs text-content-soft hover:underline"
+                      className="min-w-0 flex-1 text-left"
                       onClick={() => setMetaModalFor({ kpi, meta })}
                     >
-                      {ownerName(meta.owner_id) ?? 'Sem responsável'}
-                      {meta.due_date && (
-                        <> · prazo {formatDate(meta.due_date)} ({relativeDays(meta.due_date)})</>
-                      )}
+                      {/* O valor buscado é a informação principal do alvo —
+                          fica em destaque aqui, não escondido só na legenda
+                          da barra de progresso (que só existe quando já há
+                          um valor lançado pra comparar). */}
+                      <span className="block truncate text-sm font-semibold text-content hover:underline">
+                        {meta.target_value !== null ? formatValue(meta.target_value, kpi.unit) : 'Alvo sem valor definido'}
+                      </span>
+                      <span className="block truncate text-xs text-content-soft">
+                        {ownerName(meta.owner_id) ?? 'Sem responsável'}
+                        {meta.due_date && (
+                          <> · prazo {formatDate(meta.due_date)} ({relativeDays(meta.due_date)})</>
+                        )}
+                      </span>
                     </button>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <Badge tone={statusTone(meta.status)}>{GOAL_STATUS_LABEL[meta.status]}</Badge>
@@ -1054,9 +1093,11 @@ export default function KpisPage() {
                 onClick={() => void addChosen()}
               >
                 {busy && <Spinner />}
-                {chosen.length <= 1
-                  ? 'Adicionar meta'
-                  : `Adicionar ${chosen.length} metas`}
+                {chosen.length === 1 && wantsInitialMeta
+                  ? 'Adicionar meta e alvo'
+                  : chosen.length <= 1
+                    ? 'Adicionar meta'
+                    : `Adicionar ${chosen.length} metas`}
               </button>
             ) : (
               <button type="submit" form="kpi-form" className="btn-primary" disabled={busy}>
@@ -1101,6 +1142,58 @@ export default function KpisPage() {
               selected={chosen.map((item) => item.name)}
               onToggle={toggleTemplate}
             />
+            {/* Só faz sentido definir um alvo aqui quando é uma meta só —
+                com várias escolhidas de uma vez não dá pra saber a qual
+                delas o valor pertence. */}
+            {chosen.length === 1 && (
+              <div className="mt-3 rounded-lg border border-dashed border-line-strong p-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-content">
+                  <input
+                    type="checkbox"
+                    checked={wantsInitialMeta}
+                    onChange={(event) => setWantsInitialMeta(event.target.checked)}
+                  />
+                  Definir um alvo agora
+                </label>
+                <p className="mt-1 text-xs text-content-faint">
+                  Opcional — uma meta pode ganhar alvos depois, a qualquer momento.
+                </p>
+                {wantsInitialMeta && (
+                  <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <Field label="Prazo">
+                      <input
+                        className="input"
+                        type="date"
+                        required
+                        value={metaDraft.due_date}
+                        onChange={(event) => setMetaDraft((c) => ({ ...c, due_date: event.target.value }))}
+                      />
+                    </Field>
+                    <Field label="Alvo">
+                      <NumberInput
+                        unit={chosen[0].unit}
+                        value={metaDraft.target_value}
+                        onChange={(target_value) => setMetaDraft((c) => ({ ...c, target_value }))}
+                      />
+                    </Field>
+                    <Field label="Responsável" hint="Notificado quando você define ou troca.">
+                      <select
+                        className="input"
+                        value={metaDraft.owner_id}
+                        onChange={(event) => setMetaDraft((c) => ({ ...c, owner_id: event.target.value }))}
+                      >
+                        <option value="">Sem responsável</option>
+                        {people.map((person) => (
+                          <option key={person.id} value={person.id}>
+                            {person.full_name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+                )}
+              </div>
+            )}
             {error && (
               <div className="mt-3">
                 <ErrorText>{error}</ErrorText>
@@ -1657,6 +1750,17 @@ function MetaFormModal({
       }
     >
       <form id="meta-form" onSubmit={submit} className="space-y-4">
+        {/* O valor buscado é o campo mais importante deste formulário —
+            fica sozinho, em primeiro lugar, em vez de dividir a linha com
+            "Prazo" (e, principalmente, longe de "Andamento": ver comentário
+            abaixo). */}
+        <Field label="Alvo" hint="O valor que você está buscando atingir.">
+          <NumberInput
+            unit={kpi.unit}
+            value={form.target_value}
+            onChange={(target_value) => setForm((c) => ({ ...c, target_value }))}
+          />
+        </Field>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Prazo">
             <input
@@ -1667,15 +1771,6 @@ function MetaFormModal({
               onChange={(event) => setForm((c) => ({ ...c, due_date: event.target.value }))}
             />
           </Field>
-          <Field label="Alvo">
-            <NumberInput
-              unit={kpi.unit}
-              value={form.target_value}
-              onChange={(target_value) => setForm((c) => ({ ...c, target_value }))}
-            />
-          </Field>
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Responsável" hint="Notificado quando você define ou troca.">
             <select
               className="input"
@@ -1690,20 +1785,25 @@ function MetaFormModal({
               ))}
             </select>
           </Field>
-          <Field label="Andamento">
-            <select
-              className="input"
-              value={form.status}
-              onChange={(event) => setForm((c) => ({ ...c, status: event.target.value as GoalStatus }))}
-            >
-              {STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {GOAL_STATUS_LABEL[status]}
-                </option>
-              ))}
-            </select>
-          </Field>
         </div>
+        {/* Sozinho na própria linha, longe do campo "Alvo" — evita qualquer
+            chance de confundir os dois campos ao preencher o formulário. Não
+            é onde se registra o valor medido (isso é "Lançar valor", no
+            cartão da meta): aqui só se ajusta manualmente o status deste
+            alvo específico. */}
+        <Field label="Andamento" hint="Não é o valor medido — isso é lançado à parte, no cartão da meta.">
+          <select
+            className="input"
+            value={form.status}
+            onChange={(event) => setForm((c) => ({ ...c, status: event.target.value as GoalStatus }))}
+          >
+            {STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {GOAL_STATUS_LABEL[status]}
+              </option>
+            ))}
+          </select>
+        </Field>
         {error && <ErrorText>{error}</ErrorText>}
       </form>
 
