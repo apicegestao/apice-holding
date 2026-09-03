@@ -146,13 +146,41 @@ const CHECKPOINT_DAYS: Partial<Record<CheckpointFrequency, number>> = {
 }
 
 /**
+ * Início do período de calendário que já contém `date`, pra periodicidade
+ * dada — mês/trimestre/semestre/ano corrente, ou a semana/quinzena
+ * corrente (mesma âncora de segunda-feira/quinzena que `periodBounds` usa
+ * pra decidir o `period_start` de um lançamento). Sem isso, repartir "por
+ * mês" a partir de hoje (ex. dia 3) gera parcelas que nunca coincidem com
+ * o lançamento do mês (sempre datado no dia 1) — a comparação "quanto já
+ * foi lançado nessa parcela" nunca encontra nada, mesmo tendo lançamento.
+ * Bimestre/semestre não têm equivalente em `periodBounds` (não são
+ * frequência de KPI) — ancorados em blocos fixos de calendário a partir de
+ * janeiro (jan-fev, mar-abr, ... / jan-jun, jul-dez), mesma ideia do
+ * trimestre.
+ */
+function calendarAnchoredStart(date: Date, frequency: CheckpointFrequency): Date {
+  if (frequency === 'daily') return date
+  const y = date.getFullYear()
+  const m = date.getMonth()
+  if (frequency === 'bimonthly') return new Date(y, Math.floor(m / 2) * 2, 1)
+  if (frequency === 'semiannual') return new Date(y, Math.floor(m / 6) * 6, 1)
+  // monthly/quarterly/yearly/weekly/biweekly já são frequência de KPI —
+  // reaproveita a mesma âncora de periodBounds em vez de duplicar a conta
+  // de segunda-feira/quinzena aqui.
+  const { start: anchored } = periodBounds(frequency, date)
+  return new Date(`${anchored}T00:00:00`)
+}
+
+/**
  * Reparte um alvo por qualquer periodicidade (dia/semana/quinzena/mês/
  * bimestre/trimestre/semestre/ano) entre `start` e `end`, em parcelas
  * IGUAIS — alvo de 100 em 4 meses vira 4 parcelas de 25, não um acumulado
  * (a última parcela absorve o resto do arredondamento, pra soma bater
  * exatamente com `total`). Periodicidades mensais e maiores avançam por mês
  * de calendário de verdade; dia/semana/quinzena avançam por dias fixos —
- * mesma convenção de `periodBounds`.
+ * mesma convenção de `periodBounds`. A primeira parcela começa no início
+ * do período de calendário corrente (`calendarAnchoredStart`), não em
+ * `start` cru — essencial pra bater com onde os lançamentos caem.
  */
 export function splitTargetIntoPeriods(
   start: Date,
@@ -166,7 +194,7 @@ export function splitTargetIntoPeriods(
   const days = CHECKPOINT_DAYS[frequency] ?? 7
 
   const chunks: Array<{ period_start: string; period_end: string }> = []
-  let cursor = new Date(start)
+  let cursor = calendarAnchoredStart(start, frequency)
   // Teto de segurança: nunca mais de 120 parcelas (evita loop indevido se
   // as datas vierem trocadas — 120 dias já cobre 4 meses de repartição
   // diária, o caso mais "denso" de todos).
@@ -182,7 +210,7 @@ export function splitTargetIntoPeriods(
     chunks.push({ period_start: iso(cursor), period_end: iso(periodEnd) })
     cursor = next
   }
-  if (!chunks.length) chunks.push({ period_start: iso(start), period_end: iso(end) })
+  if (!chunks.length) chunks.push({ period_start: iso(cursor), period_end: iso(end) })
 
   const n = chunks.length
   const share = Math.round((total / n) * 100) / 100

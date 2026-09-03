@@ -159,7 +159,7 @@ describe('splitTargetIntoPeriods', () => {
   })
 
   it('a soma das parcelas bate exatamente com o total, mesmo quando não divide exato (100/3)', () => {
-    const chunks = splitTargetIntoPeriods(new Date(2026, 8, 3), new Date(2026, 11, 3), 'monthly', 100)
+    const chunks = splitTargetIntoPeriods(new Date(2026, 8, 15), new Date(2026, 11, 1), 'monthly', 100)
     expect(chunks).toHaveLength(3)
     expect(chunks[0].target_value).toBe(33.33)
     const total = chunks.reduce((sum, c) => sum + c.target_value, 0)
@@ -173,16 +173,37 @@ describe('splitTargetIntoPeriods', () => {
   })
 
   it('dia/semana/quinzena avançam por dias fixos, não por mês', () => {
-    const chunks = splitTargetIntoPeriods(new Date(2026, 0, 1), new Date(2026, 0, 15), 'weekly', 200)
+    // 2024-01-01 é segunda-feira (mesma âncora usada em periodBounds) —
+    // datas escolhidas de propósito pra não precisar calcular dia da
+    // semana à mão no teste.
+    const chunks = splitTargetIntoPeriods(new Date(2024, 0, 1), new Date(2024, 0, 15), 'weekly', 200)
     expect(chunks).toHaveLength(2)
-    expect(chunks[0].period_start).toBe('2026-01-01')
-    expect(chunks[0].period_end).toBe('2026-01-07')
+    expect(chunks[0].period_start).toBe('2024-01-01')
+    expect(chunks[0].period_end).toBe('2024-01-07')
   })
 
   it('período curto demais pra periodicidade escolhida ainda gera uma parcela só', () => {
     const chunks = splitTargetIntoPeriods(new Date(2026, 0, 1), new Date(2026, 0, 5), 'yearly', 500)
     expect(chunks).toHaveLength(1)
     expect(chunks[0].target_value).toBe(500)
+  })
+
+  // Regressão de bug relatado: repartir "por mês" a partir de hoje (dia 3,
+  // por exemplo) gerava parcelas começando no dia 3 de cada mês — nunca
+  // batia com o lançamento do mês, sempre datado no dia 1 (mesma convenção
+  // de periodBounds). A primeira parcela tem que começar no 1º dia do mês
+  // corrente, não em "hoje" cru, senão um lançamento de início de mês
+  // nunca aparece em nenhuma parcela.
+  it('a primeira parcela mensal começa no 1º dia do mês corrente, não em "hoje" — senão o lançamento do mês nunca bate em nenhuma parcela', () => {
+    const chunks = splitTargetIntoPeriods(new Date(2026, 8, 3), new Date(2026, 11, 30), 'monthly', 80_000)
+    expect(chunks[0].period_start).toBe('2026-09-01')
+    expect(sumValuesInRange([{ period_start: '2026-09-01', value: 1682 }], chunks[0].period_start, chunks[0].period_end)).toBe(1682)
+  })
+
+  it('repartir por trimestre também ancora no início do trimestre corrente, não em "hoje"', () => {
+    // 3/set cai no 3º trimestre (jul-set) — a parcela tem que começar 1/jul.
+    const chunks = splitTargetIntoPeriods(new Date(2026, 8, 3), new Date(2027, 0, 1), 'quarterly', 300)
+    expect(chunks[0].period_start).toBe('2026-07-01')
   })
 })
 
