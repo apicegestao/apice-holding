@@ -1045,6 +1045,65 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await expect(page.getByRole('dialog').getByText('R$ 99.999,99')).toBeVisible()
   })
 
+  // Bug relatado: depois de salvar um lançamento, abrir "Lançar valor" de
+  // novo (pro mesmo período ou outro) mostrava valor/observação de um
+  // lançamento anterior e o botão Salvar não persistia o valor atual. Dois
+  // ciclos completos de lançar→editar seguidos, no mesmo período — cada
+  // abertura tem que refletir exatamente o que foi salvo por último, nunca
+  // o que veio antes disso.
+  test('lançar valor duas vezes seguidas no mesmo período nunca mostra dado de um lançamento anterior', async ({ page }) => {
+    // Junho/2027 é um período sem nenhum lançamento no fixture — garante
+    // que o primeiro "Lançar valor" abre em branco de verdade.
+    await page.clock.setFixedTime(new Date(2027, 5, 15, 12, 0, 0))
+    const values: Record<string, unknown>[] = []
+    await page.route('**/rest/v1/kpi_values*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'GET') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(values) })
+        return
+      }
+      const body = JSON.parse(req.postData() || '{}')
+      for (const row of Array.isArray(body) ? body : [body]) {
+        const idx = values.findIndex((v) => v.kpi_id === row.kpi_id && v.period_start === row.period_start)
+        if (idx >= 0) values[idx] = { ...values[idx], ...row }
+        else values.push({ id: `v-novo-${values.length}`, target_value: null, note: null, source: 'manual', ...row })
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(values) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_WITH}`)
+    await page.waitForLoadState('networkidle')
+
+    // 1º lançamento: abre em branco, salva 11.111.
+    await page.getByRole('button', { name: 'Lançar valor' }).click()
+    let dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: /^Lançar valor/ })).toBeVisible()
+    await expect(dialog.getByLabel('Valor apurado (R$)')).toHaveValue('')
+    await dialog.getByLabel('Valor apurado (R$)').fill('11111')
+    await dialog.getByLabel('Observação').fill('Primeiro lançamento')
+    await dialog.getByRole('button', { name: 'Salvar' }).click()
+    await expect(page.getByText('Valor lançado.')).toBeVisible()
+
+    // 2º lançamento, mesmo período: abre já mostrando os 11.111 recém
+    // salvos (não algo de antes) — edita pra 22.222.
+    await page.getByRole('button', { name: 'Lançar valor' }).click()
+    dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: /^Editar lançamento/ })).toBeVisible()
+    await expect(dialog.getByLabel('Valor apurado (R$)')).toHaveValue('11.111,00')
+    await expect(dialog.getByLabel('Observação')).toHaveValue('Primeiro lançamento')
+    await dialog.getByLabel('Valor apurado (R$)').fill('22222')
+    await dialog.getByLabel('Observação').fill('Segundo lançamento')
+    await dialog.getByRole('button', { name: 'Salvar' }).click()
+    await expect(page.getByText('Lançamento atualizado.')).toBeVisible()
+
+    // 3º: reabrir confirma que o segundo valor realmente persistiu, não
+    // ficou preso no primeiro.
+    await page.getByRole('button', { name: 'Lançar valor' }).click()
+    dialog = page.getByRole('dialog')
+    await expect(dialog.getByLabel('Valor apurado (R$)')).toHaveValue('22.222,00')
+    await expect(dialog.getByLabel('Observação')).toHaveValue('Segundo lançamento')
+  })
+
   // Bug relatado: turmas cadastradas fora de ordem cronológica (set, nov,
   // out) apareciam na quebra do Detalhe na ordem de cadastro — "bagunçado"
   // de bater o olho. A ordenação automática tem que ser por prazo.
