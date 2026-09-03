@@ -728,6 +728,43 @@ test.describe('cascata de metas (KpisPage)', () => {
     const card = page.locator('[id^="kpi-"]', { hasText: 'Faturamento' })
     await expect(card.getByText('R$ 500.000,00')).toBeVisible()
   })
+
+  // Pedido do usuário: um resumo no topo pra bater o olho sem abrir cartão
+  // por cartão. Conta todo alvo ativo (empresa/produto/turma) — o mock de
+  // REST não filtra por empresa (ver comentário no topo do arquivo), então
+  // o total reflete METAS inteiro: 7 alvos, sendo 1 em risco (META_EDITION).
+  test('resumo no topo mostra a contagem de alvos por andamento', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+
+    const alvosAtivos = page.locator('.card', { hasText: 'Alvos ativos' })
+    await expect(alvosAtivos.getByText('7', { exact: true })).toBeVisible()
+    const emRisco = page.locator('.card', { hasText: 'Em risco' })
+    await expect(emRisco.getByText('1', { exact: true })).toBeVisible()
+  })
+
+  // Pedido do usuário: buscar por nome, útil conforme a lista cresce. Acha
+  // a família tanto pelo nome da própria meta quanto pelo nome de um
+  // produto/turma vinculado em qualquer profundidade.
+  test.describe('busca por nome', () => {
+    test('filtra pelo nome da própria meta', async ({ page }) => {
+      await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+      await page.waitForLoadState('networkidle')
+      await page.getByLabel('Buscar meta por nome').fill('Ticket')
+
+      await expect(page.locator('[id^="kpi-"]', { hasText: 'Ticket médio' })).toBeVisible()
+      await expect(page.locator('[id^="kpi-"]', { hasText: 'Receita recorrente' })).not.toBeVisible()
+    })
+
+    test('filtra pelo nome de uma turma vinculada', async ({ page }) => {
+      await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+      await page.waitForLoadState('networkidle')
+      await page.getByLabel('Buscar meta por nome').fill('Imersão Setembro')
+
+      await expect(page.locator('[id^="kpi-"]', { hasText: 'Faturamento Entre Donos' })).toBeVisible()
+      await expect(page.locator('[id^="kpi-"]', { hasText: 'Ticket médio' })).not.toBeVisible()
+    })
+  })
 })
 
 // Item: nenhuma tela pode abrir com zoom aplicado no celular — o caso

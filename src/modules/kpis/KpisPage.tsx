@@ -20,18 +20,22 @@ import { useSearchParams } from 'react-router-dom'
 import {
   Archive,
   ArchiveRestore,
+  AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
   CalendarRange,
+  CheckCircle2,
   ChevronRight,
   History,
   Layers,
   Pencil,
   Plus,
+  Search,
   SquarePen,
   Target,
   Trash2,
   TrendingUp,
+  XCircle,
 } from 'lucide-react'
 import {
   CartesianGrid,
@@ -122,6 +126,39 @@ const emptyKpi = {
 // reintroduzir o fluxo de dois passos que motivou fundir os dois em 2026.
 const emptyMetaDraft = { target_value: null as number | null, due_date: '', owner_id: '' }
 
+// Resumo no topo da página — mesmo padrão visual dos cartões-resumo dos
+// painéis (CompanyDashboard/HoldingDashboard têm cada um a sua cópia).
+function StatTile({
+  label,
+  value,
+  hint,
+  tone = 'slate',
+  icon: Icon,
+}: {
+  label: string
+  value: string | number
+  hint?: string
+  tone?: 'slate' | 'green' | 'amber' | 'red'
+  icon: typeof Target
+}) {
+  const tones: Record<string, string> = {
+    slate: 'text-content',
+    green: 'text-emerald-600 dark:text-emerald-400',
+    amber: 'text-amber-600 dark:text-amber-400',
+    red: 'text-rose-600 dark:text-rose-400',
+  }
+  return (
+    <div className="card p-4">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium uppercase tracking-wide text-content-soft">{label}</span>
+        <Icon className="h-4 w-4 text-content-faint" />
+      </div>
+      <p className={`mt-2 text-2xl font-semibold ${tones[tone]}`}>{value}</p>
+      {hint && <p className="mt-0.5 text-xs text-content-soft">{hint}</p>}
+    </div>
+  )
+}
+
 export default function KpisPage() {
   const { company, canWrite } = useCompany()
   const { notify } = useToast()
@@ -137,6 +174,7 @@ export default function KpisPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [editions, setEditions] = useState<ProductEdition[]>([])
   const [productFilter, setProductFilter] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
   // Arquivados ficam num ambiente à parte — só aparece a aba quando existe
   // pelo menos um, pra não acrescentar nada na tela de quem nunca arquivou.
   const [showArchived, setShowArchived] = useState(false)
@@ -632,12 +670,40 @@ export default function KpisPage() {
     [childrenByParent],
   )
 
+  // Busca por nome acha a família se o termo bater com o nome da meta OU
+  // de qualquer produto/turma vinculado em qualquer profundidade — não dá
+  // pra "abrir" só uma parte da família, então quem bate entra inteira.
+  const familyMatchesSearch = useCallback(
+    (kpi: Kpi, term: string): boolean => {
+      if (kpi.name.toLowerCase().includes(term)) return true
+      const product = kpi.product_id ? products.find((item) => item.id === kpi.product_id) : null
+      if (product && product.name.toLowerCase().includes(term)) return true
+      const edition = kpi.product_edition_id ? editions.find((item) => item.id === kpi.product_edition_id) : null
+      if (edition && edition.name.toLowerCase().includes(term)) return true
+      return (childrenByParent.get(kpi.id) ?? []).some((child) => familyMatchesSearch(child, term))
+    },
+    [childrenByParent, products, editions],
+  )
+
   const rootKpis = useMemo(() => {
     const byArchiveTab = kpis.filter(
       (kpi) => !kpi.parent_kpi_id && (showArchived ? Boolean(kpi.archived_at) : !kpi.archived_at),
     )
-    return productFilter ? byArchiveTab.filter((kpi) => hasProductInTree(kpi, productFilter)) : byArchiveTab
-  }, [kpis, productFilter, showArchived, hasProductInTree])
+    const byProduct = productFilter ? byArchiveTab.filter((kpi) => hasProductInTree(kpi, productFilter)) : byArchiveTab
+    const term = searchTerm.trim().toLowerCase()
+    return term ? byProduct.filter((kpi) => familyMatchesSearch(kpi, term)) : byProduct
+  }, [kpis, productFilter, showArchived, hasProductInTree, searchTerm, familyMatchesSearch])
+
+  // Resumo do topo: todo alvo ativo desta empresa, em qualquer nível
+  // (empresa/produto/turma) — diferente dos cartões-resumo do painel, que
+  // contam só alvo de empresa inteira (ver company_snapshots()), aqui a
+  // ideia é justamente dar uma visão de tudo que a própria tela mostra.
+  const alvoStats = useMemo(() => {
+    const active = metas.filter((meta) => !meta.archived_at)
+    const byStatus = { planned: 0, active: 0, at_risk: 0, achieved: 0, missed: 0 } as Record<GoalStatus, number>
+    for (const meta of active) byStatus[meta.status] += 1
+    return { total: active.length, byStatus }
+  }, [metas])
 
   const [attachingTo, setAttachingTo] = useState<Kpi | null>(null)
   // Meta (kpi) de um nó de produto/turma cujo produto/edição em si (nome,
@@ -787,7 +853,15 @@ export default function KpisPage() {
     const children = childrenByParent.get(kpi.id) ?? []
     if (!children.length) return null
     return (
-      <ul className="mt-3 space-y-2 border-t border-line pt-3">
+      <ul
+        className={`mt-3 space-y-2 border-t border-line pt-3 ${
+          // Turma (depth 2+) ganha uma guia vertical à esquerda, encostada
+          // no produto que a contém — deixa visível que ela está "dentro"
+          // dele, em vez de só um recuo sutil de 12px sem nenhuma ligação
+          // visual entre os níveis.
+          depth > 1 ? 'ml-2.5 border-l-2 border-line-strong pl-3' : ''
+        }`}
+      >
         {children.map((child) => {
           const isOpen = expandedKpiIds.has(child.id)
           const childValue = effectiveValue(child.id)
@@ -799,7 +873,6 @@ export default function KpisPage() {
               className={`rounded-lg border ${
                 highlightedKpiId === child.id ? 'border-brand-500 ring-2 ring-brand-500' : 'border-line'
               } ${child.is_active ? '' : 'opacity-60'}`}
-              style={{ marginLeft: (depth - 1) * 12 }}
             >
               {/* Cabeçalho numa linha só: o botão de expandir cobre só
                   chevron+nome+badge (não a linha inteira) pra caber, ao
@@ -877,6 +950,18 @@ export default function KpisPage() {
         subtitle="Metas desta empresa — cada uma pode ter alvo em todo nível (empresa, produto e turma) e cresce com os produtos que contribuem pra ela."
         actions={
           <>
+            {kpis.length > 0 && (
+              <span className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-content-faint" />
+                <input
+                  className="input w-auto pl-8"
+                  placeholder="Buscar meta…"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  aria-label="Buscar meta por nome"
+                />
+              </span>
+            )}
             {products.length > 0 && (
               <select
                 className="input w-auto"
@@ -900,6 +985,39 @@ export default function KpisPage() {
           </>
         }
       />
+
+      {/* Resumo do topo — todo alvo ativo desta empresa, em qualquer nível,
+          pra bater o olho sem abrir cartão por cartão. Junto com a busca e
+          o filtro por produto, é o que orienta quem chega numa lista com
+          muitas metas. */}
+      {alvoStats.total > 0 && (
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatTile
+            label="Alvos ativos"
+            value={alvoStats.total}
+            hint={`${rootKpis.length} meta(s) na lista`}
+            icon={Target}
+          />
+          <StatTile
+            label="Atingidos"
+            value={alvoStats.byStatus.achieved}
+            tone={alvoStats.byStatus.achieved > 0 ? 'green' : 'slate'}
+            icon={CheckCircle2}
+          />
+          <StatTile
+            label="Em risco"
+            value={alvoStats.byStatus.at_risk}
+            tone={alvoStats.byStatus.at_risk > 0 ? 'amber' : 'slate'}
+            icon={AlertTriangle}
+          />
+          <StatTile
+            label="Não atingidos"
+            value={alvoStats.byStatus.missed}
+            tone={alvoStats.byStatus.missed > 0 ? 'red' : 'slate'}
+            icon={XCircle}
+          />
+        </div>
+      )}
 
       {/* Arquivados vivem num ambiente à parte — a aba só existe quando há
           pelo menos um, pra não acrescentar nada em quem nunca arquivou. */}

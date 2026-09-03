@@ -2066,3 +2066,42 @@ turma não deixa nenhum `<div>` só de ícones vazio no meio do caminho, e
 outro exercitando o lápis "Editar turma" de ponta a ponta (abre o modal,
 salva um nome novo, confirma refletido no cartão). Suíte completa: 175
 passando, 27 skipped, sem falhas (Desktop e Mobile 390).
+
+## 36. Organizar a página de Metas — resumo no topo, busca e hierarquia
+
+Usuário pediu ajuda pra deixar a página de Metas "mais organizada, de
+fácil entendimento" depois de já ter validado o formato em si (cascata de
+cartões). Perguntado o que priorizar agora, escolheu três frentes:
+
+**Resumo no topo.** Novo `StatTile` (mesmo padrão visual já usado nos
+painéis, com uma cópia local aqui — igual já acontece entre
+CompanyDashboard/HoldingDashboard) mostra 4 números logo abaixo do
+cabeçalho: "Alvos ativos" (todo alvo não arquivado, em qualquer nível),
+"Atingidos", "Em risco" e "Não atingidos" (contagem pelo campo
+`status` de cada alvo). Diferente dos cartões-resumo dos painéis (que
+contam só alvo de empresa inteira, de propósito — ver item 34), aqui a
+ideia é o oposto: refletir tudo que a própria tela mostra, em qualquer
+nível, já que a tela inteira é sobre esses alvos.
+
+**Busca por nome.** Campo de busca ao lado do filtro por produto já
+existente. Acha a família (cartão raiz) se o termo bater com o nome da
+própria meta OU com o nome de um produto/turma vinculado em qualquer
+profundidade (`familyMatchesSearch`, mesmo padrão recursivo de
+`hasProductInTree` já usado pelo filtro de produto) — não dá pra "abrir"
+só uma turma que bateu, então a família inteira aparece.
+
+**Hierarquia mais visível.** O recuo de produto/turma aninhado era só
+`marginLeft: 12px` por nível, sem nenhuma ligação visual entre pai e
+filho. Trocado por uma guia vertical (`border-l-2`) à esquerda da lista
+de turmas dentro de um produto (a partir do 2º nível de profundidade — o
+1º nível, produtos dentro do cartão raiz, já está visualmente contido
+pelo próprio `Card`), deixando claro que aquele grupo pertence ao
+produto acima.
+
+**Verificação:** `npx tsc --noEmit` e `npm run build` limpos. `npm run
+test`: 28, sem mudança. `npm run check:contrast`: 24/24, sem mudança.
+`npm run test:e2e`: três testes novos (resumo mostra a contagem certa por
+andamento; busca filtra pelo nome da própria meta; busca filtra pelo nome
+de uma turma vinculada). Suíte completa: 181 passando, 27 skipped, sem
+falhas (Desktop e Mobile 390). Conferência visual por screenshot: resumo,
+busca e cartão aninhado renderizando como esperado.
