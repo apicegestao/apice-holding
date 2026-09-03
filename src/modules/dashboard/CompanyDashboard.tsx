@@ -563,7 +563,7 @@ export default function CompanyDashboard() {
               {kpiRows.slice(0, 8).map((kpi) => (
                 <Link
                   key={kpi.kpi_id}
-                  to={`/empresa/${company.id}/kpis?kpi=${kpi.kpi_id}`}
+                  to={`/empresa/${company.id}/kpis/${kpi.kpi_id}`}
                   className="block rounded-lg border border-line p-3 transition hover:border-line-strong hover:bg-hover"
                 >
                   <p className="truncate text-xs font-medium uppercase tracking-wide text-content-soft">
@@ -650,7 +650,7 @@ export default function CompanyDashboard() {
                   return (
                     <li key={meta.meta_id}>
                       <Link
-                        to={`/empresa/${company.id}/kpis?kpi=${meta.kpi_id}`}
+                        to={`/empresa/${company.id}/kpis/${meta.kpi_id}`}
                         className="block rounded-md -mx-1 px-1 py-0.5 transition hover:bg-hover"
                       >
                         <div className="flex items-center justify-between gap-2 text-sm">

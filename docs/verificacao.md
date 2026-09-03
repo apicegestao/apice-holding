@@ -2105,3 +2105,85 @@ andamento; busca filtra pelo nome da própria meta; busca filtra pelo nome
 de uma turma vinculada). Suíte completa: 181 passando, 27 skipped, sem
 falhas (Desktop e Mobile 390). Conferência visual por screenshot: resumo,
 busca e cartão aninhado renderizando como esperado.
+
+## 37. Reformulação estrutural — Visão Geral (lista) + Detalhe (drill-down)
+
+Depois de três rodadas de ajuste incremental no cartão único com accordion
+aninhado, o usuário voltou: "Tá confuso demais ainda... Repense toda a
+página de metas... pensando como um especialista em metas". Pediu uma
+imagem da proposta antes de qualquer código — feita como um canvas de
+design (duas telas, dados de exemplo), aprovada ("Gostei. Vamos aplicar")
+e só então implementada.
+
+**A mudança é estrutural, não mais um ajuste de detalhe.** O modelo antigo
+— um cartão por indicador-raiz, crescendo verticalmente com accordions
+aninhados pra produto→turma dentro do mesmo cartão — vira duas telas:
+
+**Visão Geral (lista).** Uma linha por meta, agrupada por categoria — nada
+aninhado aparece aqui. Cada linha mostra nome + quantos produtos ela tem
+por baixo ("Empresa + 2 produtos", sem detalhar quais), valor atual, alvo
+mais próximo do prazo, barra de progresso, status, prazo e responsável.
+Resumo do topo virou uma barra segmentada (Atingido/Em andamento/Em
+risco/Não atingido) com legenda — mantém a ideia do item 36, só troca 4
+quadrados por uma barra. Busca e filtro por produto (item 36) continuam;
+ganhou filtro por categoria (sempre a partir das categorias em uso de
+verdade, nunca uma lista fixa).
+
+**Detalhe (drill-down por breadcrumb).** Clicar numa linha da lista — ou
+numa linha da tabela de quebra dentro do próprio Detalhe — navega pra
+`/kpis/:kpiId`, não expande nada inline. O breadcrumb no topo (`Metas /
+Faturamento / Entre Donos / Imersão Set-2026`) sempre mostra onde você
+está, subindo a cadeia por `parent_kpi_id`. O bloco de destaque do nível
+atual tem um anel de progresso (cor por atingimento: verde ≥100%, âmbar
+≥70%, vermelho abaixo), o valor grande, a lista completa de alvos deste
+nível (pode ter mais de um — ex. alvo mensal e anual), um mini-gráfico de
+tendência e as ações (Lançar valor, Editar, Histórico, Arquivar, Excluir,
+Editar produto/turma). Abaixo, "Como este número se divide" é uma tabela
+de quebra dos filhos diretos (produtos, ou turmas se já estiver dentro de
+um produto) — cada linha repete o mesmo padrão (valor/alvo/progresso/
+status/prazo) e um clique desce mais um nível. Sem filhos, aparece só um
+botão de vincular no lugar da tabela.
+
+**Arquitetura do código:** `KpisPage.tsx` virou o container — carrega os
+dados (inalterado) e guarda o estado de todos os modais compartilhados
+(criar/editar meta, alvo, lançar valor, histórico, vincular produto/
+turma, editar produto/turma), montando um objeto `KpisCtx` com tudo que
+as duas telas precisam pra renderizar (dados + funções, sem duplicar
+lógica). Decide qual tela mostrar pelo `:kpiId` da rota (nova rota opcional
+`kpis/:kpiId` em `App.tsx`, ao lado da já existente `kpis`).
+`MetasOverview.tsx` (lista) e `MetaDetail.tsx` (drill-down) são novos
+arquivos, só apresentação. O antigo efeito de `?kpi=<id>` (scroll +
+destaque + expandir ancestrais) deixou de existir — os 5 links que
+apontavam pra ele (CompanyDashboard, HoldingDashboard, ProductsPage) agora
+apontam direto pra `/kpis/<id>`, que já abre o Detalhe daquele nó exato,
+sem precisar rolar nem expandir nada.
+
+**Bug real encontrado durante o rodada:** `canAttachChild` (decide se
+"Vincular produto/turma" aparece) comparava `kpi.product_edition_id ===
+null` — falha quando o campo vem `undefined` (ausente) em vez de `null`,
+caso de várias linhas de teste que nunca setaram esse campo explicitamente
+(e, por extensão, de qualquer indicador de empresa antigo no banco real
+sem esse campo populado). Trocado por checagem de falsidade
+(`!kpi.product_edition_id`), mesmo padrão já usado em outros lugares do
+arquivo pro mesmo motivo.
+
+**Acessibilidade, achada ao escrever os testes:** a linha inteira da
+lista/tabela é um `<Link>` — sem um `aria-label` próprio, o nome acessível
+do link vira TODO o texto da linha concatenado (nome+valor+alvo+status+
+prazo+responsável), ruim tanto pra leitor de tela quanto pra teste. Cada
+linha ganhou um `aria-label` resumido (nome, valor atual, alvo e status).
+
+**Verificação:** `npx tsc --noEmit` e `npm run build` limpos. `npm run
+test`: 28, sem mudança. `npm run check:contrast`: 24/24, sem mudança.
+`npm run test:e2e`: describe `'cascata de metas (KpisPage)'` inteiro
+reescrito como `'Metas — Visão Geral e Detalhe'` (lista agrupada por
+categoria, navegação por linha, breadcrumb + quebra por produto/turma no
+Detalhe, editar turma, vincular produto sem filhos, alvo sem lançamento,
+resumo em barra, busca, filtro por categoria — 11 testes), mais o teste de
+clique em Produtos atualizado pra a nova URL sem query string. Suíte
+completa: 183 passando, 27 skipped, sem falhas (Desktop e Mobile 390).
+Conferência visual por screenshot contra o app rodando de verdade (não só
+o mock de teste) confirmou o layout — achado e corrigido nessa conferência:
+a coluna de nome da lista/tabela estava sendo espremida demais dentro do
+`min-w` do wrapper de rolagem horizontal; corrigido com `minmax(240px,
+2fr)` no lugar de `2fr` puro nas duas tabelas.

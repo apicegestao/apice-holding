@@ -9,6 +9,7 @@ import {
   EDITION_ID,
   EDITION_ID_2,
   HOLDING_ID,
+  KPI_EDITION,
   KPI_PRODUCT,
   KPIS,
   login,
@@ -531,29 +532,30 @@ test.describe('metas de produto e sub-produto', () => {
     await expect(page.getByText('Meta vinculada.')).toBeVisible()
   })
 
-  test('clicar numa meta do produto abre Metas e destaca o cartão certo', async ({ page }) => {
+  test('clicar numa meta do produto abre o Detalhe dela em Metas', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()
     await page.getByRole('link', { name: /Faturamento Entre Donos/ }).click()
 
-    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis\\?kpi=${KPI_PRODUCT}`))
-    // A mesma meta some do card de destaque pra virar um cartão cheio
-    // na lista — confirma que a meta de verdade existe (e a soma bate lá).
+    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis/${KPI_PRODUCT}`))
+    // O Detalhe mostra o valor somado (soma das turmas) em destaque.
     await expect(page.getByText(/R\$\s?32\.000,00/).first()).toBeVisible()
   })
 })
 
-// Cartão único por meta, em cascata: empresa no topo, produtos/turmas
-// aninhados dentro, recolhidos por padrão. Alvo existe em todo nível.
-test.describe('cascata de metas (KpisPage)', () => {
+// Visão Geral (lista, uma linha por meta) + Detalhe (drill-down por
+// breadcrumb) — reformulação estrutural da tela: nada aninhado aparece na
+// lista, e navegar pra dentro de um produto/turma é ir pra outra URL
+// (/kpis/:id), não expandir um accordion. Alvo existe em todo nível.
+test.describe('Metas — Visão Geral e Detalhe', () => {
   test.beforeEach(async ({ page }) => {
     await login(page)
   })
 
   // O modal principal só cria/edita meta raiz de empresa — não existe mais
   // seletor de produto/turma nenhum por aqui (isso agora só acontece pelo
-  // atalho de vincular, de dentro do cartão certo ou de Produtos).
+  // atalho de vincular, de dentro do Detalhe ou de Produtos).
   test('botão "Nova Meta" do topo nunca mostra seletor de produto/turma', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
     await page.waitForLoadState('networkidle')
@@ -563,44 +565,49 @@ test.describe('cascata de metas (KpisPage)', () => {
     await expect(page.getByText('Produto e sub-produto')).not.toBeVisible()
   })
 
-  test('alvo aparece em todo nível — produto e turma, dentro do cartão aninhado', async ({ page }) => {
+  test('lista mostra uma linha por meta, agrupada por categoria, com valor/alvo/progresso/status', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
     await page.waitForLoadState('networkidle')
 
-    const card = page.locator('[id^="kpi-"]', { hasText: 'Faturamento Entre Donos' })
-    // Alvo do nível produto (META_PRODUCT) já aparece sem precisar expandir.
-    await expect(card.getByText(/de R\$\s?400\.000,00/)).toBeVisible()
-
-    // A turma vem recolhida por padrão — expande pra ver o alvo dela.
-    await card.getByRole('button', { name: /Imersão Setembro 2026/ }).click()
-    await expect(card.getByText(/de R\$\s?35\.000,00/)).toBeVisible()
-    await expect(card.getByText('Em risco')).toBeVisible()
+    // Financeiro é a categoria de "Receita recorrente (MRR)" — o cabeçalho
+    // do grupo aparece antes da linha, e nada aninhado (turma/produto)
+    // aparece inline aqui.
+    await expect(page.locator('.card').getByText('Financeiro', { exact: true })).toBeVisible()
+    const row = page.getByRole('link', { name: /Receita recorrente \(MRR\)/ })
+    await expect(row).toContainText('R$ 92.345,67')
+    await expect(row).toContainText('R$ 80.000,00')
+    await expect(row).toContainText('115%')
+    await expect(row).toContainText('Em andamento')
   })
 
-  // Layout relatado como confuso: ao expandir uma turma, os ícones de ação
-  // (histórico/editar/arquivar/excluir) ficavam numa segunda linha quase
-  // vazia, só com ícones encostados à direita. Agora entram na mesma linha
-  // do cabeçalho — a linha de ações separada não deve mais existir.
-  test('expandir uma turma não deixa uma barra de ações vazia', async ({ page }) => {
+  test('clicar numa linha abre o Detalhe com breadcrumb e a quebra por produto', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
     await page.waitForLoadState('networkidle')
+    await page.getByRole('link', { name: /Faturamento Entre Donos/ }).click()
 
-    const card = page.locator('[id^="kpi-"]', { hasText: 'Faturamento Entre Donos' })
-    const turma = card.locator('li', { hasText: 'Imersão Setembro 2026' }).first()
-    await turma.getByRole('button', { name: /Imersão Setembro 2026/ }).click()
+    await expect(page).toHaveURL(new RegExp(`/kpis/${KPI_PRODUCT}$`))
+    const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' })
+    await expect(breadcrumb.getByRole('link', { name: 'Metas' })).toBeVisible()
+    await expect(breadcrumb.getByText('Entre Donos')).toBeVisible()
 
-    // Editar/Histórico/Arquivar/Excluir aparecem, mas dentro do cabeçalho —
-    // não existe mais nenhum <div> dedicado só a eles, com o resto vazio.
-    await expect(turma.getByTitle('Editar', { exact: true })).toBeVisible()
-    await expect(turma.getByTitle('Histórico')).toBeVisible()
-    const actionOnlyRow = turma.locator('div.flex.items-center.justify-end')
-    await expect(actionOnlyRow).toHaveCount(0)
+    // Alvo do nível produto (META_PRODUCT) aparece no bloco de destaque.
+    await expect(page.getByText('R$ 400.000,00').first()).toBeVisible()
+
+    // A turma aparece na tabela de quebra — clicar nela desce mais um nível.
+    const turmaRow = page.getByRole('link', { name: /Imersão Setembro 2026/ })
+    await expect(turmaRow).toContainText('Em risco')
+    await turmaRow.click()
+
+    await expect(page).toHaveURL(new RegExp(`/kpis/${KPI_EDITION}$`))
+    await expect(breadcrumb.getByText('Imersão Setembro 2026')).toBeVisible()
+    await expect(page.getByText('R$ 35.000,00').first()).toBeVisible()
+    await expect(page.getByText('Em risco').first()).toBeVisible()
   })
 
   // Bug relatado: não dava pra editar o nome/prazo de uma turma (sub
   // produto) — só o produto tinha "Editar" na tela de Produtos. Agora um
-  // lápis próprio, dentro do cartão aninhado da meta, edita a turma em si.
-  test('lápis "Editar turma" no cartão aninhado renomeia e muda as datas da turma', async ({ page }) => {
+  // botão próprio, no Detalhe da turma, edita a turma em si.
+  test('"Editar turma" no Detalhe renomeia e muda as datas da turma', async ({ page }) => {
     // Mesma edição de "Imersão Setembro 2026" da fixture (ver PRODUCT_EDITIONS
     // em fixtures.ts) — cópia local só pra este teste poder mutar em memória.
     const editions = [
@@ -626,13 +633,9 @@ test.describe('cascata de metas (KpisPage)', () => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(editions) })
     })
 
-    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_EDITION}`)
     await page.waitForLoadState('networkidle')
-
-    const card = page.locator('[id^="kpi-"]', { hasText: 'Faturamento Entre Donos' })
-    await card.getByRole('button', { name: /Imersão Setembro 2026/ }).click()
-    const turma = card.locator('li', { hasText: 'Imersão Setembro 2026' }).first()
-    await turma.getByTitle('Editar turma').click()
+    await page.getByRole('button', { name: 'Editar turma' }).click()
 
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByRole('heading', { name: /Editar turma/ })).toBeVisible()
@@ -640,10 +643,10 @@ test.describe('cascata de metas (KpisPage)', () => {
     await dialog.getByRole('button', { name: 'Salvar' }).click()
 
     await expect(page.getByText('Turma atualizada.')).toBeVisible()
-    await expect(card.getByText('Imersão Setembro 2026 — Turma B')).toBeVisible()
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' }).getByText('Imersão Setembro 2026 — Turma B')).toBeVisible()
   })
 
-  test('"+ Vincular produto" no cartão de uma meta anexa um produto já cadastrado', async ({ page }) => {
+  test('"Vincular produto" no Detalhe de uma meta sem filhos anexa um produto já cadastrado', async ({ page }) => {
     const kpis = [...KPIS]
     await page.route('**/rest/v1/kpis*', async (route) => {
       const req = route.request()
@@ -658,9 +661,8 @@ test.describe('cascata de metas (KpisPage)', () => {
 
     await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
     await page.waitForLoadState('networkidle')
-
-    const card = page.locator('[id^="kpi-"]', { hasText: 'Receita recorrente (MRR)' })
-    await card.getByRole('button', { name: 'Vincular produto' }).click()
+    await page.getByRole('link', { name: /Receita recorrente \(MRR\)/ }).click()
+    await page.getByRole('button', { name: 'Vincular produto' }).click()
 
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByRole('heading', { name: /Vincular produto/ })).toBeVisible()
@@ -720,27 +722,33 @@ test.describe('cascata de metas (KpisPage)', () => {
 
   // Bug relatado: o valor do alvo ficava escondido no cartão — só aparecia
   // dentro da legenda da barra de progresso, que nem existe sem um valor
-  // medido ainda. Precisa aparecer mesmo sem nenhum lançamento.
-  test('valor do alvo aparece no cartão mesmo sem nenhum valor lançado ainda', async ({ page }) => {
+  // medido ainda. Precisa aparecer mesmo sem nenhum lançamento — tanto na
+  // linha da lista quanto no Detalhe.
+  test('valor do alvo aparece mesmo sem nenhum valor lançado ainda', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID}/kpis`)
     await page.waitForLoadState('networkidle')
 
-    const card = page.locator('[id^="kpi-"]', { hasText: 'Faturamento' })
-    await expect(card.getByText('R$ 500.000,00')).toBeVisible()
+    const row = page.getByRole('link', { name: /^Faturamento,/ })
+    await expect(row).toContainText('R$ 500.000,00')
+
+    await row.click()
+    await expect(page.getByText('R$ 500.000,00').first()).toBeVisible()
   })
 
-  // Pedido do usuário: um resumo no topo pra bater o olho sem abrir cartão
-  // por cartão. Conta todo alvo ativo (empresa/produto/turma) — o mock de
+  // Pedido do usuário: um resumo no topo pra bater o olho sem abrir meta
+  // por meta. Conta todo alvo ativo (empresa/produto/turma) — o mock de
   // REST não filtra por empresa (ver comentário no topo do arquivo), então
-  // o total reflete METAS inteiro: 7 alvos, sendo 1 em risco (META_EDITION).
+  // o total reflete METAS inteiro: 7 alvos, sendo 1 em risco (META_EDITION)
+  // e os outros 6 "em andamento" (nenhum tem status "achieved"/"missed").
   test('resumo no topo mostra a contagem de alvos por andamento', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
     await page.waitForLoadState('networkidle')
 
-    const alvosAtivos = page.locator('.card', { hasText: 'Alvos ativos' })
-    await expect(alvosAtivos.getByText('7', { exact: true })).toBeVisible()
-    const emRisco = page.locator('.card', { hasText: 'Em risco' })
-    await expect(emRisco.getByText('1', { exact: true })).toBeVisible()
+    await expect(page.getByText('7 alvo(s) ativo(s) nesta empresa, em todo nível')).toBeVisible()
+    await expect(page.getByText('0 atingido(s)')).toBeVisible()
+    await expect(page.getByText('6 em andamento')).toBeVisible()
+    await expect(page.getByText('1 em risco')).toBeVisible()
+    await expect(page.getByText('0 não atingido(s)')).toBeVisible()
   })
 
   // Pedido do usuário: buscar por nome, útil conforme a lista cresce. Acha
@@ -752,8 +760,8 @@ test.describe('cascata de metas (KpisPage)', () => {
       await page.waitForLoadState('networkidle')
       await page.getByLabel('Buscar meta por nome').fill('Ticket')
 
-      await expect(page.locator('[id^="kpi-"]', { hasText: 'Ticket médio' })).toBeVisible()
-      await expect(page.locator('[id^="kpi-"]', { hasText: 'Receita recorrente' })).not.toBeVisible()
+      await expect(page.getByRole('link', { name: /Ticket médio/ })).toBeVisible()
+      await expect(page.getByRole('link', { name: /Receita recorrente/ })).not.toBeVisible()
     })
 
     test('filtra pelo nome de uma turma vinculada', async ({ page }) => {
@@ -761,9 +769,20 @@ test.describe('cascata de metas (KpisPage)', () => {
       await page.waitForLoadState('networkidle')
       await page.getByLabel('Buscar meta por nome').fill('Imersão Setembro')
 
-      await expect(page.locator('[id^="kpi-"]', { hasText: 'Faturamento Entre Donos' })).toBeVisible()
-      await expect(page.locator('[id^="kpi-"]', { hasText: 'Ticket médio' })).not.toBeVisible()
+      await expect(page.getByRole('link', { name: /Faturamento Entre Donos/ })).toBeVisible()
+      await expect(page.getByRole('link', { name: /Ticket médio/ })).not.toBeVisible()
     })
+  })
+
+  // Categoria em uso de verdade (não uma lista fixa) — filtra a lista sem
+  // esconder famílias de outra categoria por engano.
+  test('filtro por categoria some com metas de outra categoria', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+    await page.getByLabel('Filtrar por categoria').selectOption('Comercial')
+
+    await expect(page.getByRole('link', { name: /Ticket médio/ })).toBeVisible()
+    await expect(page.getByRole('link', { name: /Receita recorrente/ })).not.toBeVisible()
   })
 })
 

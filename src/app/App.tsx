@@ -180,7 +180,10 @@ export default function App() {
 
         <Route path="/empresa/:companyId" element={<CompanyProvider />}>
           <Route index element={<CompanyDashboard />} />
+          {/* Visão Geral (lista) e Detalhe (drill-down por breadcrumb) são a
+              mesma tela — KpisPage decide qual mostrar pelo :kpiId. */}
           <Route path="kpis" element={<KpisPage />} />
+          <Route path="kpis/:kpiId" element={<KpisPage />} />
           {/* /metas foi absorvida pelos KPIs — todo indicador com prazo já é
               uma meta. Link antigo (favorito, notificação já entregue) ainda
               cai num lugar de verdade em vez de dar 404. */}

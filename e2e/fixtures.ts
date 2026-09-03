@@ -105,7 +105,7 @@ const KPI_EXTRA = ['3', '4', '5'].map((n) => `44444444-4444-4444-4444-4444444444
 // lança direto — o valor dele é a soma das turmas. "Imersão Set/2026" é a
 // turma, com lançamento próprio e parent_kpi_id apontando pro produto.
 export const KPI_PRODUCT = '44444444-4444-4444-4444-444444444446'
-const KPI_EDITION = '44444444-4444-4444-4444-444444444447'
+export const KPI_EDITION = '44444444-4444-4444-4444-444444444447'
 export const PRODUCT_ID = '55555555-5555-5555-5555-555555555551'
 export const EDITION_ID = '55555555-5555-5555-5555-555555555561'
 // Turma sem meta própria ainda — cobre o estado vazio ("+ Meta desta turma").

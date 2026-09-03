@@ -420,7 +420,7 @@ export default function ProductsPage() {
                 <ul className="mt-2 space-y-2">
                   {(statsByProduct.get(activeProduct.id)?.indicators ?? []).map((row) => (
                     <li key={row.kpi_id} className="rounded-lg border border-line p-2.5">
-                      <Link to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}`} className="block">
+                      <Link to={`/empresa/${company.id}/kpis/${row.kpi_id}`} className="block">
                         <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} />
                       </Link>
                     </li>
@@ -503,7 +503,7 @@ export default function ProductsPage() {
                               {editionIndicators.map((row) => (
                                 <li key={row.kpi_id}>
                                   <Link
-                                    to={`/empresa/${company.id}/kpis?kpi=${row.kpi_id}`}
+                                    to={`/empresa/${company.id}/kpis/${row.kpi_id}`}
                                     className="block rounded-md py-0.5 transition hover:bg-hover"
                                   >
                                     <IndicatorLine row={row} value={effectiveValue(row.kpi_id)} size="xs" />

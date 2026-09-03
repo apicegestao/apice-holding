@@ -685,7 +685,7 @@ export default function HoldingDashboard() {
                         return (
                           <li key={meta.meta_id}>
                             <Link
-                              to={`/empresa/${snapshot.company_id}/kpis?kpi=${meta.kpi_id}`}
+                              to={`/empresa/${snapshot.company_id}/kpis/${meta.kpi_id}`}
                               className="block rounded-md -mx-1.5 px-1.5 py-1 transition hover:bg-hover"
                             >
                               <div className="flex items-center justify-between gap-2 text-sm">

@@ -1,13 +1,18 @@
 // Metas da empresa: cadastro, lançamento por período e histórico. Alvo —
 // valor-alvo, prazo, responsável, andamento — é uma coisa à parte (tabela
 // `metas`, uma ou várias por meta); a meta em si é só a ferramenta de
-// medição por trás do alvo. Alvo agora existe em TODO nível (empresa,
-// produto e turma) — cada meta de empresa (raiz, sem parent_kpi_id) é UM
-// cartão só, que cresce verticalmente: o valor da empresa no topo, os
-// produtos que contribuem aninhados dentro dele, e as turmas de cada
-// produto aninhadas mais um nível abaixo — tudo somando via parent_kpi_id
-// (ver core/lib/kpiRollup.ts). Vincular um produto/turma já cadastrado
-// (em Produtos) a uma meta acontece de dentro do próprio cartão dela.
+// medição por trás do alvo. Alvo existe em TODO nível (empresa, produto e
+// turma), somando via parent_kpi_id (ver core/lib/kpiRollup.ts).
+//
+// Estrutura da tela (reformulada — ver docs/verificacao.md): Visão Geral é
+// uma LISTA escaneável, agrupada por categoria, uma linha por meta — nada
+// aninhado aparece aqui. Clicar numa linha abre o Detalhe: um drill-down por
+// breadcrumb (Metas / Faturamento / Entre Donos / Imersão Set-2026), com um
+// bloco de destaque pro nível atual e uma tabela de quebra pros filhos
+// diretos dele. Este arquivo é o container: carrega os dados, guarda o
+// estado dos modais (compartilhados pelas duas telas) e decide qual delas
+// mostrar pelo :kpiId da rota — MetasOverview.tsx e MetaDetail.tsx são só
+// apresentação, recebendo tudo pronto por `KpisCtx`.
 //
 // AVISO DE NOMENCLATURA: nesta tela e no resto da UI, o que o usuário vê
 // como "Meta" é o tipo `Kpi` (nome/unidade/direção/frequência) — a coisa
@@ -16,27 +21,8 @@
 // nomes de tipo, tabela, coluna, variável e rota NÃO mudaram; só o texto
 // exibido foi invertido. Ver core/types.ts para o mesmo aviso.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import {
-  Archive,
-  ArchiveRestore,
-  AlertTriangle,
-  ArrowDownRight,
-  ArrowUpRight,
-  CalendarRange,
-  CheckCircle2,
-  ChevronRight,
-  History,
-  Layers,
-  Pencil,
-  Plus,
-  Search,
-  SquarePen,
-  Target,
-  Trash2,
-  TrendingUp,
-  XCircle,
-} from 'lucide-react'
+import { useParams } from 'react-router-dom'
+import { CalendarRange, Layers, Trash2 } from 'lucide-react'
 import {
   CartesianGrid,
   Line,
@@ -47,36 +33,27 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
-import {
-  attainmentRatio,
-  formatDate,
-  formatValue,
-  labelPeriod,
-  periodBounds,
-  relativeDays,
-} from '../../core/lib/format'
+import { formatDate, formatValue, labelPeriod, periodBounds } from '../../core/lib/format'
 import { buildChildrenByParent, effectiveKpiValue, type RollupRow } from '../../core/lib/kpiRollup'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
 import {
   Badge,
-  Card,
   ConfirmDialog,
   EmptyState,
   ErrorText,
   Field,
-  Loading,
   Modal,
   NumberInput,
-  PageHeader,
-  ProgressBar,
   Spinner,
   useConfirmDelete,
   useToast,
 } from '../../core/ui'
 import { KPI_CATEGORIES, type KpiTemplate } from '../../core/catalog'
 import KpiSuggestions from './KpiSuggestions'
+import MetasOverview from './MetasOverview'
+import MetaDetail from './MetaDetail'
 import {
   FINER_FREQUENCIES,
   FREQUENCIES,
@@ -100,7 +77,7 @@ import {
 const UNITS: KpiUnit[] = ['currency', 'percent', 'number', 'days', 'ratio']
 const STATUSES: GoalStatus[] = ['planned', 'active', 'at_risk', 'achieved', 'missed']
 
-function statusTone(status: GoalStatus) {
+export function statusTone(status: GoalStatus) {
   if (status === 'achieved') return 'green'
   if (status === 'at_risk') return 'amber'
   if (status === 'missed') return 'red'
@@ -126,44 +103,48 @@ const emptyKpi = {
 // reintroduzir o fluxo de dois passos que motivou fundir os dois em 2026.
 const emptyMetaDraft = { target_value: null as number | null, due_date: '', owner_id: '' }
 
-// Resumo no topo da página — mesmo padrão visual dos cartões-resumo dos
-// painéis (CompanyDashboard/HoldingDashboard têm cada um a sua cópia).
-function StatTile({
-  label,
-  value,
-  hint,
-  tone = 'slate',
-  icon: Icon,
-}: {
-  label: string
-  value: string | number
-  hint?: string
-  tone?: 'slate' | 'green' | 'amber' | 'red'
-  icon: typeof Target
-}) {
-  const tones: Record<string, string> = {
-    slate: 'text-content',
-    green: 'text-emerald-600 dark:text-emerald-400',
-    amber: 'text-amber-600 dark:text-amber-400',
-    red: 'text-rose-600 dark:text-rose-400',
-  }
-  return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-content-soft">{label}</span>
-        <Icon className="h-4 w-4 text-content-faint" />
-      </div>
-      <p className={`mt-2 text-2xl font-semibold ${tones[tone]}`}>{value}</p>
-      {hint && <p className="mt-0.5 text-xs text-content-soft">{hint}</p>}
-    </div>
-  )
+// Tudo que MetasOverview/MetaDetail precisam pra renderizar — computado uma
+// vez só aqui (o container), evitando duplicar consulta/lógica nas duas
+// telas. Elas são só apresentação: leem `ctx`, chamam os setters de volta.
+export type KpisCtx = {
+  companyId: string
+  companyColor: string
+  companyName: string
+  canWrite: boolean
+  people: Profile[]
+  products: Product[]
+  editions: ProductEdition[]
+  kpis: Kpi[]
+  metas: Meta[]
+  loading: boolean
+  kpiById: Map<string, Kpi>
+  metasByKpi: Map<string, Meta[]>
+  seriesByKpi: Map<string, KpiValue[]>
+  checkpointsByMeta: Map<string, KpiCheckpoint[]>
+  childrenByParent: Map<string, Kpi[]>
+  effectiveValue: (kpiId: string) => number | null
+  rollupFor: (kpiId: string) => { value: number; total: number; reported: number; children: Kpi[] } | null
+  ownerName: (id: string | null) => string | null
+  productName: (id: string | null) => string | null
+  editionName: (id: string | null) => string | null
+  nestedLabel: (kpi: Kpi) => string
+  openCreate: () => void
+  openEdit: (kpi: Kpi) => void
+  archiveKpi: (kpi: Kpi) => Promise<void>
+  unarchiveKpi: (kpi: Kpi) => Promise<void>
+  setRemovingKpi: (kpi: Kpi | null) => void
+  setRemovingMeta: (meta: Meta | null) => void
+  setMetaModalFor: (v: { kpi: Kpi; meta: Meta | null } | null) => void
+  setEntryFor: (kpi: Kpi | null) => void
+  setHistoryFor: (kpi: Kpi | null) => void
+  setAttachingTo: (kpi: Kpi | null) => void
+  setEditingEntity: (kpi: Kpi | null) => void
 }
 
 export default function KpisPage() {
   const { company, canWrite } = useCompany()
   const { notify } = useToast()
-  const chart = useChartTheme()
-  const [searchParams] = useSearchParams()
+  const { kpiId } = useParams<{ kpiId: string }>()
 
   const [kpis, setKpis] = useState<Kpi[]>([])
   const [metas, setMetas] = useState<Meta[]>([])
@@ -173,11 +154,6 @@ export default function KpisPage() {
   const [checkpoints, setCheckpoints] = useState<KpiCheckpoint[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [editions, setEditions] = useState<ProductEdition[]>([])
-  const [productFilter, setProductFilter] = useState('')
-  const [searchTerm, setSearchTerm] = useState('')
-  // Arquivados ficam num ambiente à parte — só aparece a aba quando existe
-  // pelo menos um, pra não acrescentar nada na tela de quem nunca arquivou.
-  const [showArchived, setShowArchived] = useState(false)
   const [loading, setLoading] = useState(true)
 
   const [kpiForm, setKpiForm] = useState(emptyKpi)
@@ -192,6 +168,10 @@ export default function KpisPage() {
   const [removingMeta, setRemovingMeta] = useState<Meta | null>(null)
   const [entryFor, setEntryFor] = useState<Kpi | null>(null)
   const [historyFor, setHistoryFor] = useState<Kpi | null>(null)
+  const [attachingTo, setAttachingTo] = useState<Kpi | null>(null)
+  // Meta (kpi) de um nó de produto/turma cujo produto/edição em si (nome,
+  // datas) está sendo editado — distinto de openEdit, que edita a meta.
+  const [editingEntity, setEditingEntity] = useState<Kpi | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -253,52 +233,7 @@ export default function KpisPage() {
     void load()
   }, [load])
 
-  // Acesso rápido vindo do painel/Produtos: ?kpi=<id> rola até o cartão
-  // certo e destaca por alguns segundos, em vez de deixar a pessoa procurar
-  // na lista. Se o alvo estiver aninhado (produto/turma), primeiro expande
-  // toda a cadeia de ancestrais — senão fica escondido num bloco recolhido.
-  const focusKpiId = searchParams.get('kpi')
-  const [highlightedKpiId, setHighlightedKpiId] = useState<string | null>(null)
-  const [expandedKpiIds, setExpandedKpiIds] = useState<Set<string>>(new Set())
-  const toggleExpanded = (id: string) =>
-    setExpandedKpiIds((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-
   const kpiById = useMemo(() => new Map(kpis.map((item) => [item.id, item])), [kpis])
-
-  useEffect(() => {
-    if (!focusKpiId || loading) return
-    setExpandedKpiIds((current) => {
-      const next = new Set(current)
-      let cursor = kpiById.get(focusKpiId)?.parent_kpi_id ?? null
-      while (cursor) {
-        next.add(cursor)
-        cursor = kpiById.get(cursor)?.parent_kpi_id ?? null
-      }
-      return next
-    })
-  }, [focusKpiId, loading, kpiById])
-
-  useEffect(() => {
-    if (!focusKpiId || loading) return
-    // Espera o próximo quadro pra dar tempo do bloco (se acabou de expandir
-    // por causa do efeito acima) existir de verdade no DOM.
-    const raf = requestAnimationFrame(() => {
-      const el = document.getElementById(`kpi-${focusKpiId}`)
-      if (!el) return
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      setHighlightedKpiId(focusKpiId)
-    })
-    const timer = setTimeout(() => setHighlightedKpiId(null), 2500)
-    return () => {
-      cancelAnimationFrame(raf)
-      clearTimeout(timer)
-    }
-  }, [focusKpiId, loading, expandedKpiIds])
 
   const seriesByKpi = useMemo(() => {
     const map = new Map<string, KpiValue[]>()
@@ -320,6 +255,105 @@ export default function KpisPage() {
     }
     return map
   }, [metas])
+
+  const checkpointsByMeta = useMemo(() => {
+    const map = new Map<string, KpiCheckpoint[]>()
+    for (const checkpoint of checkpoints) {
+      const list = map.get(checkpoint.meta_id) ?? []
+      list.push(checkpoint)
+      map.set(checkpoint.meta_id, list)
+    }
+    return map
+  }, [checkpoints])
+
+  const entriesByKpi = useMemo(() => {
+    const map = new Map<string, KpiValueEntry[]>()
+    for (const entry of entries) {
+      const list = map.get(entry.kpi_id) ?? []
+      list.push(entry)
+      map.set(entry.kpi_id, list)
+    }
+    return map
+  }, [entries])
+
+  // Produto pai (ex. "Entre Donos") e seus sub-produtos (turmas) — cada
+  // filho soma pro pai. Guardado com o Kpi completo (não só o RollupRow
+  // genérico abaixo) porque a árvore de render precisa de nome/unidade/
+  // produto de cada filho, não só do valor.
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, Kpi[]>()
+    for (const kpi of kpis) {
+      if (!kpi.parent_kpi_id) continue
+      const list = map.get(kpi.parent_kpi_id) ?? []
+      list.push(kpi)
+      map.set(kpi.parent_kpi_id, list)
+    }
+    return map
+  }, [kpis])
+
+  // Valor "de verdade" de cada meta — mesmo algoritmo de soma em cadeia que
+  // ProductsPage/CompanyDashboard já usam (core/lib/kpiRollup.ts), sem
+  // reimplementar a recursão aqui de novo.
+  const rollupRows = useMemo<RollupRow[]>(
+    () =>
+      kpis.map((kpi) => {
+        const series = seriesByKpi.get(kpi.id) ?? []
+        const latest = series[series.length - 1]
+        return { kpi_id: kpi.id, value: latest ? Number(latest.value) : null, parent_kpi_id: kpi.parent_kpi_id }
+      }),
+    [kpis, seriesByKpi],
+  )
+  const rollupChildrenByParent = useMemo(() => buildChildrenByParent(rollupRows), [rollupRows])
+  const rollupRowById = useMemo(() => new Map(rollupRows.map((row) => [row.kpi_id, row])), [rollupRows])
+  const effectiveValue = useCallback(
+    (kpiId: string) => effectiveKpiValue(kpiId, rollupChildrenByParent, rollupRowById),
+    [rollupChildrenByParent, rollupRowById],
+  )
+
+  /** Soma o valor de cada produto/turma direto abaixo — o valor "oficial"
+   *  do pai é essa soma, não um lançamento próprio nele. */
+  const rollupFor = useCallback(
+    (kpiId: string) => {
+      const children = childrenByParent.get(kpiId)
+      if (!children?.length) return null
+      let value = 0
+      let reported = 0
+      for (const child of children) {
+        const childValue = effectiveValue(child.id)
+        if (childValue !== null) {
+          value += childValue
+          reported += 1
+        }
+      }
+      return { value, total: children.length, reported, children }
+    },
+    [childrenByParent, effectiveValue],
+  )
+
+  const ownerName = useCallback(
+    (id: string | null) => (id ? (people.find((person) => person.id === id)?.full_name ?? '—') : null),
+    [people],
+  )
+  const productName = useCallback(
+    (id: string | null) => (id ? (products.find((item) => item.id === id)?.name ?? null) : null),
+    [products],
+  )
+  const editionName = useCallback(
+    (id: string | null) => (id ? (editions.find((item) => item.id === id)?.name ?? null) : null),
+    [editions],
+  )
+
+  // Rótulo de um nó: nome do produto (+ edição, se for turma) em vez do nome
+  // sintetizado gravado no banco — esse existe só pra satisfazer a
+  // constraint de nome único por empresa, não é o texto certo pra tela.
+  const nestedLabel = useCallback(
+    (kpi: Kpi): string => {
+      if (kpi.product_edition_id) return editionName(kpi.product_edition_id) ?? kpi.name
+      if (kpi.product_id) return productName(kpi.product_id) ?? kpi.name
+      return kpi.name
+    },
+    [editionName, productName],
+  )
 
   // O botão "Nova Meta" sempre cria meta de empresa inteira (raiz), sem
   // seletor de produto/turma nenhum — vincular um produto/turma já
@@ -569,650 +603,44 @@ export default function KpisPage() {
     await load()
   }
 
-  const ownerName = (id: string | null) =>
-    id ? (people.find((person) => person.id === id)?.full_name ?? '—') : null
-
-  const productName = (id: string | null) => (id ? products.find((item) => item.id === id)?.name : null) ?? null
-  const editionName = (id: string | null) => (id ? editions.find((item) => item.id === id)?.name : null) ?? null
-
-  const checkpointsByMeta = useMemo(() => {
-    const map = new Map<string, KpiCheckpoint[]>()
-    for (const checkpoint of checkpoints) {
-      const list = map.get(checkpoint.meta_id) ?? []
-      list.push(checkpoint)
-      map.set(checkpoint.meta_id, list)
-    }
-    return map
-  }, [checkpoints])
-
-  const entriesByKpi = useMemo(() => {
-    const map = new Map<string, KpiValueEntry[]>()
-    for (const entry of entries) {
-      const list = map.get(entry.kpi_id) ?? []
-      list.push(entry)
-      map.set(entry.kpi_id, list)
-    }
-    return map
-  }, [entries])
-
-  // Produto pai (ex. "Entre Donos") e seus sub-produtos (turmas) — cada
-  // filho soma pro pai. Guardado com o Kpi completo (não só o RollupRow
-  // genérico abaixo) porque a árvore de render precisa de nome/unidade/
-  // produto de cada filho, não só do valor.
-  const childrenByParent = useMemo(() => {
-    const map = new Map<string, Kpi[]>()
-    for (const kpi of kpis) {
-      if (!kpi.parent_kpi_id) continue
-      const list = map.get(kpi.parent_kpi_id) ?? []
-      list.push(kpi)
-      map.set(kpi.parent_kpi_id, list)
-    }
-    return map
-  }, [kpis])
-
-  // Valor "de verdade" de cada meta — mesmo algoritmo de soma em cadeia que
-  // ProductsPage/CompanyDashboard já usam (core/lib/kpiRollup.ts), sem
-  // reimplementar a recursão aqui de novo.
-  const rollupRows = useMemo<RollupRow[]>(
-    () =>
-      kpis.map((kpi) => {
-        const series = seriesByKpi.get(kpi.id) ?? []
-        const latest = series[series.length - 1]
-        return { kpi_id: kpi.id, value: latest ? Number(latest.value) : null, parent_kpi_id: kpi.parent_kpi_id }
-      }),
-    [kpis, seriesByKpi],
-  )
-  const rollupChildrenByParent = useMemo(() => buildChildrenByParent(rollupRows), [rollupRows])
-  const rollupRowById = useMemo(() => new Map(rollupRows.map((row) => [row.kpi_id, row])), [rollupRows])
-  const effectiveValue = useCallback(
-    (kpiId: string) => effectiveKpiValue(kpiId, rollupChildrenByParent, rollupRowById),
-    [rollupChildrenByParent, rollupRowById],
-  )
-
-  /** Soma o valor de cada produto/turma direto abaixo — o valor "oficial"
-   *  do pai é essa soma, não um lançamento próprio nele. */
-  const rollupFor = useCallback(
-    (kpiId: string) => {
-      const children = childrenByParent.get(kpiId)
-      if (!children?.length) return null
-      let value = 0
-      let reported = 0
-      for (const child of children) {
-        const childValue = effectiveValue(child.id)
-        if (childValue !== null) {
-          value += childValue
-          reported += 1
-        }
-      }
-      return { value, total: children.length, reported, children }
-    },
-    [childrenByParent, effectiveValue],
-  )
-
-  // Cartões do topo: só as raízes (sem parent_kpi_id) — todo o resto vive
-  // aninhado dentro delas (ver renderNested). Checagem por "verdadeiro" (não
-  // por === null) de propósito: em dado vindo de fora do banco de verdade
-  // (ex. simulação de teste) o campo pode vir ausente (undefined) em vez de
-  // nulo.
-  const archivedKpis = useMemo(
-    () => kpis.filter((kpi) => !kpi.parent_kpi_id && Boolean(kpi.archived_at)),
-    [kpis],
-  )
-
-  // "Filtrar por produto" busca a raiz cujo ramo (em qualquer profundidade)
-  // contenha aquele produto — a raiz em si nunca tem product_id (ela é
-  // sempre a meta de empresa inteira).
-  const hasProductInTree = useCallback(
-    (kpi: Kpi, productId: string): boolean => {
-      if (kpi.product_id === productId) return true
-      return (childrenByParent.get(kpi.id) ?? []).some((child) => hasProductInTree(child, productId))
-    },
-    [childrenByParent],
-  )
-
-  // Busca por nome acha a família se o termo bater com o nome da meta OU
-  // de qualquer produto/turma vinculado em qualquer profundidade — não dá
-  // pra "abrir" só uma parte da família, então quem bate entra inteira.
-  const familyMatchesSearch = useCallback(
-    (kpi: Kpi, term: string): boolean => {
-      if (kpi.name.toLowerCase().includes(term)) return true
-      const product = kpi.product_id ? products.find((item) => item.id === kpi.product_id) : null
-      if (product && product.name.toLowerCase().includes(term)) return true
-      const edition = kpi.product_edition_id ? editions.find((item) => item.id === kpi.product_edition_id) : null
-      if (edition && edition.name.toLowerCase().includes(term)) return true
-      return (childrenByParent.get(kpi.id) ?? []).some((child) => familyMatchesSearch(child, term))
-    },
-    [childrenByParent, products, editions],
-  )
-
-  const rootKpis = useMemo(() => {
-    const byArchiveTab = kpis.filter(
-      (kpi) => !kpi.parent_kpi_id && (showArchived ? Boolean(kpi.archived_at) : !kpi.archived_at),
-    )
-    const byProduct = productFilter ? byArchiveTab.filter((kpi) => hasProductInTree(kpi, productFilter)) : byArchiveTab
-    const term = searchTerm.trim().toLowerCase()
-    return term ? byProduct.filter((kpi) => familyMatchesSearch(kpi, term)) : byProduct
-  }, [kpis, productFilter, showArchived, hasProductInTree, searchTerm, familyMatchesSearch])
-
-  // Resumo do topo: todo alvo ativo desta empresa, em qualquer nível
-  // (empresa/produto/turma) — diferente dos cartões-resumo do painel, que
-  // contam só alvo de empresa inteira (ver company_snapshots()), aqui a
-  // ideia é justamente dar uma visão de tudo que a própria tela mostra.
-  const alvoStats = useMemo(() => {
-    const active = metas.filter((meta) => !meta.archived_at)
-    const byStatus = { planned: 0, active: 0, at_risk: 0, achieved: 0, missed: 0 } as Record<GoalStatus, number>
-    for (const meta of active) byStatus[meta.status] += 1
-    return { total: active.length, byStatus }
-  }, [metas])
-
-  const [attachingTo, setAttachingTo] = useState<Kpi | null>(null)
-  // Meta (kpi) de um nó de produto/turma cujo produto/edição em si (nome,
-  // datas) está sendo editado — distinto de openEdit, que edita a meta.
-  const [editingEntity, setEditingEntity] = useState<Kpi | null>(null)
-
-  // Rótulo de um nó aninhado: nome do produto (+ edição, se for turma) em
-  // vez do nome sintetizado gravado no banco — esse existe só pra
-  // satisfazer a constraint de nome único por empresa, não é o texto certo
-  // pra tela.
-  const nestedLabel = (kpi: Kpi): string => {
-    if (kpi.product_edition_id) return editionName(kpi.product_edition_id) ?? kpi.name
-    if (kpi.product_id) return productName(kpi.product_id) ?? kpi.name
-    return kpi.name
-  }
-
-  // Editar/arquivar/excluir/histórico — mesmos ícones/handlers pro cartão
-  // raiz e pra cada nó aninhado, só muda o tamanho.
-  const renderActions = (kpi: Kpi, compact = false) => {
-    const iconClass = compact ? 'h-3.5 w-3.5' : 'h-4 w-4'
-    const btnClass = compact
-      ? 'rounded-md p-1 text-content-faint hover:bg-hover hover:text-content'
-      : 'rounded-md p-1.5 text-content-faint hover:bg-hover hover:text-content'
-    return (
-      <div className="flex shrink-0 gap-1">
-        <button type="button" className={btnClass} title="Histórico" onClick={() => setHistoryFor(kpi)}>
-          <History className={iconClass} />
-        </button>
-        {canWrite && (
-          <>
-            <button type="button" className={btnClass} title="Editar" onClick={() => openEdit(kpi)}>
-              <Pencil className={iconClass} />
-            </button>
-            {kpi.archived_at ? (
-              <button type="button" className={btnClass} title="Reativar" onClick={() => void unarchiveKpi(kpi)}>
-                <ArchiveRestore className={iconClass} />
-              </button>
-            ) : (
-              <button type="button" className={btnClass} title="Arquivar" onClick={() => void archiveKpi(kpi)}>
-                <Archive className={iconClass} />
-              </button>
-            )}
-            <button
-              type="button"
-              className={`${btnClass} hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400`}
-              title="Excluir"
-              onClick={() => setRemovingKpi(kpi)}
-            >
-              <Trash2 className={iconClass} />
-            </button>
-          </>
-        )}
-      </div>
-    )
-  }
-
-  // Alvos desta meta — zero, um ou vários ao mesmo tempo (ex. alvo mensal e
-  // alvo anual da mesma meta), em TODO nível (empresa, produto e turma).
-  const renderAlvoSection = (kpi: Kpi, displayValue: number | null) => {
-    const kpiMetas = metasByKpi.get(kpi.id) ?? []
-    return (
-      <div className="mt-4 border-t border-line pt-3">
-        <div className="flex items-center justify-between gap-2">
-          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-content-soft">
-            <Target className="h-3.5 w-3.5" /> Alvos{kpiMetas.length > 0 && ` (${kpiMetas.length})`}
-          </p>
-          {canWrite && (
-            <button
-              type="button"
-              className="text-xs text-brand-text hover:underline"
-              onClick={() => setMetaModalFor({ kpi, meta: null })}
-            >
-              + Alvo
-            </button>
-          )}
-        </div>
-        {kpiMetas.length === 0 ? (
-          <p className="mt-1.5 text-xs text-content-faint">Nenhum alvo ainda.</p>
-        ) : (
-          <ul className="mt-2 space-y-3">
-            {kpiMetas.map((meta) => {
-              const ratio =
-                displayValue !== null ? attainmentRatio(displayValue, meta.target_value, kpi.direction) : null
-              const caption =
-                meta.target_value !== null && displayValue !== null
-                  ? `${formatValue(displayValue, kpi.unit)} de ${formatValue(meta.target_value, kpi.unit)}`
-                  : undefined
-              return (
-                <li key={meta.id}>
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 text-left"
-                      onClick={() => setMetaModalFor({ kpi, meta })}
-                    >
-                      {/* O valor buscado é a informação principal do alvo —
-                          fica em destaque aqui, não escondido só na legenda
-                          da barra de progresso (que só existe quando já há
-                          um valor lançado pra comparar). */}
-                      <span className="block truncate text-sm font-semibold text-content hover:underline">
-                        {meta.target_value !== null ? formatValue(meta.target_value, kpi.unit) : 'Alvo sem valor definido'}
-                      </span>
-                      <span className="block truncate text-xs text-content-soft">
-                        {ownerName(meta.owner_id) ?? 'Sem responsável'}
-                        {meta.due_date && (
-                          <> · prazo {formatDate(meta.due_date)} ({relativeDays(meta.due_date)})</>
-                        )}
-                      </span>
-                    </button>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <Badge tone={statusTone(meta.status)}>{GOAL_STATUS_LABEL[meta.status]}</Badge>
-                      {canWrite && (
-                        <button
-                          type="button"
-                          className="rounded p-0.5 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
-                          onClick={() => setRemovingMeta(meta)}
-                          aria-label="Excluir alvo"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {ratio !== null && (
-                    <div className="mt-1.5">
-                      <ProgressBar ratio={ratio} caption={caption} />
-                    </div>
-                  )}
-                  {(checkpointsByMeta.get(meta.id)?.length ?? 0) > 0 && (
-                    <p className="mt-1 text-[11px] text-content-faint">
-                      {checkpointsByMeta.get(meta.id)!.length} parcela(s) semanal(is)
-                    </p>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </div>
-    )
-  }
-
-  // Produtos/turmas aninhados dentro do cartão da família — recolhidos por
-  // padrão. Recursivo: depth 1 = produto, depth 2 = turma (a cadeia aceita
-  // mais níveis se algum dia precisar, sem mudar nada aqui).
-  const renderNested = (kpi: Kpi, depth: number) => {
-    const children = childrenByParent.get(kpi.id) ?? []
-    if (!children.length) return null
-    return (
-      <ul
-        className={`mt-3 space-y-2 border-t border-line pt-3 ${
-          // Turma (depth 2+) ganha uma guia vertical à esquerda, encostada
-          // no produto que a contém — deixa visível que ela está "dentro"
-          // dele, em vez de só um recuo sutil de 12px sem nenhuma ligação
-          // visual entre os níveis.
-          depth > 1 ? 'ml-2.5 border-l-2 border-line-strong pl-3' : ''
-        }`}
-      >
-        {children.map((child) => {
-          const isOpen = expandedKpiIds.has(child.id)
-          const childValue = effectiveValue(child.id)
-          const childRollup = rollupFor(child.id)
-          return (
-            <li
-              key={child.id}
-              id={`kpi-${child.id}`}
-              className={`rounded-lg border ${
-                highlightedKpiId === child.id ? 'border-brand-500 ring-2 ring-brand-500' : 'border-line'
-              } ${child.is_active ? '' : 'opacity-60'}`}
-            >
-              {/* Cabeçalho numa linha só: o botão de expandir cobre só
-                  chevron+nome+badge (não a linha inteira) pra caber, ao
-                  lado, o lápis de renomear o produto/turma em si (sempre
-                  visível) e — só quando aberto — os ícones de ação da meta.
-                  Isso substitui uma segunda linha de ações que antes ficava
-                  quase vazia, só com ícones encostados à direita. */}
-              <div className="flex w-full items-center justify-between gap-2 p-2.5">
-                <button
-                  type="button"
-                  onClick={() => toggleExpanded(child.id)}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                >
-                  <ChevronRight
-                    className={`h-4 w-4 shrink-0 text-content-faint transition-transform ${isOpen ? 'rotate-90' : ''}`}
-                  />
-                  <span className="min-w-0 truncate text-sm font-medium text-content">{nestedLabel(child)}</span>
-                  {childRollup && (
-                    <Badge tone="blue">
-                      <Layers className="mr-1 inline h-3 w-3" />
-                      soma {childRollup.reported}/{childRollup.total}
-                    </Badge>
-                  )}
-                </button>
-                <div className="flex shrink-0 items-center gap-1">
-                  {canWrite && child.product_id && (
-                    <button
-                      type="button"
-                      className="rounded-md p-1 text-content-faint hover:bg-hover hover:text-content"
-                      title={child.product_edition_id ? 'Editar turma' : 'Editar produto'}
-                      onClick={() => setEditingEntity(child)}
-                    >
-                      <SquarePen className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  <span className="text-sm text-content-soft">
-                    {childValue !== null ? formatValue(childValue, child.unit) : 'sem lançamento'}
-                  </span>
-                  {isOpen && renderActions(child, true)}
-                </div>
-              </div>
-              {isOpen && (
-                <div className="border-t border-line p-2.5">
-                  {renderAlvoSection(child, childValue)}
-                  {renderNested(child, depth + 1)}
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {canWrite && !childrenByParent.has(child.id) && (
-                      <button type="button" className="btn-ghost py-1.5 text-xs" onClick={() => setEntryFor(child)}>
-                        <TrendingUp className="h-3.5 w-3.5" /> Lançar valor
-                      </button>
-                    )}
-                    {canWrite && child.product_edition_id === null && (
-                      <button
-                        type="button"
-                        className="btn-ghost py-1.5 text-xs"
-                        onClick={() => setAttachingTo(child)}
-                      >
-                        <Plus className="h-3.5 w-3.5" /> Vincular turma
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-    )
+  const ctx: KpisCtx = {
+    companyId: company.id,
+    companyColor: company.color,
+    companyName: company.name,
+    canWrite,
+    people,
+    products,
+    editions,
+    kpis,
+    metas,
+    loading,
+    kpiById,
+    metasByKpi,
+    seriesByKpi,
+    checkpointsByMeta,
+    childrenByParent,
+    effectiveValue,
+    rollupFor,
+    ownerName,
+    productName,
+    editionName,
+    nestedLabel,
+    openCreate,
+    openEdit,
+    archiveKpi,
+    unarchiveKpi,
+    setRemovingKpi,
+    setRemovingMeta,
+    setMetaModalFor,
+    setEntryFor,
+    setHistoryFor,
+    setAttachingTo,
+    setEditingEntity,
   }
 
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader
-        title={`Metas · ${company.name}`}
-        subtitle="Metas desta empresa — cada uma pode ter alvo em todo nível (empresa, produto e turma) e cresce com os produtos que contribuem pra ela."
-        actions={
-          <>
-            {kpis.length > 0 && (
-              <span className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-content-faint" />
-                <input
-                  className="input w-auto pl-8"
-                  placeholder="Buscar meta…"
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  aria-label="Buscar meta por nome"
-                />
-              </span>
-            )}
-            {products.length > 0 && (
-              <select
-                className="input w-auto"
-                value={productFilter}
-                onChange={(event) => setProductFilter(event.target.value)}
-                aria-label="Filtrar por produto"
-              >
-                <option value="">Todos os produtos</option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            {canWrite && !showArchived && (
-              <button type="button" className="btn-primary" onClick={() => openCreate()}>
-                <Plus className="h-4 w-4" /> Nova Meta
-              </button>
-            )}
-          </>
-        }
-      />
-
-      {/* Resumo do topo — todo alvo ativo desta empresa, em qualquer nível,
-          pra bater o olho sem abrir cartão por cartão. Junto com a busca e
-          o filtro por produto, é o que orienta quem chega numa lista com
-          muitas metas. */}
-      {alvoStats.total > 0 && (
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatTile
-            label="Alvos ativos"
-            value={alvoStats.total}
-            hint={`${rootKpis.length} meta(s) na lista`}
-            icon={Target}
-          />
-          <StatTile
-            label="Atingidos"
-            value={alvoStats.byStatus.achieved}
-            tone={alvoStats.byStatus.achieved > 0 ? 'green' : 'slate'}
-            icon={CheckCircle2}
-          />
-          <StatTile
-            label="Em risco"
-            value={alvoStats.byStatus.at_risk}
-            tone={alvoStats.byStatus.at_risk > 0 ? 'amber' : 'slate'}
-            icon={AlertTriangle}
-          />
-          <StatTile
-            label="Não atingidos"
-            value={alvoStats.byStatus.missed}
-            tone={alvoStats.byStatus.missed > 0 ? 'red' : 'slate'}
-            icon={XCircle}
-          />
-        </div>
-      )}
-
-      {/* Arquivados vivem num ambiente à parte — a aba só existe quando há
-          pelo menos um, pra não acrescentar nada em quem nunca arquivou. */}
-      {archivedKpis.length > 0 && (
-        <div className="mb-4 inline-flex rounded-lg border border-line-strong p-0.5 text-sm">
-          <button
-            type="button"
-            onClick={() => setShowArchived(false)}
-            className={`rounded-md px-3 py-1.5 font-medium transition ${
-              !showArchived ? 'bg-brand/10 text-brand-text' : 'text-content-muted hover:bg-hover'
-            }`}
-          >
-            Ativos
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowArchived(true)}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition ${
-              showArchived ? 'bg-brand/10 text-brand-text' : 'text-content-muted hover:bg-hover'
-            }`}
-          >
-            <Archive className="h-3.5 w-3.5" /> Arquivados ({archivedKpis.length})
-          </button>
-        </div>
-      )}
-
-      {loading ? (
-        <Loading />
-      ) : kpis.length === 0 ? (
-        <EmptyState
-          title="Nenhuma meta ainda"
-          description="Comece pelos números que você olharia primeiro se pudesse ver só três."
-          action={
-            canWrite && (
-              <button type="button" className="btn-primary" onClick={() => openCreate()}>
-                <Plus className="h-4 w-4" /> Nova Meta
-              </button>
-            )
-          }
-        />
-      ) : rootKpis.length === 0 ? (
-        <EmptyState
-          title={showArchived ? 'Nenhuma meta arquivada' : 'Nenhuma meta neste produto'}
-          description={
-            showArchived
-              ? 'Metas arquivadas manualmente aparecem aqui.'
-              : 'Troque o filtro ou vincule um produto já cadastrado a uma meta existente.'
-          }
-        />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {rootKpis.map((kpi) => {
-            const series = seriesByKpi.get(kpi.id) ?? []
-            const latest = series[series.length - 1]
-            const previous = series[series.length - 2]
-            // Uma meta com produtos ligados nunca lança valor direto — o
-            // número dela é a soma do valor de cada um.
-            const rollup = rollupFor(kpi.id)
-            const displayValue = effectiveValue(kpi.id)
-            const delta =
-              !rollup && latest && previous ? Number(latest.value) - Number(previous.value) : null
-            const improving =
-              delta === null ? null : kpi.direction === 'up' ? delta >= 0 : delta <= 0
-
-            const chartData = series.slice(-12).map((item) => ({
-              label: labelPeriod(item.period_start, kpi.frequency),
-              value: Number(item.value),
-            }))
-
-            return (
-              <Card
-                key={kpi.id}
-                id={`kpi-${kpi.id}`}
-                className={`${kpi.is_active ? '' : 'opacity-60'} ${
-                  highlightedKpiId === kpi.id ? 'ring-2 ring-brand-500 transition-shadow' : ''
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-content">{kpi.name}</p>
-                    <p className="text-xs text-content-soft">
-                      {kpi.category ? `${kpi.category} · ` : ''}
-                      {FREQUENCY_LABEL[kpi.frequency]}
-                      {kpi.entry_frequency && ` · lançado por ${FREQUENCY_LABEL[kpi.entry_frequency].toLowerCase()}`}
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {/* Rede de segurança: um indicador de produto/turma
-                          criado antes desta cadeia existir pode não ter
-                          parent_kpi_id — aparece como "raiz" solta, com a
-                          badge pra dar contexto de onde ele vem. */}
-                      {kpi.product_id && (
-                        <Badge tone="violet">
-                          {productName(kpi.product_id)}
-                          {kpi.product_edition_id && ` · ${editionName(kpi.product_edition_id)}`}
-                        </Badge>
-                      )}
-                      {rollup && (
-                        <Badge tone="blue">
-                          <Layers className="mr-1 inline h-3 w-3" />
-                          soma {rollup.reported}/{rollup.total} produto(s)
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  {renderActions(kpi)}
-                </div>
-
-                <div className="mt-3 flex items-end justify-between gap-2">
-                  <div>
-                    <p className="text-2xl font-semibold text-content">
-                      {displayValue !== null ? formatValue(displayValue, kpi.unit) : '—'}
-                    </p>
-                    <p className="text-xs text-content-soft">
-                      {rollup
-                        ? 'soma atual dos produtos'
-                        : latest
-                          ? labelPeriod(latest.period_start, kpi.frequency)
-                          : 'sem lançamento'}
-                    </p>
-                  </div>
-                  {delta !== null && (
-                    <span
-                      className={`flex items-center gap-0.5 text-xs font-medium ${
-                        improving ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-                      }`}
-                    >
-                      {improving ? (
-                        <ArrowUpRight className="h-3.5 w-3.5" />
-                      ) : (
-                        <ArrowDownRight className="h-3.5 w-3.5" />
-                      )}
-                      {formatValue(Math.abs(delta), kpi.unit)}
-                    </span>
-                  )}
-                </div>
-
-                {chartData.length > 1 && (
-                  <div className="mt-4 h-24">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
-                        <XAxis dataKey="label" hide />
-                        <YAxis hide domain={['auto', 'auto']} />
-                        <Tooltip
-                          formatter={(value: number) => formatValue(value, kpi.unit)}
-                          labelFormatter={(label: string) => label}
-                          contentStyle={{
-                            fontSize: 12,
-                            borderRadius: 8,
-                            background: chart.tooltipBg,
-                            borderColor: chart.tooltipBorder,
-                            color: chart.tooltipText,
-                          }}
-                          itemStyle={{ color: chart.tooltipText }}
-                          labelStyle={{ color: chart.tooltipText }}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="value"
-                          stroke={company.color}
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-
-                {renderAlvoSection(kpi, displayValue)}
-
-                {renderNested(kpi, 1)}
-
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap gap-1.5">
-                    {kpi.source === 'integration' && <Badge tone="violet">integração</Badge>}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {/* Uma meta com produtos ligados nunca lança valor
-                        direto — o número vem da soma deles, mostrada acima. */}
-                    {canWrite && !rollup && (
-                      <button type="button" className="btn-ghost py-1.5" onClick={() => setEntryFor(kpi)}>
-                        <TrendingUp className="h-3.5 w-3.5" /> Lançar valor
-                      </button>
-                    )}
-                    {canWrite && !kpi.product_id && (
-                      <button type="button" className="btn-ghost py-1.5" onClick={() => setAttachingTo(kpi)}>
-                        <Plus className="h-3.5 w-3.5" /> Vincular produto
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </Card>
-            )
-          })}
-        </div>
-      )}
+      {kpiId ? <MetaDetail ctx={ctx} kpiId={kpiId} /> : <MetasOverview ctx={ctx} />}
 
       {/* ----------------------------------------------------- form de meta */}
       <Modal
@@ -1893,7 +1321,7 @@ function EditEntityModal({
 }
 
 // ------------------------------------------------------------------ meta
-function MetaFormModal({
+export function MetaFormModal({
   kpi,
   meta,
   people,
@@ -2159,7 +1587,7 @@ function MetaFormModal({
 }
 
 // ------------------------------------------------------------- lançamento
-function ValueEntryModal({
+export function ValueEntryModal({
   kpi,
   companyId,
   existing,
@@ -2356,7 +1784,7 @@ function ValueEntryModal({
 }
 
 // ---------------------------------------------------------------- histórico
-function HistoryModal({
+export function HistoryModal({
   kpi,
   series,
   entries,
