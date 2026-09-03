@@ -387,6 +387,7 @@ const KPI_VALUES = LATEST.map((l) => ({
   created_by: USER_ID,
   created_at: l.period_start + 'T00:00:00Z',
   updated_at: l.period_start + 'T00:00:00Z',
+  occurred_at: l.period_start + 'T00:00:00Z',
 }))
 
 // Uma linha por META (view meta_latest_values), lida pelo painel da holding —

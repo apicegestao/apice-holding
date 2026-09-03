@@ -276,6 +276,10 @@ export type KpiValue = {
   note: string | null
   source: string
   created_at: string
+  // Dia e horário exatos que este lançamento representa — diferente de
+  // period_start/period_end, que são sempre o período de agregação inteiro
+  // (ex. o mês todo, sempre começando no dia 1). Ver ValueEntryModal.
+  occurred_at: string
 }
 
 // Status de um KPI que também é meta (tem due_date). Um KPI sem prazo não
@@ -614,4 +618,7 @@ export type KpiValueEntry = {
   created_by: string | null
   created_at: string
   updated_at: string
+  // Dia e horário exatos que este lançamento fino representa — ver o mesmo
+  // campo em KpiValue.
+  occurred_at: string
 }

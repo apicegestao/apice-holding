@@ -46,6 +46,15 @@ export function formatDateTime(value: string | null | undefined) {
   return date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
+/** Valor local (sem fuso) que o input `type="datetime-local"` espera —
+ *  "2026-09-14T15:30". Usa os getters locais (não toISOString, que
+ *  converteria pra UTC e mudaria o dia/hora exibido conforme o fuso de
+ *  quem está lançando o valor). */
+export function toDateTimeLocal(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 /** "há 3 dias", "em 2 dias" — usado nos prazos de tarefa. */
 export function relativeDays(dateStr: string | null | undefined) {
   if (!dateStr) return null

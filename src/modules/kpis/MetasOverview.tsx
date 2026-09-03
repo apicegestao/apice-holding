@@ -266,12 +266,12 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
                 style={{ gridTemplateColumns: 'minmax(240px, 2fr) 110px 110px 150px 110px 130px 140px 20px' }}
               >
                 <div>Meta</div>
-                <div className="text-right">Atual</div>
-                <div className="text-right">Alvo</div>
-                <div>Progresso</div>
-                <div>Status</div>
-                <div>Prazo</div>
-                <div>Responsável</div>
+                <div className="text-center">Atual</div>
+                <div className="text-center">Alvo</div>
+                <div className="text-center">Progresso</div>
+                <div className="text-center">Status</div>
+                <div className="text-center">Prazo</div>
+                <div className="text-center">Responsável</div>
                 <div />
               </div>
             </div>

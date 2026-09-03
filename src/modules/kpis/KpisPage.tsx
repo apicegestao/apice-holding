@@ -35,11 +35,13 @@ import {
 import { supabase } from '../../core/lib/supabase'
 import {
   formatDate,
+  formatDateTime,
   formatValue,
   labelPeriod,
   periodBounds,
   splitTargetIntoPeriods,
   sumValuesInRange,
+  toDateTimeLocal,
 } from '../../core/lib/format'
 import { buildChildrenByParent, effectiveKpiValue, type RollupRow } from '../../core/lib/kpiRollup'
 import { useAuth } from '../../core/auth/AuthProvider'
@@ -1690,24 +1692,28 @@ export function ValueEntryModal({
 
   // A frequência já diz o tamanho do período — pedir início E fim toda vez
   // que alguém lança um valor é redundante. Um único campo de referência
-  // basta: a pessoa escolhe qualquer dia dentro do período (hoje, por
-  // padrão) e o sistema calcula o intervalo certo sozinho.
-  const [reference, setReference] = useState(() => initialReference ?? new Date().toISOString().slice(0, 10))
+  // basta: a pessoa escolhe qualquer dia (e horário) dentro do período
+  // (agora, por padrão) e o sistema calcula o intervalo certo sozinho. Esse
+  // mesmo campo também é o "quando" do lançamento em si — não tem dois
+  // controles separados pra uma coisa só (ver `occurred_at` no submit).
+  const [referenceDT, setReferenceDT] = useState(() =>
+    initialReference ? `${initialReference}T12:00` : toDateTimeLocal(new Date()),
+  )
   const [value, setValue] = useState<number | null>(null)
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   const { start: periodStart, end: periodEnd } = useMemo(
-    () => periodBounds(entryFrequency, new Date(`${reference}T12:00:00`)),
-    [entryFrequency, reference],
+    () => periodBounds(entryFrequency, new Date(referenceDT)),
+    [entryFrequency, referenceDT],
   )
 
   // Contexto de quem lança fino: quanto já soma no período grosso (ex. mês
   // dentro do ano) antes mesmo de salvar este lançamento.
   const coarseBounds = useMemo(
-    () => (usesEntries ? periodBounds(kpi.frequency, new Date(`${reference}T12:00:00`)) : null),
-    [usesEntries, kpi.frequency, reference],
+    () => (usesEntries ? periodBounds(kpi.frequency, new Date(referenceDT)) : null),
+    [usesEntries, kpi.frequency, referenceDT],
   )
   // Exclui o próprio período sendo editado — a mensagem sempre significa
   // "o que já está lançado além deste", tanto criando quanto editando.
@@ -1731,16 +1737,23 @@ export function ValueEntryModal({
     ? entries.some((item) => item.period_start === periodStart)
     : existing.some((item) => item.period_start === periodStart)
 
-  // Se já existe lançamento no período escolhido, o formulário vira edição.
+  // Se já existe lançamento no período escolhido, o formulário vira edição —
+  // e o campo de dia/horário passa a mostrar o `occurred_at` de verdade
+  // daquele lançamento (não o que a pessoa tinha digitado até então), pra
+  // editar mostrar exatamente quando aquilo foi lançado. Sem match (período
+  // novo), o dia/horário digitado não é mexido — ele é quem decide o
+  // período, não o contrário.
   useEffect(() => {
     if (usesEntries) {
       const found = entries.find((item) => item.period_start === periodStart)
       setValue(found ? Number(found.value) : null)
       setNote(found?.note ?? '')
+      if (found?.occurred_at) setReferenceDT(toDateTimeLocal(new Date(found.occurred_at)))
     } else {
       const found = existing.find((item) => item.period_start === periodStart)
       setValue(found ? Number(found.value) : null)
       setNote(found?.note ?? '')
+      if (found?.occurred_at) setReferenceDT(toDateTimeLocal(new Date(found.occurred_at)))
     }
   }, [periodStart, existing, entries, usesEntries])
 
@@ -1753,6 +1766,7 @@ export function ValueEntryModal({
     }
 
     setBusy(true)
+    const occurredAt = new Date(referenceDT).toISOString()
     const { error: upsertError } = usesEntries
       ? await supabase.from('kpi_value_entries').upsert(
           {
@@ -1763,6 +1777,7 @@ export function ValueEntryModal({
             value,
             note: note.trim() || null,
             created_by: profile?.id ?? null,
+            occurred_at: occurredAt,
           },
           { onConflict: 'kpi_id,period_start' },
         )
@@ -1775,6 +1790,7 @@ export function ValueEntryModal({
             value,
             note: note.trim() || null,
             source: 'manual',
+            occurred_at: occurredAt,
           },
           { onConflict: 'kpi_id,period_start' },
         )
@@ -1814,30 +1830,20 @@ export function ValueEntryModal({
     >
       <form id="value-form" onSubmit={submit} className="space-y-4">
         <Field
-          label={entryFrequency === 'daily' ? 'Dia' : 'Qualquer dia do período'}
+          label="Dia e horário do lançamento"
           hint={
             entryFrequency === 'daily'
               ? undefined
-              : `Período: ${formatDate(periodStart)} a ${formatDate(periodEnd)}`
+              : `Qualquer dia dentro do período: ${formatDate(periodStart)} a ${formatDate(periodEnd)}`
           }
         >
-          {entryFrequency === 'monthly' ? (
-            <input
-              className="input"
-              type="month"
-              required
-              value={reference.slice(0, 7)}
-              onChange={(event) => setReference(`${event.target.value}-01`)}
-            />
-          ) : (
-            <input
-              className="input"
-              type="date"
-              required
-              value={reference}
-              onChange={(event) => setReference(event.target.value)}
-            />
-          )}
+          <input
+            className="input"
+            type="datetime-local"
+            required
+            value={referenceDT}
+            onChange={(event) => setReferenceDT(event.target.value)}
+          />
         </Field>
         <Field label={`Valor apurado (${UNIT_LABEL[kpi.unit]})`}>
           <NumberInput unit={kpi.unit} required value={value} onChange={setValue} />
@@ -1933,7 +1939,12 @@ export function HistoryModal({
             <ul className="max-h-40 space-y-1 overflow-y-auto text-sm">
               {[...entries].reverse().map((item) => (
                 <li key={item.id} className="flex items-center justify-between gap-2">
-                  <span className="text-content-soft">{labelPeriod(item.period_start, kpi.entry_frequency!)}</span>
+                  <span className="text-content-soft">
+                    {labelPeriod(item.period_start, kpi.entry_frequency!)}
+                    {item.occurred_at && (
+                      <span className="ml-1.5 text-xs text-content-faint">· {formatDateTime(item.occurred_at)}</span>
+                    )}
+                  </span>
                   <span className="flex items-center gap-2">
                     <span className="font-medium text-content">{formatValue(Number(item.value), kpi.unit)}</span>
                     {canWrite && (
@@ -2003,6 +2014,7 @@ export function HistoryModal({
             <thead>
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-content-soft">
                 <th className="py-2">Período</th>
+                <th className="py-2">Lançado em</th>
                 <th className="py-2">Valor</th>
                 <th className="py-2">Origem</th>
                 <th className="py-2">Observação</th>
@@ -2013,6 +2025,9 @@ export function HistoryModal({
               {[...series].reverse().map((item) => (
                 <tr key={item.id} className="border-b border-line">
                   <td className="py-2">{labelPeriod(item.period_start, kpi.frequency)}</td>
+                  <td className="py-2 text-xs text-content-soft">
+                    {item.occurred_at ? formatDateTime(item.occurred_at) : '—'}
+                  </td>
                   <td className="py-2 font-medium">{formatValue(Number(item.value), kpi.unit)}</td>
                   <td className="py-2 text-xs text-content-soft">
                     {item.source === 'integration' ? 'integração' : 'manual'}

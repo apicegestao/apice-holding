@@ -348,12 +348,12 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
                   style={{ gridTemplateColumns: 'minmax(200px, 2fr) 110px 90px 110px 150px 110px 130px 20px' }}
                 >
                   <div>{kpi.product_id ? 'Turma' : 'Produto'}</div>
-                  <div className="text-right">Atual</div>
-                  <div className="text-right">Contrib.</div>
-                  <div className="text-right">Alvo</div>
-                  <div>Progresso</div>
-                  <div>Status</div>
-                  <div>Prazo</div>
+                  <div className="text-center">Atual</div>
+                  <div className="text-center">Contrib.</div>
+                  <div className="text-center">Alvo</div>
+                  <div className="text-center">Progresso</div>
+                  <div className="text-center">Status</div>
+                  <div className="text-center">Prazo</div>
                   <div />
                 </div>
                 {children.map((child) => (
