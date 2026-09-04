@@ -2535,3 +2535,55 @@ certo.
 **Verificação:** `npx tsc --noEmit`, `npm run build` e `npm run
 test:e2e` (suíte completa, 207 passando, 27 skipped, Desktop e Mobile
 390) limpos.
+
+## 41. Vários lançamentos no mesmo dia (com entry_frequency)
+
+Consequência direta da seção 40: uma vez com cadência diária ativada, o
+usuário foi lançar de novo no mesmo dia (uma segunda venda, por exemplo) e
+o formulário abriu em modo de EDIÇÃO do primeiro lançamento — sem como
+acumular dois valores no mesmo dia. Não era mais o bug de sincronização,
+era uma limitação de verdade: `kpi_value_entries` tinha
+`unique(kpi_id, period_start)`, então só cabia um lançamento por dia por
+natureza, e "lançar de novo" só podia mesmo significar "editar o único que
+existe".
+
+**Confirmado com o usuário antes de mudar** (mudança de comportamento pra
+todo o sistema, não só uma turma): "Lançar valor" passa a SEMPRE criar um
+lançamento novo; editar um lançamento específico só pelo lápis na lista
+"Lançamentos por dia" do Histórico.
+
+- **Migração `0037_kpi_value_entries_multiple_per_day.sql`:** derruba a
+  `unique(kpi_id, period_start)` de `kpi_value_entries`. O gatilho que soma
+  pro período grosso (`app.rollup_kpi_value_entry`, `0026_kpi_lifecycle.sql`)
+  já soma por agregação (`sum(value) where period_start between ...`) — nunca
+  dependeu de unicidade por dia, então o total continua certo com quantos
+  lançamentos o dia tiver. `kpi_values` (a linha grossa/rollup) continua
+  única por período, sem mudança — ela representa o TOTAL, não lançamentos
+  individuais. A unique dropada também era o único índice com `kpi_id`
+  líder nessa tabela — resolvido com um índice dedicado
+  (`kpi_value_entries_kpi_id_idx`), senão excluir um KPI (cascade) ou
+  buscar por `kpi_id` viraria varredura de tabela inteira.
+- **`ValueEntryModal`:** não dá mais pra inferir "é edição" só pelo dia
+  escolhido bater com um lançamento existente — precisa saber QUAL
+  lançamento (por id). Novo prop `editingEntry?: KpiValueEntry`: presente
+  = edita aquele lançamento específico (`update().eq('id', ...)`);
+  ausente = sempre um `insert()` novo, nunca mais upsert por período. O
+  efeito de sincronizar valor/observação com o que já existe (o guardado
+  por `useRef` da seção 39) agora só roda no modo SEM `entry_frequency`
+  (onde o período ainda é único de verdade); com `entry_frequency`,
+  valor/observação vêm só do `editingEntry` passado na abertura — trocar o
+  dia num lançamento novo nunca apaga o que a pessoa já digitou.
+- **`HistoryModal`:** o lápis de "Editar lançamento fino" agora passa o
+  lançamento inteiro pro callback (`onEdit(periodStart, entry)`), não só o
+  dia — o lápis do lançamento grosso (sem `entry_frequency`) continua como
+  antes, já que ali o período ainda é único.
+
+**Verificação:** `npx tsc --noEmit`, `npm run build`, `npm run test`
+(48/48) e `npm run check:contrast` (24/24) limpos. `npm run test:e2e`:
+suíte completa 209 passando (2 testes novos: vários lançamentos no mesmo
+dia somando e não virando edição sozinho, mais a re-execução dos
+cenários já existentes de lançamento único/edição), 27 skipped, sem
+falhas (Desktop e Mobile 390). `mcp__Supabase__get_advisors`: a migração
+resolveu um alerta de performance que ela mesma introduziu (índice de
+`kpi_id` que ia junto com a unique derrubada); nenhum item novo de
+segurança.

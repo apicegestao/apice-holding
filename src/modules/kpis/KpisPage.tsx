@@ -181,8 +181,14 @@ export default function KpisPage() {
   // Período pré-selecionado ao abrir "Lançar valor" a partir de um lápis de
   // editar no Histórico — null quando é um lançamento novo (padrão: hoje).
   const [entryReference, setEntryReference] = useState<string | null>(null)
-  const openEntry = useCallback((kpi: Kpi | null, reference?: string) => {
+  // Lançamento fino específico sendo editado (lápis no Histórico, lista de
+  // "Lançamentos por dia") — null = lançamento novo. Precisa ser o
+  // lançamento inteiro (não só o período) porque agora cabe mais de um no
+  // mesmo dia (0037_kpi_value_entries_multiple_per_day.sql).
+  const [editingEntry, setEditingEntry] = useState<KpiValueEntry | null>(null)
+  const openEntry = useCallback((kpi: Kpi | null, reference?: string, entry?: KpiValueEntry) => {
     setEntryReference(reference ?? null)
+    setEditingEntry(entry ?? null)
     setEntryFor(kpi)
   }, [])
   const [historyFor, setHistoryFor] = useState<Kpi | null>(null)
@@ -1042,13 +1048,16 @@ export default function KpisPage() {
           existing={seriesByKpi.get(entryFor.id) ?? []}
           entries={entriesByKpi.get(entryFor.id) ?? []}
           initialReference={entryReference ?? undefined}
+          editingEntry={editingEntry ?? undefined}
           onClose={() => {
             setEntryFor(null)
             setEntryReference(null)
+            setEditingEntry(null)
           }}
           onSaved={async () => {
             setEntryFor(null)
             setEntryReference(null)
+            setEditingEntry(null)
             await load()
           }}
         />
@@ -1062,11 +1071,11 @@ export default function KpisPage() {
           canWrite={canWrite}
           onClose={() => setHistoryFor(null)}
           onChanged={load}
-          onEdit={(periodStart) => {
+          onEdit={(periodStart, entry) => {
             // Fecha o Histórico ao abrir o lançamento — dois modais
             // empilhados nunca é a intenção (mesma convenção do resto).
             setHistoryFor(null)
-            openEntry(historyFor, periodStart)
+            openEntry(historyFor, periodStart, entry)
           }}
         />
       )}
@@ -2027,6 +2036,7 @@ export function ValueEntryModal({
   existing,
   entries,
   initialReference,
+  editingEntry,
   onClose,
   onSaved,
 }: {
@@ -2037,6 +2047,12 @@ export function ValueEntryModal({
   // Período pré-selecionado ao abrir a partir do lápis de editar no
   // Histórico — undefined/omitido = lançamento novo (padrão: hoje).
   initialReference?: string
+  // Presente = editando ESTE lançamento fino específico (vindo do lápis no
+  // Histórico). Ausente = lançamento novo — com vários lançamentos por dia
+  // permitidos (ver 0037_kpi_value_entries_multiple_per_day.sql), não dá
+  // mais pra decidir "é edição" só pelo dia escolhido bater com um já
+  // existente, precisa saber QUAL lançamento é (por id).
+  editingEntry?: KpiValueEntry
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
@@ -2059,8 +2075,8 @@ export function ValueEntryModal({
   // completo (type="date"), sem horário — só o dia importa pra decidir o
   // período.
   const [reference, setReference] = useState(() => initialReference ?? new Date().toISOString().slice(0, 10))
-  const [value, setValue] = useState<number | null>(null)
-  const [note, setNote] = useState('')
+  const [value, setValue] = useState<number | null>(() => (editingEntry ? Number(editingEntry.value) : null))
+  const [note, setNote] = useState(() => editingEntry?.note ?? '')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -2075,8 +2091,10 @@ export function ValueEntryModal({
     () => (usesEntries ? periodBounds(kpi.frequency, new Date(`${reference}T12:00:00`)) : null),
     [usesEntries, kpi.frequency, reference],
   )
-  // Exclui o próprio período sendo editado — a mensagem sempre significa
-  // "o que já está lançado além deste", tanto criando quanto editando.
+  // Exclui o próprio lançamento sendo editado (por id, não mais por dia —
+  // com vários lançamentos no mesmo dia permitidos, "o dia bate" não quer
+  // dizer "é o mesmo lançamento"). Lançamento novo não exclui nada: ele
+  // ainda não existe, então o total já lançado é o total de verdade.
   const coarseEntries = useMemo(
     () =>
       coarseBounds
@@ -2084,38 +2102,45 @@ export function ValueEntryModal({
             (item) =>
               item.period_start >= coarseBounds.start &&
               item.period_start <= coarseBounds.end &&
-              item.period_start !== periodStart,
+              item.id !== editingEntry?.id,
           )
         : [],
-    [entries, coarseBounds, periodStart],
+    [entries, coarseBounds, editingEntry],
   )
   const coarseTotal = coarseEntries.reduce((sum, item) => sum + Number(item.value), 0)
 
-  // Se já existe lançamento no período escolhido, o formulário vira edição —
-  // só afeta o título/description, o upsert é o mesmo dos dois casos.
-  const isEditing = usesEntries
-    ? entries.some((item) => item.period_start === periodStart)
-    : existing.some((item) => item.period_start === periodStart)
+  // Editar é uma ação explícita agora (veio do lápis no Histórico, com o
+  // lançamento certo em mãos) — não dá mais pra inferir "é edição" só
+  // porque o dia escolhido já tem algum valor, já que vários lançamentos
+  // cabem no mesmo dia (0037_kpi_value_entries_multiple_per_day.sql). Pra
+  // quem lança direto no período (sem entry_frequency), isso não muda: ali
+  // o período AINDA é único por natureza (kpi_values continua um valor só
+  // por período), então "o período já tem valor" continua querendo dizer
+  // "é edição".
+  const isEditing = usesEntries ? Boolean(editingEntry) : existing.some((item) => item.period_start === periodStart)
 
-  // Se já existe lançamento no período escolhido, o formulário vira edição
-  // — preenche valor/observação com o que já está salvo. Bug relatado: só
-  // sincronizar quando `periodStart` MUDA de verdade (guarda por ref), não
-  // a cada vez que o efeito roda — `existing`/`entries` são arrays vindos
-  // de fora (`?? []` cria uma referência nova toda vez que o componente
-  // pai re-renderiza, mesmo sem o período ter mudado), e sem essa guarda o
-  // efeito rodava de novo e sobrescrevia o que a pessoa estava digitando de
-  // volta pro valor salvo — o formulário parecia travado e "não salvava o
-  // lançamento atual".
+  // Sincroniza valor/observação com o que já está salvo SÓ no modo sem
+  // entry_frequency, onde um período só pode ter um valor — trocar de dia
+  // no formulário precisa refletir o que já existe naquele dia (ou limpar,
+  // se não existir nada). Bug relatado: só sincronizar quando `periodStart`
+  // MUDA de verdade (guarda por ref), não a cada vez que o efeito roda —
+  // `existing` vem de fora (`?? []` cria uma referência nova toda vez que o
+  // componente pai re-renderiza, mesmo sem o período ter mudado), e sem
+  // essa guarda o efeito rodava de novo e sobrescrevia o que a pessoa
+  // estava digitando de volta pro valor salvo — o formulário parecia
+  // travado e "não salvava o lançamento atual". No modo com
+  // entry_frequency, valor/observação só vêm de `editingEntry` (seedado uma
+  // vez no useState acima) — trocar o dia num lançamento NOVO nunca deve
+  // apagar o que a pessoa já digitou.
   const syncedPeriodRef = useRef<string | null>(null)
   useEffect(() => {
+    if (usesEntries) return
     if (syncedPeriodRef.current === periodStart) return
     syncedPeriodRef.current = periodStart
-    const found = usesEntries
-      ? entries.find((item) => item.period_start === periodStart)
-      : existing.find((item) => item.period_start === periodStart)
+    const found = existing.find((item) => item.period_start === periodStart)
     setValue(found ? Number(found.value) : null)
     setNote(found?.note ?? '')
-  }, [periodStart, existing, entries, usesEntries])
+  }, [periodStart, existing, usesEntries])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -2127,9 +2152,17 @@ export function ValueEntryModal({
 
     setBusy(true)
     const occurredAt = new Date(`${reference}T12:00:00`).toISOString()
+    // Com entry_frequency, "lançar" nunca mais é upsert por período — vários
+    // lançamentos cabem no mesmo dia agora, então editar precisa mirar o ID
+    // certo (editingEntry), e um lançamento novo é sempre um insert, nunca
+    // substitui um lançamento existente no mesmo dia por engano.
     const { error: upsertError } = usesEntries
-      ? await supabase.from('kpi_value_entries').upsert(
-          {
+      ? editingEntry
+        ? await supabase
+            .from('kpi_value_entries')
+            .update({ value, note: note.trim() || null, occurred_at: occurredAt })
+            .eq('id', editingEntry.id)
+        : await supabase.from('kpi_value_entries').insert({
             kpi_id: kpi.id,
             company_id: companyId,
             period_start: periodStart,
@@ -2138,9 +2171,7 @@ export function ValueEntryModal({
             note: note.trim() || null,
             created_by: profile?.id ?? null,
             occurred_at: occurredAt,
-          },
-          { onConflict: 'kpi_id,period_start' },
-        )
+          })
       : await supabase.from('kpi_values').upsert(
           {
             kpi_id: kpi.id,
@@ -2215,8 +2246,8 @@ export function ValueEntryModal({
             Já lançado no {FREQUENCY_LABEL[kpi.frequency].toLowerCase()} de {formatDate(coarseBounds.start)} a{' '}
             {formatDate(coarseBounds.end)}:{' '}
             <strong className="text-content">{formatValue(coarseTotal, kpi.unit)}</strong>
-            {coarseEntries.length > 0 && ` em ${coarseEntries.length} período(s)`}
-            {' '}(sem contar este lançamento).
+            {coarseEntries.length > 0 && ` em ${coarseEntries.length} lançamento(s)`}
+            {editingEntry ? ' (sem contar este lançamento).' : '.'}
           </p>
         )}
         <Field label="Observação">
@@ -2249,9 +2280,11 @@ export function HistoryModal({
   canWrite: boolean
   onClose: () => void
   onChanged: () => Promise<void>
-  // Abre "Lançar valor" pré-preenchido com este período — mesmo modal usado
-  // pra lançamento novo, só que a existência do lançamento faz virar edição.
-  onEdit: (periodStart: string) => void
+  // Abre o mesmo modal de "Lançar valor", pré-preenchido com este período —
+  // passar o `entry` (lista de lançamentos finos) faz abrir editando ELE
+  // especificamente; sem `entry` (lista grossa, sem entry_frequency) é o
+  // período que decide se vira edição, como sempre foi.
+  onEdit: (periodStart: string, entry?: KpiValueEntry) => void
 }) {
   const { notify } = useToast()
   const chart = useChartTheme()
@@ -2312,7 +2345,7 @@ export function HistoryModal({
                         <button
                           type="button"
                           className="rounded-md p-1 text-content-faint hover:bg-hover hover:text-content"
-                          onClick={() => onEdit(item.period_start)}
+                          onClick={() => onEdit(item.period_start, item)}
                           aria-label="Editar lançamento fino"
                         >
                           <Pencil className="h-3.5 w-3.5" />

@@ -1104,6 +1104,89 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await expect(dialog.getByLabel('Observação')).toHaveValue('Segundo lançamento')
   })
 
+  // Pedido explícito: vários lançamentos no mesmo dia precisam somar, não
+  // um sobrescrever o outro. Antes desta rodada, "Lançar valor" abria
+  // sozinho em modo de edição sempre que o dia escolhido já tinha um
+  // lançamento fino — mesmo dia = mesmo lançamento, sem como acumular mais
+  // de um. Corrigido: com entry_frequency, "Lançar valor" é sempre um
+  // lançamento novo; editar um específico só pelo lápis no Histórico.
+  test('vários lançamentos no mesmo dia somam — "Lançar valor" nunca vira edição sozinho', async ({ page }) => {
+    await page.clock.setFixedTime(new Date(2027, 5, 15, 12, 0, 0))
+    const kpis = KPIS.map((item) => (item.id === KPI_WITH ? { ...item, entry_frequency: 'daily' } : item))
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+
+    const entries: Record<string, unknown>[] = []
+    await page.route('**/rest/v1/kpi_value_entries*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'GET') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(entries) })
+        return
+      }
+      if (req.method() === 'PATCH') {
+        // supabase-js .update(patch).eq('id', x) manda o id como query string.
+        const id = new URL(req.url()).searchParams.get('id')?.replace('eq.', '')
+        const patch = JSON.parse(req.postData() || '{}')
+        const idx = entries.findIndex((item) => item.id === id)
+        if (idx >= 0) entries[idx] = { ...entries[idx], ...patch }
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(entries) })
+        return
+      }
+      // POST — sempre um insert novo, nunca upsert (não existe mais unique
+      // por dia em kpi_value_entries, ver 0037_kpi_value_entries_multiple_per_day.sql).
+      const body = JSON.parse(req.postData() || '{}')
+      for (const row of Array.isArray(body) ? body : [body]) {
+        entries.push({ id: `entrada-${entries.length}`, ...row })
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(entries) })
+    })
+    await page.route('**/rest/v1/kpi_values*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_WITH}`)
+    await page.waitForLoadState('networkidle')
+
+    // 1º lançamento do dia: abre em branco.
+    await page.getByRole('button', { name: 'Lançar valor' }).click()
+    let dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: /^Lançar valor/ })).toBeVisible()
+    await expect(dialog.getByLabel('Valor apurado (R$)')).toHaveValue('')
+    await dialog.getByLabel('Valor apurado (R$)').fill('100')
+    await dialog.getByLabel('Observação').fill('Manhã')
+    await dialog.getByRole('button', { name: 'Salvar' }).click()
+    await expect(page.getByText('Valor lançado.')).toBeVisible()
+
+    // 2º lançamento, MESMO dia: continua abrindo em branco — não vira
+    // edição do primeiro só porque o dia já tem lançamento.
+    await page.getByRole('button', { name: 'Lançar valor' }).click()
+    dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: /^Lançar valor/ })).toBeVisible()
+    await expect(dialog.getByLabel('Valor apurado (R$)')).toHaveValue('')
+    await dialog.getByLabel('Valor apurado (R$)').fill('50')
+    await dialog.getByLabel('Observação').fill('Tarde')
+    await dialog.getByRole('button', { name: 'Salvar' }).click()
+    // Mesmo texto de toast do primeiro lançamento (os dois são inserts) —
+    // pode ainda estar visível o do primeiro, então confere o mais recente.
+    await expect(page.getByText('Valor lançado.').last()).toBeVisible()
+
+    // Os dois lançamentos persistem lado a lado no Histórico — nenhum
+    // sobrescreveu o outro.
+    await page.getByRole('button', { name: 'Histórico' }).click()
+    const history = page.getByRole('dialog')
+    await expect(history.getByText('R$ 100,00')).toBeVisible()
+    await expect(history.getByText('R$ 50,00')).toBeVisible()
+
+    // Editar o lançamento da manhã especificamente (pelo lápis) abre com o
+    // valor/observação DELE, não do outro lançamento do mesmo dia.
+    await history.getByRole('button', { name: 'Editar lançamento fino' }).last().click()
+    dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: /^Editar lançamento/ })).toBeVisible()
+    await expect(dialog.getByLabel('Valor apurado (R$)')).toHaveValue('100,00')
+    await expect(dialog.getByLabel('Observação')).toHaveValue('Manhã')
+  })
+
   // Bug relatado: turmas cadastradas fora de ordem cronológica (set, nov,
   // out) apareciam na quebra do Detalhe na ordem de cadastro — "bagunçado"
   // de bater o olho. A ordenação automática tem que ser por prazo.
