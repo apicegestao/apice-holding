@@ -94,7 +94,7 @@ function FinancialsBoard({ company, canWrite }: { company: Company; canWrite: bo
           .order('occurred_at', { ascending: false }),
         supabase.from('departments').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
         supabase.from('products').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
-        supabase.from('product_editions').select('*').eq('company_id', company.id),
+        supabase.from('product_editions').select('*').eq('company_id', company.id).is('archived_at', null),
       ])
     setEntries((entryRows as FinancialEntry[]) ?? [])
     setDepartments((departmentRows as Department[]) ?? [])

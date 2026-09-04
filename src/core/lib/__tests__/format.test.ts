@@ -88,8 +88,16 @@ describe('attainmentRatio', () => {
     expect(attainmentRatio(5, 10, 'down')).toBe(2)
   })
 
-  it('sem valor ainda lançado (0) num KPI "down", não dá pra dividir — trata como 0', () => {
-    expect(attainmentRatio(0, 5, 'down')).toBe(0)
+  // Bug real relatado pelo usuário: alvo 5, lançado 1 mostrava 500% (sem
+  // teto); e valor 0 (o melhor resultado possível num "down") caía no
+  // "senão" e virava 0%, o oposto do esperado. As duas pontas agora usam
+  // o mesmo teto de 300%.
+  it('num KPI "down", tem teto de 300% — não escala sem limite quando o valor é pequeno', () => {
+    expect(attainmentRatio(1, 5, 'down')).toBe(3)
+  })
+
+  it('valor 0 (o melhor resultado possível) num KPI "down" usa o teto, não zero', () => {
+    expect(attainmentRatio(0, 5, 'down')).toBe(3)
   })
 
   it('devolve nulo quando falta valor, meta, ou a meta é zero', () => {

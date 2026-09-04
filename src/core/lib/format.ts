@@ -272,7 +272,17 @@ export function attainmentRatio(
   direction: 'up' | 'down',
 ): number | null {
   if (value === null || target === null || target === 0) return null
-  return direction === 'up' ? value / target : value > 0 ? target / value : 0
+  if (direction === 'up') return value / target
+  // "down" (menor é melhor, ex. churn): alvo/valor sobe acima de 100%
+  // quando o resultado é melhor que o alvo. Bug real corrigido aqui: sem
+  // teto, um valor pequeno explodia o % (alvo 5, lançado 1 → 500%); e
+  // valor 0 — o melhor resultado possível — caía no "senão" e virava 0%,
+  // o oposto do esperado. Agora valor 0 usa o mesmo teto de 300% que
+  // qualquer outro resultado muito bom, e nada passa disso (mesmo limite
+  // que os gráficos de atingimento já aplicavam por fora, por conta
+  // própria — centralizado aqui pra valer em toda barra de progresso, não
+  // só nos gráficos que lembravam de capar na mão).
+  return value > 0 ? Math.min(target / value, 3) : 3
 }
 
 /**

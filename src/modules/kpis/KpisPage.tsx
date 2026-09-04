@@ -1244,7 +1244,10 @@ function AttachProductModal({
   )
   const candidates =
     level === 'turma'
-      ? editions.filter((edition) => edition.product_id === parentKpi.product_id && !alreadyLinked.has(edition.id))
+      ? editions.filter(
+          (edition) =>
+            edition.product_id === parentKpi.product_id && !edition.archived_at && !alreadyLinked.has(edition.id),
+        )
       : products.filter((product) => !alreadyLinked.has(product.id))
   const parentProductName = products.find((item) => item.id === parentKpi.product_id)?.name ?? ''
 

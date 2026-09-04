@@ -90,6 +90,10 @@ export type ProductEdition = {
   start_date: string | null
   end_date: string | null
   status: ProductEditionStatus
+  // null = ativa. Arquivar não apaga nada, só tira da tela principal —
+  // mesmo padrão de Kpi.archived_at/Meta.archived_at, reversível a
+  // qualquer momento.
+  archived_at: string | null
   created_by: string | null
   created_at: string
   updated_at: string

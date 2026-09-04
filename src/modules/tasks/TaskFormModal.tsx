@@ -339,7 +339,11 @@ export default function TaskFormModal({
       setEditions([])
       return
     }
-    const { data } = await supabase.from('product_editions').select('*').eq('company_id', companyId)
+    const { data } = await supabase
+      .from('product_editions')
+      .select('*')
+      .eq('company_id', companyId)
+      .is('archived_at', null)
     setEditions((data as ProductEdition[]) ?? [])
   }, [])
 

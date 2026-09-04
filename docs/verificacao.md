@@ -3208,3 +3208,72 @@ link). `npx tsc --noEmit`, `npm run build`, `npx vitest run` (48/48) e
 `npm run check:contrast` (24/24) limpos. `npx playwright test`: suíte
 completa 309 passando (3 testes novos), 35 skipped, sem falhas (Desktop
 e Mobile 390).
+
+## 52. Bug do atingimento "down", arquivar turma, e simplificação do painel
+
+Lote de itens do usuário a partir de um screenshot real (empresa MDD).
+
+**1) Bug real corrigido — atingimento de alvo "down" sem teto e invertido
+no zero.** Relato: meta "Churn 2026", alvo 5, lançado 1 → painel mostrava
+"500%". `attainmentRatio()` (`core/lib/format.ts`) para direção "down"
+(menor é melhor) fazia `alvo / valor` sem limite nenhum — um valor pequeno
+contra um alvo maior explode o %. Pior: valor **0** (o melhor resultado
+possível num "down") caía no `else` e virava **0%**, o oposto do
+esperado. Achado ao investigar: dois outros lugares do sistema
+(`CompanyDashboard.tsx`'s `kpiAttainment`, `HoldingDashboard.tsx`'s
+`attainment`) já tinham descoberto o mesmo problema por conta própria e
+já capavam em 300% na mão (com comentário explícito) — só a função
+compartilhada, usada em toda barra de progresso do sistema (Alvos,
+MetaDetail, ProductDashboard, DepartmentDashboard, PersonDashboard), não
+tinha o teto. Centralizado o teto de 300% dentro da própria função (valor
+0 agora usa o teto, não zero) e os dois pontos que reimplementavam a
+mesma conta na mão foram simplificados pra só chamar `attainmentRatio()`.
+Testado com o caso exato do relato (`attainmentRatio(1, 5, 'down')` = 3,
+não mais 5) e o caso de valor 0.
+
+**2) Opção de arquivar uma turma/sub-produto.** `ProductEdition` não
+tinha nenhum jeito de sumir de vista sem excluir de vez — só `status`
+(planejamento/andamento/encerrado, não esconde nada) ou exclusão
+permanente. Migração `0043_product_edition_archive.sql` adiciona
+`archived_at` (mesmo padrão de `kpis`/`metas`: null = ativa, arquivar não
+apaga nada). `ProductsPage.tsx` ganha botão "Arquivar" por turma + seção
+recolhida "N turma(s) arquivada(s)" com botão "Reativar". Turma arquivada
+sai da lista de candidatas a vincular meta nova (`KpisPage.tsx`'s
+`AttachProductModal`) e dos seletores de turma em tarefa/lançamento
+financeiro novos (`TaskFormModal.tsx`, `FinancialsPage.tsx`,
+`ProductDashboard.tsx`'s lista de "Turmas") — mas continua acessível
+direto por link (mesma regra do arquivamento de indicador).
+
+**3) Simplificação do painel da empresa, a pedido do usuário:**
+- Removidos os cards "Próximos prazos", "Tarefas por situação" e
+  "Indicadores sem lançamento" (este último tinha acabado de nascer na
+  rodada anterior — o usuário decidiu não querer nem essa versão
+  reduzida do antigo card "Metas"; ficou combinado repensar juntos que
+  indicador faz sentido no lugar).
+- Card "Comparação entre produtos" estava desproporcionalmente alto: o
+  grid de duas colunas esticava o cartão do gráfico pra bater a altura do
+  cartão "Alvos" ao lado (`align-items: stretch`, padrão do CSS Grid) —
+  corrigido com `items-start` no container.
+- Gráfico "Metas: realizado x alvo" cortava os nomes dos alvos
+  ("Faturamento", "Churn") nas pontas — margem esquerda/direita do
+  `LineChart` era `0`/`8px`, apertada demais pra rótulo de categoria
+  centrado na borda. Virou cartão de largura cheia (sobrava só ele depois
+  de remover "Tarefas por situação", que dividia a linha com ele) e
+  ganhou margem de `16`/`24px`.
+
+**Não implementado nesta rodada — respondido/discutido em texto**:
+"como cadastro um responsável" (já existe, campo "Responsável" no form de
+Alvo — resposta direta, sem mudança de código); "Orçamento pra dentro do
+Financeiro" e "repensar outros indicadores do painel" (opinião dada,
+aguardando direção do usuário antes de mexer).
+
+**Verificação**: novo teste unitário (`attainmentRatio` com teto e caso
+zero) + 1 novo teste e2e (arquivar/reativar turma) + 1 teste e2e ajustado
+(removida a checagem de "Tarefas por situação") + 1 teste e2e reescrito
+(o card que ele cobria não existe mais — vira teste de regressão
+"continua não aparecendo"). `npx tsc --noEmit`, `npm run build`, `npx
+vitest run` (49/49) e `npm run check:contrast` (24/24) limpos. `npx
+playwright test`: suíte completa 311 passando (Desktop + Mobile), 35
+skipped, sem falhas. `mcp__Supabase__get_advisors`: nenhum item novo (a
+migração só adiciona uma coluna nullable + índice, mesmo padrão de
+`kpis.archived_at`).

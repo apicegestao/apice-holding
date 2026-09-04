@@ -8,15 +8,11 @@ import {
   ClipboardList,
   EyeOff,
   Sparkles,
-  Square,
   StickyNote,
   Target,
   Wallet,
 } from 'lucide-react'
 import {
-  Bar,
-  BarChart,
-  Cell,
   Legend,
   Line,
   LabelList,
@@ -40,11 +36,9 @@ import {
 import { buildChildrenByParent, effectiveKpiValue } from '../../core/lib/kpiRollup'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
-import { Badge, Card, CardCarousel, EmptyState, Loading, PageHeader, ProgressBar, useToast } from '../../core/ui'
+import { Badge, Card, CardCarousel, EmptyState, Loading, PageHeader, ProgressBar } from '../../core/ui'
 import {
   GOAL_STATUS_LABEL,
-  TASK_PRIORITY_LABEL,
-  TASK_STATUS_LABEL,
   type GoalStatus,
   type Insight,
   type Kpi,
@@ -56,18 +50,7 @@ import {
   type Product,
   type Profile,
   type Task,
-  type TaskStatus,
 } from '../../core/types'
-
-// Ordem fixa das colunas do gráfico de tarefas — mesma ordem do quadro kanban.
-const TASK_STATUS_ORDER: TaskStatus[] = ['todo', 'doing', 'blocked', 'done', 'canceled']
-const TASK_STATUS_COLOR: Record<TaskStatus, string> = {
-  todo: '#94A3B8',
-  doing: '#0EA5E9',
-  blocked: '#F59E0B',
-  done: '#10B981',
-  canceled: '#CBD5E1',
-}
 
 // Ponto colorido do gráfico "Metas: realizado x alvo" — verde na meta,
 // vermelho fora dela, mesmo critério de cor do resto do sistema. O eixo X é
@@ -178,7 +161,6 @@ export function IndicatorLine({ row, value }: { row: Pick<KpiRow, 'name' | 'unit
 export default function CompanyDashboard() {
   const { company, isAdmin } = useCompany()
   const chart = useChartTheme()
-  const { notify } = useToast()
   const [kpiDefs, setKpiDefs] = useState<Kpi[]>([])
   const [kpiValues, setKpiValues] = useState<KpiLatestValue[]>([])
   const [metas, setMetas] = useState<Meta[]>([])
@@ -252,17 +234,6 @@ export default function CompanyDashboard() {
     setKpiHistory((kpiHistoryResult.data as KpiValue[]) ?? [])
     setLoading(false)
   }, [company.id, isAdmin])
-
-  // Concluir sem sair do painel — abrir o quadro só pra marcar "feito" era
-  // uma volta desnecessária pra ação mais comum do dia a dia.
-  const markTaskDone = async (task: Task) => {
-    const { error } = await supabase.from('tasks').update({ status: 'done' }).eq('id', task.id)
-    if (error) {
-      notify(error.message, 'error')
-      return
-    }
-    await load()
-  }
 
   useEffect(() => {
     void load()
@@ -351,16 +322,6 @@ export default function CompanyDashboard() {
     }
     return map
   }, [products, kpiRows, tasks])
-
-  // Indicador de empresa (sem produto/turma) que ainda não recebeu nenhum
-  // lançamento — o caso original do bug "KPI sem lançamento sumia do
-  // painel". Antes isso vinha de dentro do card "Metas" (removido: listava
-  // TODO indicador, virando repetição do que "Produtos"/"Alvos" já mostram);
-  // agora é só este resto, deliberadamente pequeno.
-  const kpisSemLancamento = useMemo(
-    () => kpiRows.filter((row) => row.product_id === null && row.value === null),
-    [kpiRows],
-  )
 
   // Metas em aberto — pra bater o olho no cartão "Alvos" sem entrar em KPIs.
   const openMetas = useMemo(
@@ -476,15 +437,6 @@ export default function CompanyDashboard() {
     return { open, overdue, onTarget, offTarget }
   }, [tasks, metaRows])
 
-  const upcoming = useMemo(
-    () =>
-      stats.open
-        .filter((task) => task.due_date)
-        .sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1))
-        .slice(0, 6),
-    [stats.open],
-  )
-
   // Saúde geral: a média do atingimento de todo alvo definido — um único
   // número pra bater o olho e já saber como a empresa anda, antes de
   // entrar cartão por cartão. Só conta alvo definido; sem alvo não tem o
@@ -502,24 +454,17 @@ export default function CompanyDashboard() {
 
   // Comparação entre alvos desta empresa: % do alvo atingido. Unidades
   // diferentes (R$, %, dias) não podem virar barra na mesma escala — só o
-  // atingimento é comparável entre alvos distintos.
-  //
-  // Num alvo "up" (maior é melhor), atingimento = valor / alvo. Num "down"
-  // (menor é melhor, ex. churn), a mesma conta inverteria o sentido — por isso
-  // usamos alvo / valor, que também sobe acima de 100% quando o resultado é
-  // melhor que o alvo. Limitamos a 300% só para o gráfico não esticar demais
-  // quando o valor está próximo de zero.
+  // atingimento é comparável entre alvos distintos. `attainmentRatio` já
+  // cuida da inversão de sentido em alvo "down" (menor é melhor, ex.
+  // churn) e já tem teto embutido (300%) — aqui só reaplicamos o mesmo
+  // teto no eixo do gráfico, por clareza visual (não porque a função
+  // precise, ela já limita sozinha).
   const kpiAttainment = useMemo(() => {
     const seenNames = new Map<string, number>()
     return metaRows
       .filter((row) => row.value !== null && row.target_value !== null && row.target_value !== 0)
       .map((row) => {
-        const ratio =
-          row.direction === 'up'
-            ? row.value! / row.target_value!
-            : row.value! > 0
-              ? row.target_value! / row.value!
-              : 3
+        const ratio = attainmentRatio(row.value, row.target_value, row.direction)!
         // Dois alvos da mesma meta (ex. alvo mensal e anual) teriam o
         // mesmo rótulo no eixo — numera a partir da segunda pra distinguir.
         const seen = seenNames.get(row.name) ?? 0
@@ -531,17 +476,6 @@ export default function CompanyDashboard() {
         }
       })
   }, [metaRows])
-
-  const tasksByStatus = useMemo(
-    () =>
-      TASK_STATUS_ORDER.map((status) => ({
-        status,
-        rotulo: TASK_STATUS_LABEL[status],
-        quantidade: tasks.filter((task) => task.status === status).length,
-      })),
-    [tasks],
-  )
-  const hasTasks = tasks.length > 0
 
   if (loading) return <Loading />
 
@@ -717,7 +651,11 @@ export default function CompanyDashboard() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      {/* items-start: por padrão o grid esticaria o cartão do gráfico pra
+          bater a altura do cartão "Alvos" ao lado (grid estica os filhos
+          pro mesmo tamanho da linha por padrão) — aqui cada um fica do
+          tamanho do próprio conteúdo, sem esticar. */}
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
         <Card
           className="lg:col-span-2"
           title="Comparação entre produtos"
@@ -783,47 +721,6 @@ export default function CompanyDashboard() {
 
         <div className="space-y-6">
           <Card
-            title="Próximos prazos"
-            actions={
-              <Link to={`/empresa/${company.id}/tarefas`} className="btn-ghost py-1.5 text-xs">
-                Ver Tarefas
-              </Link>
-            }
-          >
-            {upcoming.length === 0 ? (
-              <p className="text-sm text-content-soft">Nenhuma tarefa com prazo definido.</p>
-            ) : (
-              <ul className="space-y-2.5">
-                {upcoming.map((task) => {
-                  const late = task.due_date! < new Date().toISOString().slice(0, 10)
-                  return (
-                    <li key={task.id} className="flex items-start justify-between gap-2">
-                      <span className="flex min-w-0 items-start gap-2">
-                        <button
-                          type="button"
-                          className="mt-0.5 shrink-0 text-content-faint hover:text-emerald-600 dark:hover:text-emerald-400"
-                          onClick={() => void markTaskDone(task)}
-                          aria-label="Marcar como concluída"
-                          title="Marcar como concluída"
-                        >
-                          <Square className="h-4 w-4" />
-                        </button>
-                        <span className="min-w-0 text-sm">
-                          <span className="block truncate">{task.title}</span>
-                          <span className="text-xs text-content-faint">
-                            {TASK_PRIORITY_LABEL[task.priority]}
-                          </span>
-                        </span>
-                      </span>
-                      <Badge tone={late ? 'red' : 'slate'}>{relativeDays(task.due_date)}</Badge>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </Card>
-
-          <Card
             title="Alvos"
             description="Alvo, prazo e andamento de cada meta desta empresa."
             actions={
@@ -885,134 +782,61 @@ export default function CompanyDashboard() {
               </ul>
             )}
           </Card>
-
-          {/* Resto do antigo card "Metas" (removido — listava todo
-              indicador, virando repetição do que "Produtos"/"Alvos" já
-              mostram): só o caso que ele existia pra cobrir, um indicador
-              cadastrado sem nenhum lançamento ainda. */}
-          {kpisSemLancamento.length > 0 && (
-            <Card title="Indicadores sem lançamento" description="Cadastrados, mas ainda sem o primeiro valor.">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {kpisSemLancamento.slice(0, 4).map((kpi) => (
-                  <Link
-                    key={kpi.kpi_id}
-                    to={`/empresa/${company.id}/kpis/${kpi.kpi_id}`}
-                    className="block rounded-lg border border-line p-3 transition hover:border-line-strong hover:bg-hover"
-                  >
-                    <p className="truncate text-xs font-medium uppercase tracking-wide text-content-soft">
-                      {kpi.name}
-                    </p>
-                    <div className="mt-1 flex items-end justify-between gap-2">
-                      <span className="text-xl font-semibold text-content-faint">—</span>
-                      <Badge tone="slate">sem lançamento</Badge>
-                    </div>
-                    <p className="mt-0.5 text-[11px] text-content-faint">aguardando o primeiro valor</p>
-                  </Link>
-                ))}
-              </div>
-            </Card>
-          )}
         </div>
       </div>
 
-      {/* ------------------------------------------------- gráficos comparativos */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card
-          title="Metas: realizado x alvo"
-          description="Quanto cada meta entregou frente ao próprio alvo. A linha marca os 100%."
-        >
-          {kpiAttainment.length === 0 ? (
-            <EmptyState
-              title="Nada para comparar ainda"
-              description="Defina um alvo e lance ao menos um valor na meta dela."
-            />
-          ) : (
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={kpiAttainment} margin={{ top: 20, right: 8, bottom: 0, left: 0 }}>
-                  <XAxis
-                    dataKey="nome"
-                    tick={{ fontSize: 11, fill: chart.tick }}
-                    axisLine={{ stroke: chart.axis }}
-                    tickLine={false}
-                    interval={0}
-                    angle={kpiAttainment.length > 4 ? -20 : 0}
-                    textAnchor={kpiAttainment.length > 4 ? 'end' : 'middle'}
-                    height={kpiAttainment.length > 4 ? 46 : 24}
+      {/* ------------------------------------------------- gráfico comparativo */}
+      <Card
+        title="Metas: realizado x alvo"
+        description="Quanto cada meta entregou frente ao próprio alvo. A linha marca os 100%."
+      >
+        {kpiAttainment.length === 0 ? (
+          <EmptyState
+            title="Nada para comparar ainda"
+            description="Defina um alvo e lance ao menos um valor na meta dela."
+          />
+        ) : (
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={kpiAttainment} margin={{ top: 20, right: 24, bottom: 0, left: 16 }}>
+                <XAxis
+                  dataKey="nome"
+                  tick={{ fontSize: 11, fill: chart.tick }}
+                  axisLine={{ stroke: chart.axis }}
+                  tickLine={false}
+                  interval={0}
+                  angle={kpiAttainment.length > 3 ? -20 : 0}
+                  textAnchor={kpiAttainment.length > 3 ? 'end' : 'middle'}
+                  height={kpiAttainment.length > 3 ? 46 : 24}
+                />
+                <YAxis unit="%" tick={{ fontSize: 11, fill: chart.tick }} axisLine={false} tickLine={false} width={44} />
+                <Tooltip
+                  cursor={{ stroke: chart.axis, strokeDasharray: '4 4' }}
+                  contentStyle={{
+                    fontSize: 12,
+                    borderRadius: 8,
+                    background: chart.tooltipBg,
+                    borderColor: chart.tooltipBorder,
+                    color: chart.tooltipText,
+                  }}
+                  itemStyle={{ color: chart.tooltipText }}
+                  labelStyle={{ color: chart.tooltipText }}
+                  formatter={(value: number) => [`${value}% do alvo`, 'Realizado']}
+                />
+                <ReferenceLine y={100} stroke={chart.reference} strokeDasharray="4 4" ifOverflow="extendDomain" />
+                <Line dataKey="atingimento" stroke={chart.axis} strokeWidth={2} dot={attainmentDot}>
+                  <LabelList
+                    dataKey="atingimento"
+                    position="top"
+                    formatter={(value: number) => `${value}%`}
+                    style={{ fontSize: 11, fill: chart.label }}
                   />
-                  <YAxis unit="%" tick={{ fontSize: 11, fill: chart.tick }} axisLine={false} tickLine={false} width={44} />
-                  <Tooltip
-                    cursor={{ stroke: chart.axis, strokeDasharray: '4 4' }}
-                    contentStyle={{
-                      fontSize: 12,
-                      borderRadius: 8,
-                      background: chart.tooltipBg,
-                      borderColor: chart.tooltipBorder,
-                      color: chart.tooltipText,
-                    }}
-                    itemStyle={{ color: chart.tooltipText }}
-                    labelStyle={{ color: chart.tooltipText }}
-                    formatter={(value: number) => [`${value}% do alvo`, 'Realizado']}
-                  />
-                  <ReferenceLine y={100} stroke={chart.reference} strokeDasharray="4 4" ifOverflow="extendDomain" />
-                  <Line dataKey="atingimento" stroke={chart.axis} strokeWidth={2} dot={attainmentDot}>
-                    <LabelList
-                      dataKey="atingimento"
-                      position="top"
-                      formatter={(value: number) => `${value}%`}
-                      style={{ fontSize: 11, fill: chart.label }}
-                    />
-                  </Line>
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </Card>
-
-        <Card title="Tarefas por situação" description="Distribuição do quadro desta empresa.">
-          {!hasTasks ? (
-            <EmptyState title="Nenhuma tarefa ainda" description="Crie a primeira tarefa da empresa." />
-          ) : (
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={tasksByStatus} margin={{ top: 20, right: 8, bottom: 0, left: 0 }}>
-                  <XAxis
-                    dataKey="rotulo"
-                    tick={{ fontSize: 11, fill: chart.tick }}
-                    axisLine={{ stroke: chart.axis }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fontSize: 11, fill: chart.tick }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={32}
-                  />
-                  <Tooltip
-                    cursor={{ fill: 'rgb(148 163 184 / .14)' }}
-                    contentStyle={{
-                      fontSize: 12,
-                      borderRadius: 8,
-                      background: chart.tooltipBg,
-                      borderColor: chart.tooltipBorder,
-                      color: chart.tooltipText,
-                    }}
-                    itemStyle={{ color: chart.tooltipText }}
-                    labelStyle={{ color: chart.tooltipText }}
-                  />
-                  <Bar dataKey="quantidade" radius={[4, 4, 0, 0]} maxBarSize={56}>
-                    {tasksByStatus.map((row) => (
-                      <Cell key={row.status} fill={TASK_STATUS_COLOR[row.status]} />
-                    ))}
-                    <LabelList dataKey="quantidade" position="top" style={{ fontSize: 11, fill: chart.label }} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </Card>
-      </div>
+                </Line>
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
 
       {isAdmin && insights.length > 0 && (
         <Card

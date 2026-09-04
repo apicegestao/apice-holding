@@ -92,23 +92,28 @@ test.describe('painel', () => {
     })
   }
 
-  // Item 1: uma meta cadastrada sem nenhum valor lançado ainda é uma meta de
-  // verdade — não pode desaparecer do painel da empresa.
-  test('meta sem lançamento aparece no painel (não some)', async ({ page }) => {
+  // Item 1 (histórico) pedia que um indicador sem lançamento nenhum não
+  // sumisse do painel — isso morava no card "Indicadores sem lançamento",
+  // removido nesta rodada a pedido do usuário junto de "Próximos prazos" e
+  // "Tarefas por situação" (simplificação do painel, ver "vamos repensar
+  // outros indicadores" na mesma conversa). Cobertura movida pra dentro da
+  // tela de Metas (MetasOverview/MetaDetail já mostram "sem lançamento"
+  // sem depender do painel) — aqui só confere que ele realmente não
+  // aparece mais, pra não voltar por engano numa próxima rodada sem
+  // decisão consciente.
+  test('indicador sem lançamento não aparece mais como card solto no painel', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID}`)
     await page.waitForLoadState('networkidle')
-    // Âncora no início ("^") pra não colidir com "Faturamento Entre Donos"
-    // (produto da Vibra, também sem lançamento direto — o mock de REST não
-    // filtra por empresa, então as duas aparecem na mesma consulta).
-    await expect(page.getByRole('link', { name: /^Faturamento —/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Indicadores sem lançamento' })).not.toBeVisible()
   })
 
-  // Itens 4 e 5: gráficos comparativos aparecem quando há o que comparar.
-  test('gráficos comparativos aparecem no painel da empresa', async ({ page }) => {
+  // Item 4: gráfico comparativo aparece quando há o que comparar. "Tarefas
+  // por situação" e "Próximos prazos" saíram do painel a pedido do usuário
+  // (rodada de simplificação) — não tem mais o que testar deles aqui.
+  test('gráfico comparativo aparece no painel da empresa', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}`)
     await page.waitForLoadState('networkidle')
     await expect(page.getByText('Metas: realizado x alvo')).toBeVisible()
-    await expect(page.getByText('Tarefas por situação')).toBeVisible()
   })
 
   test('gráfico comparativo entre empresas aparece no painel da holding', async ({ page }) => {
@@ -1176,6 +1181,36 @@ test.describe('metas de produto e sub-produto', () => {
     await page.getByRole('button', { name: /^Vincular/ }).click()
 
     await expect(page.getByText('Meta vinculada.')).toBeVisible()
+  })
+
+  // Pedido do usuário: opção de arquivar um sub-produto (turma). Não
+  // apaga nada — só sai da lista principal, com um jeito de voltar.
+  test('arquivar uma turma some da lista principal e reativar traz de volta', async ({ page }) => {
+    const editions = PRODUCT_EDITIONS.map((edition) => ({ ...edition, archived_at: null as string | null }))
+    await page.route('**/rest/v1/product_editions*', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        const id = (new URL(route.request().url()).searchParams.get('id') ?? '').replace('eq.', '')
+        const target = editions.find((edition) => edition.id === id)
+        if (target) Object.assign(target, body)
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(editions) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByText('Entre Donos', { exact: true }).click()
+
+    await expect(page.getByText('Imersão Setembro 2026')).toBeVisible()
+    await page.getByRole('button', { name: 'Arquivar Imersão Setembro 2026' }).click()
+    await expect(page.getByText('Turma arquivada.')).toBeVisible()
+    await expect(page.getByText('Imersão Setembro 2026')).not.toBeVisible()
+
+    await page.getByText('1 turma(s) arquivada(s)').click()
+    await expect(page.getByRole('button', { name: 'Reativar' })).toBeVisible()
+    await page.getByRole('button', { name: 'Reativar' }).click()
+    await expect(page.getByText('Turma reativada.')).toBeVisible()
+    await expect(page.getByText('Imersão Setembro 2026')).toBeVisible()
   })
 
   test('clicar numa meta do produto abre o Detalhe dela em Metas', async ({ page }) => {

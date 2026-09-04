@@ -14,7 +14,7 @@
 // pra vincular vários indicadores de uma vez.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarRange, ClipboardList, LayoutDashboard, Pencil, Plus, Target, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, CalendarRange, ClipboardList, LayoutDashboard, Pencil, Plus, Target, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { formatDate, formatValue } from '../../core/lib/format'
 import { buildChildrenByParent, contributionRatio, effectiveKpiValue } from '../../core/lib/kpiRollup'
@@ -274,13 +274,20 @@ export default function ProductsPage() {
   const sortedEditionsFor = useCallback(
     (productId: string | null) =>
       editions
-        .filter((edition) => edition.product_id === productId)
+        .filter((edition) => edition.product_id === productId && !edition.archived_at)
         .sort((a, b) => byValueDesc(editionValue(a.id), editionValue(b.id))),
     [editions, editionValue],
+  )
+  // Arquivadas ficam à parte, recolhidas — não somem de vez (dá pra
+  // reativar), mas não disputam espaço com a lista principal.
+  const archivedEditionsFor = useCallback(
+    (productId: string | null) => editions.filter((edition) => edition.product_id === productId && edition.archived_at),
+    [editions],
   )
 
   const activeProduct = useMemo(() => products.find((item) => item.id === activeId) ?? null, [products, activeId])
   const activeEditions = useMemo(() => sortedEditionsFor(activeId), [sortedEditionsFor, activeId])
+  const archivedEditions = useMemo(() => archivedEditionsFor(activeId), [archivedEditionsFor, activeId])
 
   // -------------------------------------------------------------- produto
   const openCreate = () => {
@@ -399,6 +406,33 @@ export default function ProductsPage() {
     setEditions((current) => current.map((item) => (item.id === edition.id ? { ...item, status } : item)))
     const { error: updateError } = await supabase.from('product_editions').update({ status }).eq('id', edition.id)
     if (updateError) notify(updateError.message, 'error')
+  }
+
+  // Pedido do usuário: opção de arquivar uma turma/edição — diferente de
+  // excluir (editionDelete, abaixo), não apaga nada nem tira o histórico
+  // de lançamento das metas vinculadas, só some da lista principal (dá
+  // pra reativar a qualquer momento, seção "arquivada(s)" abaixo).
+  const archiveEdition = async (edition: ProductEdition) => {
+    const { error } = await supabase
+      .from('product_editions')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', edition.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify('Turma arquivada.')
+    await load()
+  }
+
+  const unarchiveEdition = async (edition: ProductEdition) => {
+    const { error } = await supabase.from('product_editions').update({ archived_at: null }).eq('id', edition.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify('Turma reativada.')
+    await load()
   }
 
   const editionDelete = useConfirmDelete<ProductEdition>(async (edition) => {
@@ -654,6 +688,17 @@ export default function ProductsPage() {
                             {canWrite && (
                               <button
                                 type="button"
+                                className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
+                                onClick={() => void archiveEdition(edition)}
+                                aria-label={`Arquivar ${edition.name}`}
+                                title="Arquivar"
+                              >
+                                <Archive className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {canWrite && (
+                              <button
+                                type="button"
                                 className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
                                 onClick={() => editionDelete.ask(edition)}
                                 aria-label="Remover edição"
@@ -693,6 +738,33 @@ export default function ProductsPage() {
                     )
                   })}
                 </ul>
+              )}
+
+              {archivedEditions.length > 0 && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-xs font-medium text-content-faint">
+                    {archivedEditions.length} turma(s) arquivada(s)
+                  </summary>
+                  <ul className="mt-2 space-y-2">
+                    {archivedEditions.map((edition) => (
+                      <li
+                        key={edition.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line p-2.5 opacity-60"
+                      >
+                        <p className="min-w-0 truncate text-sm text-content">{edition.name}</p>
+                        {canWrite && (
+                          <button
+                            type="button"
+                            className="btn-ghost shrink-0 py-1 text-xs"
+                            onClick={() => void unarchiveEdition(edition)}
+                          >
+                            <ArchiveRestore className="h-3.5 w-3.5" /> Reativar
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               )}
 
               {canWrite && (

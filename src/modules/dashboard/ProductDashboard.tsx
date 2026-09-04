@@ -129,6 +129,7 @@ export default function ProductDashboard() {
         .select('*')
         .eq('product_id', productId)
         .eq('company_id', company.id)
+        .is('archived_at', null)
         .order('start_date', { ascending: false, nullsFirst: false }),
       supabase.from('kpis').select('*').eq('company_id', company.id).eq('is_active', true).is('archived_at', null),
       supabase.from('kpi_latest_values').select('*').eq('company_id', company.id).is('archived_at', null),

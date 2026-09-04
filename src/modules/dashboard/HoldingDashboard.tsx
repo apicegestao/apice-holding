@@ -318,12 +318,7 @@ export default function HoldingDashboard() {
           if (!list.length) return null
 
           const percentages = list.map((meta) => {
-            const ratio =
-              meta.direction === 'up'
-                ? meta.value! / Number(meta.target_value)
-                : meta.value! > 0
-                  ? Number(meta.target_value) / meta.value!
-                  : 3
+            const ratio = attainmentRatio(meta.value, meta.target_value, meta.direction)!
             return Math.max(0, Math.min(ratio, 3) * 100)
           })
           const media = percentages.reduce((sum, value) => sum + value, 0) / percentages.length
