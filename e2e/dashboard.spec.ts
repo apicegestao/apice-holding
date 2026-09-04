@@ -14,6 +14,7 @@ import {
   KPI_WITH,
   KPIS,
   login,
+  META_LATEST_VALUES,
   METAS,
   mockSupabase,
   NOTES,
@@ -107,6 +108,92 @@ test.describe('painel', () => {
     // "Metas no alvo por empresa" (redundante com a barrinha compacta que
     // passou a viver dentro de cada cartão de empresa).
     await expect(page.getByText('Faturamento por produto no grupo')).toBeVisible()
+  })
+
+  // Bug relatado pelo usuário: o card de empresa no painel da Holding não
+  // mostrava o valor de uma meta de empresa cujo lançamento só existe dois
+  // níveis abaixo (produto → turma) — a página lia direto de
+  // meta_latest_values (view que só traz linha com valor pra KPI com
+  // lançamento PRÓPRIO) em vez de somar a cadeia parent_kpi_id no
+  // cliente, do jeito que CompanyDashboard/ProductsPage já faziam.
+  // KPI_PRODUCT/KPI_EDITION (fixtures) sozinhos não reproduzem o caso: o
+  // painel da Holding só olha meta de indicador de empresa inteira
+  // (product_id null, filtrado no load()), e KPI_PRODUCT tem product_id
+  // preenchido. Por isso este teste cria um indicador de empresa novo e
+  // reparenta KPI_PRODUCT por baixo dele, formando uma cadeia de 3
+  // níveis (empresa → produto → turma).
+  test('meta de empresa aparece na holding quando o valor só existe dois níveis abaixo (produto → turma)', async ({ page }) => {
+    const ROOT_KPI = 'kpi-holding-rollup-teste'
+    const ROOT_META = 'meta-holding-rollup-teste'
+    const kpis = KPIS.map((item) => (item.id === KPI_PRODUCT ? { ...item, parent_kpi_id: ROOT_KPI } : item)).concat({
+      id: ROOT_KPI,
+      company_id: COMPANY_ID_2,
+      name: 'Faturamento total do grupo (teste)',
+      description: '',
+      category: 'Financeiro',
+      unit: 'currency',
+      direction: 'up',
+      frequency: 'yearly',
+      source: 'manual',
+      integration_id: null,
+      display_order: 6,
+      is_active: true,
+      created_by: USER_ID,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      product_id: null,
+      product_edition_id: null,
+      parent_kpi_id: null,
+      archived_at: null,
+      entry_frequency: null,
+    })
+    // Espelha exatamente o que a view meta_latest_values de verdade
+    // devolveria: value null, porque este indicador nunca lança direto —
+    // o valor de verdade é a soma de KPI_PRODUCT → KPI_EDITION (32000),
+    // calculada no cliente.
+    // O cartão de empresa só mostra as 4 primeiras metas da lista
+    // (companyMetas.slice(0, 4)) — a Vibra já tem 4 outras metas nas
+    // fixtures (WITH + os 3 KPI_EXTRA), então sem esse filtro a nova meta
+    // deste teste ficaria de fora do corte antes mesmo de chegar à tela.
+    // Mantém só a meta de MRR (KPI_WITH) da Vibra, ao lado da nova.
+    const metaLatest = META_LATEST_VALUES.filter(
+      (row) => row.company_id !== COMPANY_ID_2 || row.kpi_id === KPI_WITH,
+    ).concat({
+      meta_id: ROOT_META,
+      kpi_id: ROOT_KPI,
+      company_id: COMPANY_ID_2,
+      name: 'Faturamento total do grupo (teste)',
+      unit: 'currency',
+      direction: 'up',
+      product_id: null,
+      product_edition_id: null,
+      parent_kpi_id: null,
+      value: null,
+      period_start: null,
+      period_end: null,
+      target_value: 500000,
+      due_date: '2026-12-31',
+      owner_id: null,
+      status: 'active',
+      archived_at: null,
+    })
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+    await page.route('**/rest/v1/meta_latest_values*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(metaLatest) })
+    })
+
+    await page.goto('/holding')
+    await page.waitForLoadState('networkidle')
+
+    const row = page.locator('li', { hasText: 'Faturamento total do grupo (teste)' })
+    await expect(row).toBeVisible()
+    // 32000 é o valor lançado só em KPI_EDITION (turma), duas cadeias
+    // parent_kpi_id abaixo — se a soma no cliente quebrar, volta a
+    // mostrar "—" (o value: null vindo direto da view). O valor aparece
+    // duas vezes na linha (destaque + legenda "de R$ 500.000,00").
+    await expect(row.getByText('R$ 32.000,00').first()).toBeVisible()
   })
 
   // Item 3: no celular a troca de empresa é um menu suspenso; no desktop

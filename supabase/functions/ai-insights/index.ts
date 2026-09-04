@@ -37,6 +37,12 @@ um alvo de nível produto ou turma, deixe claro o nível ("o alvo da turma X do 
 Nunca compare ou some alvos de níveis diferentes como se fossem o mesmo objetivo — um alvo de turma perdido
 não é equivalente a um alvo de empresa perdido.
 
+Por causa dessa cascata, uma meta de nível "empresa" ou "produto" costuma nunca ter lançamento DIRETO — seu
+valor de verdade é sempre a soma das turmas por baixo. Por isso "valor_atual" (na lista de metas) e
+"valor"/"metas_consolidadas" (no retrato do grupo) já vêm com essa soma pronta — use-os pra falar do valor
+atual de qualquer meta. Um "ultimos_valores" vazio numa meta de empresa/produto é normal (ela nunca lança
+direto) e NÃO significa que a meta está sem nenhum dado — confira "valor_atual" antes de dizer isso.
+
 Um alvo pode vir repartido em "parcelas" (dia/semana/quinzena/mês/bimestre/trimestre/semestre/ano,
 campo "periodicidade") — cada parcela é uma cota daquele período específico, não um acumulado. Se o
 retrato trouxer parcelas, cite qual período especificamente ficou devendo (ex. "o mês de agosto ficou
@@ -183,6 +189,42 @@ const MODULE_READERS: Record<string, ModuleReader> = {
     }
     const ownerName = new Map((owners ?? []).map((o) => [o.id, o.full_name]))
 
+    // Cadeia de soma (turma → produto → empresa, ver core/lib/kpiRollup.ts
+    // no frontend): um indicador de empresa/produto nunca lança direto —
+    // seu valor de verdade é a soma dos filhos. `ultimos_valores` abaixo
+    // continua mostrando só o histórico DIRETO de cada kpi_id (correto pra
+    // quem lança direto, mas sempre vazio pra quem só soma); `valor_atual`
+    // é o número que valeria a pena a IA citar quando for falar do
+    // indicador como um todo — já com a soma incluída.
+    const childrenByParent = new Map<string, string[]>()
+    for (const k of kpis ?? []) {
+      if (!k.parent_kpi_id) continue
+      const list = childrenByParent.get(k.parent_kpi_id) ?? []
+      list.push(k.id)
+      childrenByParent.set(k.parent_kpi_id, list)
+    }
+    function effectiveValue(kpiId: string, seen: Set<string> = new Set()): number | null {
+      if (seen.has(kpiId)) return null
+      seen.add(kpiId)
+      const children = childrenByParent.get(kpiId)
+      if (children?.length) {
+        let total = 0
+        let any = false
+        for (const childId of children) {
+          const value = effectiveValue(childId, seen)
+          if (value !== null) {
+            total += value
+            any = true
+          }
+        }
+        return any ? total : null
+      }
+      // history[kpiId][0] é sempre o mais recente (query ordenada por
+      // period_start desc antes de virar bucket).
+      const latest = history[kpiId]?.[0]
+      return latest ? latest.value : null
+    }
+
     type MetaRow = {
       id: string
       kpi_id: string
@@ -210,7 +252,12 @@ const MODULE_READERS: Record<string, ModuleReader> = {
         unidade: k.unit,
         direcao: k.direction, // "up" = quanto maior melhor
         frequencia: k.frequency,
+        // Histórico DIRETO deste kpi_id — vazio de propósito quando o
+        // indicador só soma filhos (nunca lança direto). Pra saber o valor
+        // atual DE VERDADE (com a soma da cascata incluída), use
+        // valor_atual, não o último item daqui.
         ultimos_valores: (history[k.id] ?? []).slice().reverse(),
+        valor_atual: effectiveValue(k.id),
         metas: (metasByKpi[k.id] ?? []).map((m) => ({
           meta: m.target_value === null ? null : Number(m.target_value),
           prazo: m.due_date,
@@ -305,13 +352,13 @@ async function companyContext(companyId: string) {
 }
 
 async function holdingContext() {
-  const [{ data: snapshots }, { data: metas }, { data: companies }, { data: integrations }, { data: budgets }] =
+  const [{ data: snapshots }, { data: metas }, { data: companies }, { data: integrations }, { data: budgets }, { data: kpiDefs }, { data: kpiLatest }] =
     await Promise.all([
       admin.rpc('company_snapshots'),
       admin
         .from('meta_latest_values')
         .select(
-          'company_id, name, value, target_value, unit, direction, period_start, due_date, status, product_id, product_edition_id',
+          'company_id, kpi_id, name, value, target_value, unit, direction, period_start, due_date, status, product_id, product_edition_id',
         )
         .limit(300),
       admin.from('companies').select('id, name, sector'),
@@ -319,9 +366,48 @@ async function holdingContext() {
       // sinal de holding, não só de empresa.
       admin.from('integrations').select('company_id, name, is_active, last_status, last_run_at'),
       admin.from('budgets').select('id, company_id, title, status, event_date').limit(100),
+      // Cadeia de soma (mesmo problema do painel da holding no frontend —
+      // ver core/lib/kpiRollup.ts): meta_latest_values.value só reflete
+      // lançamento DIRETO no kpi_id da própria meta. Um indicador de
+      // empresa/produto que só soma turmas (nunca lança direto) chega aqui
+      // com value=null mesmo tendo dado de verdade nas turmas por baixo —
+      // sem a cadeia completa, a IA veria "sem lançamento nenhum" pra um
+      // indicador que na verdade tem, e podia afirmar isso pro usuário.
+      admin.from('kpis').select('id, parent_kpi_id').eq('is_active', true).is('archived_at', null),
+      admin.from('kpi_latest_values').select('kpi_id, value').is('archived_at', null),
     ])
 
   const byId = new Map((companies ?? []).map((c) => [c.id, c.name]))
+
+  const valueByKpi = new Map((kpiLatest ?? []).map((row) => [row.kpi_id, Number(row.value)]))
+  const childrenByParent = new Map<string, string[]>()
+  for (const row of kpiDefs ?? []) {
+    if (!row.parent_kpi_id) continue
+    const list = childrenByParent.get(row.parent_kpi_id) ?? []
+    list.push(row.id)
+    childrenByParent.set(row.parent_kpi_id, list)
+  }
+  // Mesma recursão de core/lib/kpiRollup.ts (effectiveKpiValue) — duplicada
+  // aqui porque a edge function (Deno) não importa de src/ (alvo de build
+  // separado do frontend, Vite/navegador).
+  function effectiveValue(kpiId: string, seen: Set<string> = new Set()): number | null {
+    if (seen.has(kpiId)) return null
+    seen.add(kpiId)
+    const children = childrenByParent.get(kpiId)
+    if (children?.length) {
+      let total = 0
+      let any = false
+      for (const childId of children) {
+        const value = effectiveValue(childId, seen)
+        if (value !== null) {
+          total += value
+          any = true
+        }
+      }
+      return any ? total : null
+    }
+    return valueByKpi.get(kpiId) ?? null
+  }
 
   // Mesma cascata de 3 níveis do contexto de empresa — sem isso a IA veria
   // alvo de turma e alvo de empresa misturados na mesma lista, sem saber
@@ -361,7 +447,7 @@ async function holdingContext() {
       nivel: m.product_edition_id ? 'turma' : m.product_id ? 'produto' : 'empresa',
       produto: m.product_id ? (metaProductName.get(m.product_id) ?? null) : null,
       edicao: m.product_edition_id ? (metaEditionName.get(m.product_edition_id) ?? null) : null,
-      valor: m.value === null ? null : Number(m.value),
+      valor: effectiveValue(m.kpi_id),
       meta: m.target_value === null ? null : Number(m.target_value),
       unidade: m.unit,
       direcao: m.direction,

@@ -40,7 +40,7 @@ import {
   isOnTarget,
   relativeDays,
 } from '../../core/lib/format'
-import { buildChildrenByParent } from '../../core/lib/kpiRollup'
+import { buildChildrenByParent, effectiveKpiValue, type RollupRow } from '../../core/lib/kpiRollup'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { useChartTheme } from '../../core/theme/ThemeProvider'
 import {
@@ -68,6 +68,10 @@ import {
 
 const OPEN_STATUSES: TaskStatus[] = ['todo', 'doing', 'blocked']
 
+// Só os campos que a cadeia de soma precisa (id, empresa, pai) — o resto
+// (nome, unidade...) já vem de kpi_latest_values/meta_latest_values.
+type RollupDef = { kpi_id: string; company_id: string; parent_kpi_id: string | null }
+
 // Ponto colorido do gráfico "Metas x realizado" — mesma cor da empresa que
 // já aparece em todo canto do sistema (aba, tarja do card…), só que agora
 // ligados por uma linha em vez de barras separadas. O raio cresce com a
@@ -87,6 +91,11 @@ export default function HoldingDashboard() {
   const [snapshots, setSnapshots] = useState<CompanySnapshot[]>([])
   const [metas, setMetas] = useState<MetaLatestValue[]>([])
   const [kpiValues, setKpiValues] = useState<KpiLatestValue[]>([])
+  // Definição de TODO indicador ativo (todo nível, toda empresa) — só pra
+  // montar a cadeia de soma (parent_kpi_id). kpi_latest_values (acima) não
+  // basta pra isso: só traz quem TEM lançamento direto, e um indicador que
+  // só soma filhos (empresa/produto) nunca lança direto — ver kpiRollup.ts.
+  const [kpiDefs, setKpiDefs] = useState<RollupDef[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
@@ -96,7 +105,7 @@ export default function HoldingDashboard() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [snapshotResult, metaResult, kpiValueResult, productResult, taskResult, insightResult] =
+    const [snapshotResult, metaResult, kpiValueResult, kpiDefResult, productResult, taskResult, insightResult] =
       await Promise.all([
         supabase.rpc('company_snapshots'),
         supabase.from('meta_latest_values').select('*').is('archived_at', null),
@@ -106,6 +115,8 @@ export default function HoldingDashboard() {
         // produto/turma que só soma filhos (ver kpiRollup.ts) costuma não
         // ter alvo próprio nenhum, então não apareceria ali.
         supabase.from('kpi_latest_values').select('*').is('archived_at', null),
+        // Cadeia de soma completa (ver comentário do estado kpiDefs acima).
+        supabase.from('kpis').select('id, company_id, parent_kpi_id').eq('is_active', true).is('archived_at', null),
         supabase.from('products').select('*').eq('is_active', true),
         // A RLS já entrega só o que enxergo; aqui reduzo ao que é meu.
         supabase
@@ -129,6 +140,11 @@ export default function HoldingDashboard() {
     // company_snapshots() (o RPC por trás dos totais deste painel).
     setMetas(((metaResult.data as MetaLatestValue[]) ?? []).filter((meta) => meta.product_id === null))
     setKpiValues((kpiValueResult.data as KpiLatestValue[]) ?? [])
+    setKpiDefs(
+      (kpiDefResult.data as { id: string; company_id: string; parent_kpi_id: string | null }[] ?? []).map(
+        (row) => ({ kpi_id: row.id, company_id: row.company_id, parent_kpi_id: row.parent_kpi_id }),
+      ),
+    )
     setProducts((productResult.data as Product[]) ?? [])
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
@@ -162,19 +178,75 @@ export default function HoldingDashboard() {
     [memberships],
   )
 
+  // Cadeia de soma (turma → produto → empresa): kpiDefs garante que TODO
+  // indicador ativo entra no mapa pai→filhos, mesmo quem nunca lança
+  // direto (um indicador de empresa/produto só soma filhos — kpiRollup.ts)
+  // — kpi_latest_values sozinho não bastaria, ele só traz quem TEM
+  // lançamento próprio. Bug real corrigido aqui: "Faturamento 2026" (e
+  // qualquer outro indicador de empresa com produtos/turmas por baixo)
+  // sempre aparecia com R$ 0,00 neste painel, porque meta_latest_values.value
+  // só reflete lançamento DIRETO no próprio kpi_id — nunca soma os filhos.
+  // Mesmo padrão que CompanyDashboard.tsx já usa pro painel de uma empresa
+  // só; aqui é a mesma conta, só que com indicadores de todas as empresas
+  // juntos (kpi_id é uuid único, não colide entre empresas).
+  const rollupRows = useMemo<RollupRow[]>(() => {
+    const valueByKpi = new Map(kpiValues.map((row) => [row.kpi_id, Number(row.value)]))
+    return kpiDefs.map((def) => ({
+      kpi_id: def.kpi_id,
+      parent_kpi_id: def.parent_kpi_id,
+      value: valueByKpi.get(def.kpi_id) ?? null,
+    }))
+  }, [kpiDefs, kpiValues])
+  const childrenByParent = useMemo(() => buildChildrenByParent(rollupRows), [rollupRows])
+  const rollupRowById = useMemo(() => new Map(rollupRows.map((row) => [row.kpi_id, row])), [rollupRows])
+  const effectiveValue = useCallback(
+    (kpiId: string) => effectiveKpiValue(kpiId, childrenByParent, rollupRowById),
+    [childrenByParent, rollupRowById],
+  )
+
+  // Toda conta abaixo usa o valor DE VERDADE (soma incluída), nunca o
+  // `value` cru de meta_latest_values.
+  const metasEffective = useMemo(
+    () => metas.map((meta) => ({ ...meta, value: effectiveValue(meta.kpi_id) })),
+    [metas, effectiveValue],
+  )
+
+  // No-alvo/fora-do-alvo por empresa a partir do valor de verdade —
+  // substitui kpis_on_target/kpis_off_target de company_snapshots(), que
+  // têm o mesmo problema (contam direto meta_latest_values.value, sem
+  // subir a cadeia de soma).
+  const targetCountsByCompany = useMemo(() => {
+    const map = new Map<string, { onTarget: number; offTarget: number }>()
+    for (const meta of metasEffective) {
+      if (meta.value === null || meta.target_value === null) continue
+      const entry = map.get(meta.company_id) ?? { onTarget: 0, offTarget: 0 }
+      if (isOnTarget(meta.value, meta.target_value, meta.direction)) entry.onTarget += 1
+      else entry.offTarget += 1
+      map.set(meta.company_id, entry)
+    }
+    return map
+  }, [metasEffective])
+  const targetCounts = useCallback(
+    (companyId: string) => targetCountsByCompany.get(companyId) ?? { onTarget: 0, offTarget: 0 },
+    [targetCountsByCompany],
+  )
+
   const totals = useMemo(
     () =>
       operating.reduce(
-        (acc, item) => ({
-          kpisOnTarget: acc.kpisOnTarget + Number(item.kpis_on_target),
-          kpisOffTarget: acc.kpisOffTarget + Number(item.kpis_off_target),
-          goalsAtRisk: acc.goalsAtRisk + Number(item.goals_at_risk),
-          goalsActive: acc.goalsActive + Number(item.goals_active),
-          tasksOverdue: acc.tasksOverdue + Number(item.tasks_overdue),
-        }),
+        (acc, item) => {
+          const counts = targetCounts(item.company_id)
+          return {
+            kpisOnTarget: acc.kpisOnTarget + counts.onTarget,
+            kpisOffTarget: acc.kpisOffTarget + counts.offTarget,
+            goalsAtRisk: acc.goalsAtRisk + Number(item.goals_at_risk),
+            goalsActive: acc.goalsActive + Number(item.goals_active),
+            tasksOverdue: acc.tasksOverdue + Number(item.tasks_overdue),
+          }
+        },
         { kpisOnTarget: 0, kpisOffTarget: 0, goalsAtRisk: 0, goalsActive: 0, tasksOverdue: 0 },
       ),
-    [operating],
+    [operating, targetCounts],
   )
 
   // ------------------------------------------------- metas x realizado
@@ -186,22 +258,23 @@ export default function HoldingDashboard() {
     () =>
       operating
         .map((company) => {
-          const list = metas.filter(
+          const list = metasEffective.filter(
             (meta) =>
               meta.company_id === company.company_id &&
               meta.due_date !== null &&
               meta.target_value !== null &&
               Number(meta.target_value) !== 0 &&
-              meta.status !== 'missed',
+              meta.status !== 'missed' &&
+              meta.value !== null,
           )
           if (!list.length) return null
 
           const percentages = list.map((meta) => {
             const ratio =
               meta.direction === 'up'
-                ? Number(meta.value) / Number(meta.target_value)
-                : Number(meta.value) > 0
-                  ? Number(meta.target_value) / Number(meta.value)
+                ? meta.value! / Number(meta.target_value)
+                : meta.value! > 0
+                  ? Number(meta.target_value) / meta.value!
                   : 3
             return Math.max(0, Math.min(ratio, 3) * 100)
           })
@@ -216,7 +289,7 @@ export default function HoldingDashboard() {
           }
         })
         .filter((row): row is NonNullable<typeof row> => row !== null),
-    [operating, metas],
+    [operating, metasEffective],
   )
 
   // ------------------------------------------------- metas no alvo por empresa
@@ -232,12 +305,11 @@ export default function HoldingDashboard() {
     for (const company of operating) {
       const total = Number(company.kpis_total)
       if (total === 0) continue
-      const naMeta = Number(company.kpis_on_target)
-      const fora = Number(company.kpis_off_target)
+      const { onTarget: naMeta, offTarget: fora } = targetCounts(company.company_id)
       map.set(company.company_id, { naMeta, fora, semLancamento: Math.max(0, total - naMeta - fora), total })
     }
     return map
-  }, [operating])
+  }, [operating, targetCounts])
 
   // ------------------------------------------------- faturamento por produto
   // A pergunta que nenhum gráfico daqui respondia: dentro do grupo inteiro,
@@ -291,26 +363,26 @@ export default function HoldingDashboard() {
   const companyHealth = useMemo(() => {
     const map = new Map<string, number | null>()
     for (const company of operating) {
-      const ratios = metas
+      const ratios = metasEffective
         .filter(
           (meta) =>
             meta.company_id === company.company_id && meta.target_value !== null && Number(meta.target_value) !== 0,
         )
-        .map((meta) => attainmentRatio(Number(meta.value), meta.target_value, meta.direction))
+        .map((meta) => attainmentRatio(meta.value, meta.target_value, meta.direction))
         .filter((ratio): ratio is number => ratio !== null)
       map.set(company.company_id, ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null)
     }
     return map
-  }, [operating, metas])
+  }, [operating, metasEffective])
 
   // Vencida pesa mais que em risco, que pesa mais que só fora da meta — é a
   // ordem em que um dono do grupo ia querer olhar as empresas primeiro.
   const urgencyScore = (s: CompanySnapshot) =>
-    Number(s.tasks_overdue) * 3 + Number(s.goals_at_risk) * 2 + Number(s.kpis_off_target)
+    Number(s.tasks_overdue) * 3 + Number(s.goals_at_risk) * 2 + targetCounts(s.company_id).offTarget
 
   const companyStatus = (s: CompanySnapshot): 'red' | 'amber' | 'green' => {
     if (Number(s.tasks_overdue) > 0 || Number(s.goals_at_risk) > 0) return 'red'
-    if (Number(s.kpis_off_target) > 0) return 'amber'
+    if (targetCounts(s.company_id).offTarget > 0) return 'amber'
     return 'green'
   }
 
@@ -330,15 +402,15 @@ export default function HoldingDashboard() {
   // Saúde do grupo inteiro — a mesma conta da saúde por empresa, só que
   // média entre TODA meta com alvo de TODA empresa operacional.
   const groupHealth = useMemo(() => {
-    const ratios = metas
+    const ratios = metasEffective
       .filter((meta) => meta.target_value !== null && Number(meta.target_value) !== 0)
-      .map((meta) => attainmentRatio(Number(meta.value), meta.target_value, meta.direction))
+      .map((meta) => attainmentRatio(meta.value, meta.target_value, meta.direction))
       .filter((ratio): ratio is number => ratio !== null)
     return {
       ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
       medidos: ratios.length,
     }
-  }, [metas])
+  }, [metasEffective])
 
   const myTasks = useMemo(
     () => tasks.filter((task) => OPEN_STATUSES.includes(task.status)),
@@ -681,7 +753,7 @@ export default function HoldingDashboard() {
               metas em risco, meta fora do alvo), não em ordem alfabética */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {byUrgency.map((snapshot) => {
-              const companyMetas = metas.filter((meta) => meta.company_id === snapshot.company_id)
+              const companyMetas = metasEffective.filter((meta) => meta.company_id === snapshot.company_id)
               const health = companyHealth.get(snapshot.company_id) ?? null
               const targetSplit = kpiHealthByCompany.get(snapshot.company_id) ?? null
               const status = companyStatus(snapshot)
@@ -764,9 +836,9 @@ export default function HoldingDashboard() {
                   <div className="mt-4 grid grid-cols-2 gap-3 text-center sm:grid-cols-3">
                     <div className="rounded-lg bg-hover py-2">
                       <p className="text-lg font-semibold">
-                        {snapshot.kpis_on_target}
+                        {targetCounts(snapshot.company_id).onTarget}
                         <span className="text-xs font-normal text-content-faint">
-                          /{Number(snapshot.kpis_on_target) + Number(snapshot.kpis_off_target)}
+                          /{targetCounts(snapshot.company_id).onTarget + targetCounts(snapshot.company_id).offTarget}
                         </span>
                       </p>
                       <p className="text-xs text-content-soft">Metas no alvo</p>
@@ -784,11 +856,18 @@ export default function HoldingDashboard() {
                   {companyMetas.length > 0 && (
                     <ul className="mt-4 space-y-2">
                       {companyMetas.slice(0, 4).map((meta) => {
-                        const status = isOnTarget(Number(meta.value), meta.target_value, meta.direction)
-                        const ratio = attainmentRatio(Number(meta.value), meta.target_value, meta.direction)
+                        // meta.value pode ser null de verdade (nenhum
+                        // lançamento em nenhum nível da cadeia ainda) —
+                        // Number(null) virava 0 aqui, fazendo uma meta sem
+                        // nenhum dado aparecer como "fora do alvo" (vermelho)
+                        // e "R$ 0,00", em vez de neutra e sem valor exibido.
+                        const status =
+                          meta.value !== null ? isOnTarget(meta.value, meta.target_value, meta.direction) : null
+                        const ratio =
+                          meta.value !== null ? attainmentRatio(meta.value, meta.target_value, meta.direction) : null
                         const caption =
                           meta.target_value !== null
-                            ? `${formatValue(Number(meta.value), meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
+                            ? `${formatValue(meta.value, meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
                             : undefined
                         return (
                           <li key={meta.meta_id}>
@@ -810,7 +889,7 @@ export default function HoldingDashboard() {
                                     status === false ? 'text-rose-600 dark:text-rose-400' : 'text-content'
                                   }`}
                                 >
-                                  {formatValue(Number(meta.value), meta.unit)}
+                                  {formatValue(meta.value, meta.unit)}
                                 </span>
                               </div>
                               {ratio !== null && (

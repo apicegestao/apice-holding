@@ -393,7 +393,7 @@ const KPI_VALUES = LATEST.map((l) => ({
 // Uma linha por META (view meta_latest_values), lida pelo painel da holding —
 // junta metas + kpis + kpi_latest_values. KPI_NOVALUE entra aqui com
 // value: null (nunca teve lançamento).
-const META_LATEST_VALUES = [
+export const META_LATEST_VALUES = [
   {
     meta_id: META_NOVALUE,
     kpi_id: KPI_NOVALUE,

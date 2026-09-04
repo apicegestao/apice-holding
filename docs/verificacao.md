@@ -2587,3 +2587,76 @@ falhas (Desktop e Mobile 390). `mcp__Supabase__get_advisors`: a migração
 resolveu um alerta de performance que ela mesma introduziu (índice de
 `kpi_id` que ia junto com a unique derrubada); nenhum item novo de
 segurança.
+
+## 42. Meta de empresa sumindo do painel da Holding quando o valor só existe dois níveis abaixo
+
+Relatado com um exemplo concreto: faturamento de 2026 não aparecia no
+card da empresa no painel da Holding, mesmo com lançamento feito na turma
+certa. Pedido explícito de garantir "que funcione perfeitamente" e
+auditar o sistema inteiro atrás do mesmo tipo de erro.
+
+**Causa raiz:** `HoldingDashboard.tsx` lia o campo `value` direto de
+`meta_latest_values`/`kpi_latest_values` — duas views (`0032_metas.sql`)
+que fazem INNER JOIN com `kpi_values`/`kpis`, então só trazem uma linha
+com valor pra KPI que tem lançamento PRÓPRIO. Um indicador "contêiner"
+(nível empresa ou produto, que por desenho nunca lança direto — só soma
+os filhos por baixo, via `parent_kpi_id`) nunca aparece nessas views com
+valor: a view devolve `null`, e nada no painel da Holding somava a
+cadeia no cliente pra corrigir isso. `CompanyDashboard.tsx` e
+`ProductsPage.tsx` já faziam essa soma certo (buscam os `kpis` completos,
+juntam com `kpi_latest_values` e rodam `buildChildrenByParent`/
+`effectiveKpiValue` de `core/lib/kpiRollup.ts`) — só o painel da Holding e
+a função de IA (`ai-insights`) tinham ficado pra trás dessa consolidação
+anterior.
+
+**Bug de coerção junto:** em vários pontos do arquivo, `Number(meta.value)`
+rodava ANTES de checar se o valor existia — e `Number(null) === 0`, não
+`null`. Uma meta sem nenhum dado em lugar nenhum da cadeia virava
+silenciosamente "0% do alvo, fora da meta" (vermelho) em vez de "sem
+lançamento ainda" (neutro). Trocado por `number | null` passado direto,
+com `!== null` explícito antes de chamar `attainmentRatio`/`isOnTarget`.
+
+- **`HoldingDashboard.tsx`:** passa a buscar também
+  `kpis.select('id, company_id, parent_kpi_id')` e monta
+  `rollupRows`/`childrenByParent`/`effectiveValue` (mesmo padrão de
+  `CompanyDashboard.tsx`, agora também extraído como tipo `RollupRow` de
+  `core/lib/kpiRollup.ts`). Todo lugar que lia `meta.value`/
+  `Number(kpis_on_target)`/`Number(kpis_off_target)` direto da view passou a
+  usar `metasEffective` (metas com o valor já resolvido pela cadeia) e um
+  novo `targetCounts(companyId)` (conta no-alvo/fora-do-alvo a partir do
+  valor resolvido, não do que a view já trazia pronto) — cobre os cartões-
+  resumo do topo, o card por empresa, a lista de metas dentro de cada
+  card e a saúde geral por empresa/grupo.
+- **`ai-insights/index.ts`:** o mesmo problema existia no leitor de `kpis`
+  (`ultimos_valores` vinha vazio pra indicador contêiner, sem nada
+  dizendo que isso era esperado) e em `holdingContext()`
+  (`metas_consolidadas` tinha `valor: null` pro mesmo caso). Adicionado o
+  mesmo cálculo de `effectiveValue` duplicado localmente (edge function
+  não importa de `src/` — build separado) em ambos os lugares, com um novo
+  campo `valor_atual` nas metas e uma frase no `SYSTEM_PROMPT` explicando
+  que "vazio" numa meta de empresa/produto é normal e não significa "sem
+  dado" — checar `valor_atual`/`valor` antes de dizer isso. Redeploy via
+  `mcp__Supabase__deploy_edge_function` (versão 13).
+- **Auditoria no resto do sistema:** grep por `meta_latest_values`/
+  `kpi_latest_values` em `src/` voltou só `core/types.ts` (definição de
+  tipo), `ProductsPage.tsx`/`CompanyDashboard.tsx` (já corretos, usados
+  como referência) e os dois arquivos corrigidos acima — nenhum outro
+  lugar lê essas views sem passar pelo rollup no cliente.
+- **e2e:** as fixtures existentes (`KPI_PRODUCT`/`KPI_EDITION`) não
+  reproduzem sozinhas o caso relatado, porque o painel da Holding só olha
+  meta de indicador de empresa inteira (`product_id === null`, filtro
+  intencional desde a `0034_metas_todo_nivel.sql`) e `KPI_PRODUCT` tem
+  `product_id` preenchido. Teste novo cria um indicador de empresa (sem
+  `product_id`/`parent_kpi_id`) e reparenta `KPI_PRODUCT` por baixo dele,
+  formando uma cadeia empresa → produto → turma de 3 níveis; a
+  `meta_latest_values` mockada devolve `value: null` pro nível de empresa
+  (espelhando a view de verdade), e o teste confere que o card mostra
+  `R$ 32.000,00` (o valor lançado só na turma) em vez de sumir/mostrar
+  zero. Confirmado que esse teste falha sem o fix (`git stash` só do
+  `HoldingDashboard.tsx`) e passa com ele.
+
+**Verificação:** `npx tsc --noEmit`, `npm run build`, `npm run test`
+(48/48) e `npm run check:contrast` (24/24) limpos. `npm run test:e2e`:
+suíte completa 211 passando (1 teste novo), 27 skipped, sem falhas
+(Desktop e Mobile 390). Sem migração nesta rodada — nenhum
+`get_advisors` necessário.
