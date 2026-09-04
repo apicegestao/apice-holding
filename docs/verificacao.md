@@ -2490,3 +2490,48 @@ aqui caso o usuário queira priorizar algum.
 (48/48) limpos. `npm run check:contrast`: 24/24. `npm run test:e2e`:
 suíte completa 207 passando, 27 skipped, sem falhas (Desktop e Mobile
 390).
+
+## 40. Lançamento "não salvava": era configuração da turma, não bug
+
+O usuário relatou de novo, ponto a ponto, o mesmo sintoma da seção 39 item
+7 mesmo depois daquela correção estar no ar: abrir "Lançar valor" numa
+turma mostrava o valor/observação de um lançamento anterior e o valor novo
+não parecia gravar. A correção da seção 39 (guarda por `useRef` no efeito
+de sincronização) estava mesmo certa e no ar — conferido lendo o código,
+o deploy do Netlify (commit batendo) e o banco (nenhuma linha duplicada em
+`kpi_values`/`kpi_value_entries`). O que faltava era outra causa,
+completamente diferente, pro mesmo sintoma percebido:
+
+**Causa real:** a turma em questão tinha `frequency = 'monthly'` e
+`entry_frequency = null` — ou seja, só existe UM valor guardado pro mês
+inteiro. Abrir "Lançar valor" em qualquer dia de setembro sempre caía no
+mesmo período (01/09 a 30/09) e corretamente virava **edição** do único
+número do mês (título "Editar lançamento", campos pré-preenchidos) — não
+era o formulário grudando dado de sessão anterior por engano, era o
+sistema funcionando como desenhado pra essa configuração. O usuário
+quer o oposto: cada lançamento é um dia novo, e o total do mês é a SOMA
+dos dias — isso já existe no sistema como `entry_frequency` (cadência de
+lançamento mais fina, seção 23 item 3), só que essa turma nunca tinha sido
+configurada com ela.
+
+**Correção aplicada (dado em produção, sem mudança de código):** ativado
+`entry_frequency = 'daily'` na turma afetada, e o lançamento manual já
+existente (R$ 297,00) migrado pra virar o primeiro lançamento do dia
+04/09 em `kpi_value_entries` — o gatilho de soma (`0026_kpi_lifecycle.sql`)
+recalculou `kpi_values` a partir dele e o total do mês continuou R$ 297,00
+(zero perda de dado, só troca de `source: 'manual'` pra `'rollup'`).
+
+**Confusão de UI descoberta no processo (essa sim, uma melhoria real):**
+o usuário foi configurar isso manualmente e abriu o seletor errado —
+"Frequência de medição" (que de propósito nunca lista "Diário", ver
+comentário em `core/types.ts` e a trava `kpis_frequency_not_daily` da
+migração `0030`) — em vez de "Lançar em cadência mais fina", o campo
+logo abaixo, onde "Diário" já existia como opção. Os dois campos ficam
+colados um no outro e, no seletor nativo do celular, o dropdown aberto
+cobre o rótulo do campo de baixo. Adicionado um hint só no primeiro campo
+explicando que não ter "Diário" ali é de propósito e apontando pro campo
+certo.
+
+**Verificação:** `npx tsc --noEmit`, `npm run build` e `npm run
+test:e2e` (suíte completa, 207 passando, 27 skipped, Desktop e Mobile
+390) limpos.

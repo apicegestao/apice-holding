@@ -828,7 +828,14 @@ export default function KpisPage() {
                 ))}
               </datalist>
             </Field>
-            <Field label="Frequência de medição">
+            <Field
+              label="Frequência de medição"
+              hint={
+                FINER_FREQUENCIES[kpiForm.frequency].includes('daily')
+                  ? 'Sem opção diária aqui de propósito — pra lançar todo dia, use "Lançar em cadência mais fina" logo abaixo.'
+                  : undefined
+              }
+            >
               <select
                 className="input"
                 value={kpiForm.frequency}
