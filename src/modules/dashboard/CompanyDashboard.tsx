@@ -17,6 +17,7 @@ import {
   Bar,
   BarChart,
   Cell,
+  Legend,
   Line,
   LabelList,
   LineChart,
@@ -29,10 +30,11 @@ import {
 import { supabase } from '../../core/lib/supabase'
 import {
   attainmentRatio,
+  formatCompact,
   formatDate,
   formatValue,
+  initials,
   isOnTarget,
-  labelPeriod,
   relativeDays,
 } from '../../core/lib/format'
 import { buildChildrenByParent, effectiveKpiValue } from '../../core/lib/kpiRollup'
@@ -49,6 +51,7 @@ import {
   type KpiDirection,
   type KpiLatestValue,
   type KpiUnit,
+  type KpiValue,
   type Meta,
   type Product,
   type Profile,
@@ -183,6 +186,7 @@ export default function CompanyDashboard() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [kpiHistory, setKpiHistory] = useState<KpiValue[]>([])
   const [inactiveKpiCount, setInactiveKpiCount] = useState(0)
   const [loading, setLoading] = useState(true)
 
@@ -197,6 +201,7 @@ export default function CompanyDashboard() {
       insightResult,
       productResult,
       inactiveKpiResult,
+      kpiHistoryResult,
     ] = await Promise.all([
       supabase
         .from('kpis')
@@ -224,6 +229,11 @@ export default function CompanyDashboard() {
       // todas" leva pra tela de Metas). Arquivada é outra coisa (some da
       // própria lista de Metas) e não entra aqui.
       supabase.from('kpis').select('id').eq('company_id', company.id).eq('is_active', false).is('archived_at', null),
+      // Histórico completo (todo período, não só o mais recente) — só pro
+      // gráfico "Comparação entre produtos" abaixo, que soma por MÊS em vez
+      // de pegar só o valor atual (ver productHistory). Mesmo custo que
+      // KpisPage.tsx já paga pra montar o histórico de um indicador.
+      supabase.from('kpi_values').select('*').eq('company_id', company.id),
     ])
 
     const memberIds = (memberResult.data ?? []).map((row) => row.user_id)
@@ -239,6 +249,7 @@ export default function CompanyDashboard() {
     setInsights((insightResult.data as Insight[]) ?? [])
     setProducts((productResult.data as Product[]) ?? [])
     setInactiveKpiCount((inactiveKpiResult.data ?? []).length)
+    setKpiHistory((kpiHistoryResult.data as KpiValue[]) ?? [])
     setLoading(false)
   }, [company.id, isAdmin])
 
@@ -341,7 +352,17 @@ export default function CompanyDashboard() {
     return map
   }, [products, kpiRows, tasks])
 
-  // Metas em aberto — pra bater o olho no cartão "Metas" sem entrar em KPIs.
+  // Indicador de empresa (sem produto/turma) que ainda não recebeu nenhum
+  // lançamento — o caso original do bug "KPI sem lançamento sumia do
+  // painel". Antes isso vinha de dentro do card "Metas" (removido: listava
+  // TODO indicador, virando repetição do que "Produtos"/"Alvos" já mostram);
+  // agora é só este resto, deliberadamente pequeno.
+  const kpisSemLancamento = useMemo(
+    () => kpiRows.filter((row) => row.product_id === null && row.value === null),
+    [kpiRows],
+  )
+
+  // Metas em aberto — pra bater o olho no cartão "Alvos" sem entrar em KPIs.
   const openMetas = useMemo(
     () =>
       metaRows
@@ -350,8 +371,96 @@ export default function CompanyDashboard() {
         .slice(0, 6),
     [metaRows],
   )
+  const semResponsavelCount = useMemo(
+    () => openMetas.filter((meta) => !meta.owner_id).length,
+    [openMetas],
+  )
   const ownerName = (id: string | null) =>
     id ? (people.find((person) => person.id === id)?.full_name ?? '—') : 'Sem responsável'
+
+  // Atalho pra performance de cada responsável — pedido do usuário ("clico
+  // em Felipe e tenho um painel com tudo que é dele"). Só quem já tem algo
+  // pra mostrar (meta em risco ou tarefa aberta/vencida) entra na lista —
+  // quem precisa de atenção primeiro, no topo (mesmo critério de urgência
+  // já usado pra ordenar empresa no painel da holding).
+  const teamRanking = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10)
+    return people
+      .map((person) => {
+        const atRisk = metaRows.filter((row) => row.owner_id === person.id && row.status === 'at_risk').length
+        const openTasks = tasks.filter(
+          (task) => task.assignee_id === person.id && ['todo', 'doing', 'blocked'].includes(task.status),
+        )
+        const overdue = openTasks.filter((task) => task.due_date && task.due_date < today).length
+        return { person, atRisk, overdue, open: openTasks.length }
+      })
+      .filter((row) => row.atRisk > 0 || row.overdue > 0 || row.open > 0)
+      .sort((a, b) => b.overdue * 3 + b.atRisk * 2 - (a.overdue * 3 + a.atRisk * 2))
+      .slice(0, 6)
+  }, [people, metaRows, tasks])
+
+  // ------------------------------------------------- comparação de produtos
+  // Sugestão do usuário no lugar do card "Metas" (removido, redundante):
+  // faturamento de cada produto principal, mês a mês. Um produto nunca lança
+  // valor direto quando tem turma por baixo (kpiRollup.ts) — por isso a soma
+  // certa não é "todo indicador do produto", e sim só as FOLHAS da árvore
+  // (mesmo truque que productRevenue já usa no painel da Holding). Só moeda,
+  // mesma razão de lá: unidades diferentes não comparam na mesma escala.
+  const productHistory = useMemo(() => {
+    const currencyIds = new Set(kpiDefs.filter((k) => k.unit === 'currency').map((k) => k.id))
+    const childrenOf = new Map<string, string[]>()
+    for (const k of kpiDefs) {
+      if (!k.parent_kpi_id) continue
+      const list = childrenOf.get(k.parent_kpi_id) ?? []
+      list.push(k.id)
+      childrenOf.set(k.parent_kpi_id, list)
+    }
+    // Toda folha em moeda descendente de um kpi (ele mesmo, se já for folha).
+    const leavesOf = (id: string, seen = new Set<string>()): string[] => {
+      if (seen.has(id)) return []
+      seen.add(id)
+      const children = childrenOf.get(id) ?? []
+      if (!children.length) return currencyIds.has(id) ? [id] : []
+      return children.flatMap((childId) => leavesOf(childId, seen))
+    }
+
+    const leafToProduct = new Map<string, Product>()
+    for (const product of products) {
+      const roots = kpiDefs.filter((k) => k.product_id === product.id && k.product_edition_id === null)
+      for (const leafId of new Set(roots.flatMap((k) => leavesOf(k.id)))) leafToProduct.set(leafId, product)
+    }
+    const productsWithData = products.filter((product) =>
+      [...leafToProduct.values()].some((p) => p.id === product.id),
+    )
+    if (productsWithData.length === 0) return { points: [] as Record<string, string | number>[], products: [] as Product[] }
+
+    // Soma por mês (period_start truncado a "AAAA-MM") — normaliza pequenas
+    // diferenças de dia entre indicadores mensais de produtos diferentes.
+    const byMonth = new Map<string, Map<string, number>>()
+    for (const value of kpiHistory) {
+      const product = leafToProduct.get(value.kpi_id)
+      if (!product) continue
+      const monthKey = value.period_start.slice(0, 7)
+      const monthMap = byMonth.get(monthKey) ?? new Map<string, number>()
+      monthMap.set(product.id, (monthMap.get(product.id) ?? 0) + Number(value.value))
+      byMonth.set(monthKey, monthMap)
+    }
+
+    const months = [...byMonth.keys()].sort().slice(-12)
+    const points = months.map((monthKey) => {
+      const row: Record<string, string | number> = {
+        period: new Date(`${monthKey}-01T12:00:00`).toLocaleDateString('pt-BR', {
+          month: 'short',
+          year: '2-digit',
+        }),
+      }
+      const monthMap = byMonth.get(monthKey)!
+      for (const product of productsWithData) row[product.name] = monthMap.get(product.id) ?? 0
+      return row
+    })
+
+    return { points, products: productsWithData }
+  }, [products, kpiDefs, kpiHistory])
 
   const stats = useMemo(() => {
     const open = tasks.filter((task) => ['todo', 'doing', 'blocked'].includes(task.status))
@@ -575,51 +684,99 @@ export default function CompanyDashboard() {
         </Card>
       )}
 
+      {/* Pedido do usuário: atalho rápido pra performance de cada
+          responsável. Só aparece quem já tem algo pra mostrar — vazio não
+          é erro, é "ninguém precisa de atenção agora". */}
+      {teamRanking.length > 0 && (
+        <Card
+          title="Equipe"
+          description="Quem tem meta em risco ou tarefa aberta agora — clique pra ver tudo dessa pessoa."
+        >
+          <ul className="divide-y divide-line">
+            {teamRanking.map(({ person, atRisk, overdue, open }) => (
+              <li key={person.id}>
+                <Link
+                  to={`/empresa/${company.id}/equipe/${person.id}`}
+                  className="-mx-1 flex items-center gap-3 rounded-md px-1 py-2.5 transition hover:bg-hover"
+                >
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-hover text-xs font-semibold text-content-muted">
+                    {initials(person.full_name || person.email)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-content">{person.full_name}</span>
+                    <span className="text-xs text-content-soft">{open} tarefa(s) aberta(s)</span>
+                  </span>
+                  <span className="flex shrink-0 gap-1.5">
+                    {overdue > 0 && <Badge tone="red">{overdue} vencida(s)</Badge>}
+                    {atRisk > 0 && <Badge tone="amber">{atRisk} em risco</Badge>}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card
           className="lg:col-span-2"
-          title="Metas"
-          description="Último valor apurado de cada meta. Clique num cartão para abrir a meta."
+          title="Comparação entre produtos"
+          description="Faturamento de cada produto por mês, soma das turmas incluída. Só produtos com receita lançada, mesma escala (moeda)."
           actions={
-            <Link to={`/empresa/${company.id}/kpis`} className="btn-ghost py-1.5 text-xs">
-              Ver Todos
+            <Link to={`/empresa/${company.id}/produtos`} className="btn-ghost py-1.5 text-xs">
+              Ver Produtos
             </Link>
           }
         >
-          {kpiRows.length === 0 ? (
+          {productHistory.products.length === 0 ? (
             <EmptyState
-              title="Nenhuma meta cadastrada"
-              description="Cadastre metas e registre o primeiro valor."
-              action={
-                <Link to={`/empresa/${company.id}/kpis`} className="btn-primary">
-                  Ir para Metas
-                </Link>
-              }
+              title="Ainda não há faturamento por produto lançado"
+              description="Lance o primeiro valor de faturamento de um produto para comparar aqui."
             />
           ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {kpiRows.slice(0, 8).map((kpi) => (
-                <Link
-                  key={kpi.kpi_id}
-                  to={`/empresa/${company.id}/kpis/${kpi.kpi_id}`}
-                  className="block rounded-lg border border-line p-3 transition hover:border-line-strong hover:bg-hover"
-                >
-                  <p className="truncate text-xs font-medium uppercase tracking-wide text-content-soft">
-                    {kpi.name}
-                  </p>
-                  <div className="mt-1 flex items-end justify-between gap-2">
-                    <span
-                      className={`text-xl font-semibold ${kpi.value === null ? 'text-content-faint' : ''}`}
-                    >
-                      {kpi.value === null ? '—' : formatValue(kpi.value, kpi.unit)}
-                    </span>
-                    {kpi.value === null && <Badge tone="slate">sem lançamento</Badge>}
-                  </div>
-                  <p className="mt-0.5 text-[11px] text-content-faint">
-                    {kpi.value === null ? 'aguardando o primeiro valor' : labelPeriod(kpi.period_start!, kpi.frequency)}
-                  </p>
-                </Link>
-              ))}
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={productHistory.points} margin={{ top: 20, right: 8, bottom: 0, left: 0 }}>
+                  <XAxis
+                    dataKey="period"
+                    tick={{ fontSize: 11, fill: chart.tick }}
+                    axisLine={{ stroke: chart.axis }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: chart.tick }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={54}
+                    tickFormatter={(value: number) => formatCompact(value, 'currency')}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: chart.axis, strokeDasharray: '4 4' }}
+                    contentStyle={{
+                      fontSize: 12,
+                      borderRadius: 8,
+                      background: chart.tooltipBg,
+                      borderColor: chart.tooltipBorder,
+                      color: chart.tooltipText,
+                    }}
+                    itemStyle={{ color: chart.tooltipText }}
+                    labelStyle={{ color: chart.tooltipText }}
+                    formatter={(value: number, name: string) => [formatValue(value, 'currency'), name]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  {productHistory.products.map((product) => (
+                    <Line
+                      key={product.id}
+                      type="monotone"
+                      dataKey={product.name}
+                      name={product.name}
+                      stroke={product.color ?? '#94A3B8'}
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           )}
         </Card>
@@ -670,9 +827,12 @@ export default function CompanyDashboard() {
             title="Alvos"
             description="Alvo, prazo e andamento de cada meta desta empresa."
             actions={
-              <Link to={`/empresa/${company.id}/kpis`} className="btn-ghost py-1.5 text-xs">
-                Ver Metas
-              </Link>
+              <>
+                {semResponsavelCount > 0 && <Badge tone="amber">{semResponsavelCount} sem responsável</Badge>}
+                <Link to={`/empresa/${company.id}/kpis`} className="btn-ghost py-1.5 text-xs">
+                  Ver Metas
+                </Link>
+              </>
             }
           >
             {openMetas.length === 0 ? (
@@ -697,22 +857,61 @@ export default function CompanyDashboard() {
                             {GOAL_STATUS_LABEL[meta.status]}
                           </Badge>
                         </div>
-                        <p className="mt-0.5 text-xs text-content-faint">
-                          {ownerName(meta.owner_id)} · prazo {formatDate(meta.due_date)} (
-                          {relativeDays(meta.due_date)})
-                        </p>
                         {ratio !== null && (
                           <div className="mt-1.5">
                             <ProgressBar ratio={ratio} caption={caption} />
                           </div>
                         )}
                       </Link>
+                      {/* Fora do Link acima (não dá pra aninhar <a> dentro de
+                          <a>) — o nome do responsável é o atalho pra
+                          performance dele, clicável à parte. */}
+                      <p className="mt-0.5 px-1 text-xs text-content-faint">
+                        {meta.owner_id ? (
+                          <Link
+                            to={`/empresa/${company.id}/equipe/${meta.owner_id}`}
+                            className="hover:text-brand-text hover:underline"
+                          >
+                            {ownerName(meta.owner_id)}
+                          </Link>
+                        ) : (
+                          'Sem responsável'
+                        )}{' '}
+                        · prazo {formatDate(meta.due_date)} ({relativeDays(meta.due_date)})
+                      </p>
                     </li>
                   )
                 })}
               </ul>
             )}
           </Card>
+
+          {/* Resto do antigo card "Metas" (removido — listava todo
+              indicador, virando repetição do que "Produtos"/"Alvos" já
+              mostram): só o caso que ele existia pra cobrir, um indicador
+              cadastrado sem nenhum lançamento ainda. */}
+          {kpisSemLancamento.length > 0 && (
+            <Card title="Indicadores sem lançamento" description="Cadastrados, mas ainda sem o primeiro valor.">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {kpisSemLancamento.slice(0, 4).map((kpi) => (
+                  <Link
+                    key={kpi.kpi_id}
+                    to={`/empresa/${company.id}/kpis/${kpi.kpi_id}`}
+                    className="block rounded-lg border border-line p-3 transition hover:border-line-strong hover:bg-hover"
+                  >
+                    <p className="truncate text-xs font-medium uppercase tracking-wide text-content-soft">
+                      {kpi.name}
+                    </p>
+                    <div className="mt-1 flex items-end justify-between gap-2">
+                      <span className="text-xl font-semibold text-content-faint">—</span>
+                      <Badge tone="slate">sem lançamento</Badge>
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-content-faint">aguardando o primeiro valor</p>
+                  </Link>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
       </div>
 

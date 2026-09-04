@@ -28,7 +28,7 @@ const USER = {
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 }
-const PROFILE = {
+export const PROFILE = {
   id: USER_ID,
   email: 'admin@apice.test',
   full_name: 'Rafael Portela',
@@ -128,6 +128,15 @@ export const KPIS = [
     created_by: USER_ID,
     created_at: '2026-09-02T00:13:52Z',
     updated_at: '2026-09-02T00:13:52Z',
+    // Postgrest sempre devolve o valor de verdade de uma coluna nullable
+    // (nunca omite a chave) — explícito aqui pra fixture não mentir pro
+    // código que checa `=== null` (ex.: kpisSemLancamento, metaRows).
+    product_id: null as string | null,
+    product_edition_id: null as string | null,
+    parent_kpi_id: null as string | null,
+    archived_at: null as string | null,
+    entry_frequency: null as string | null,
+    department_id: null as string | null,
   },
   {
     id: KPI_WITH,
@@ -145,6 +154,12 @@ export const KPIS = [
     created_by: USER_ID,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    product_id: null as string | null,
+    product_edition_id: null as string | null,
+    parent_kpi_id: null as string | null,
+    archived_at: null as string | null,
+    entry_frequency: null as string | null,
+    department_id: null as string | null,
   },
   ...KPI_EXTRA.map((id, i) => ({
     id,
@@ -162,6 +177,12 @@ export const KPIS = [
     created_by: USER_ID,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    product_id: null as string | null,
+    product_edition_id: null as string | null,
+    parent_kpi_id: null as string | null,
+    archived_at: null as string | null,
+    entry_frequency: null as string | null,
+    department_id: null as string | null,
   })),
   {
     id: KPI_PRODUCT,
@@ -937,6 +958,7 @@ export const ROUTES: [string, string][] = [
   [`/empresa/${COMPANY_ID_2}/orcamentos`, 'Orçamentos'],
   [`/empresa/${COMPANY_ID_2}/financeiro`, 'Financeiro'],
   [`/empresa/${COMPANY_ID_2}/equipe`, 'Equipe'],
+  [`/empresa/${COMPANY_ID_2}/equipe/${USER_ID}`, 'Performance de um responsável'],
   [`/empresa/${COMPANY_ID_2}/integracoes`, 'Integrações'],
   [`/empresa/${COMPANY_ID_2}/insights`, 'Insights da empresa'],
   [`/empresa/${COMPANY_ID_2}/configuracoes`, 'Dados da empresa'],

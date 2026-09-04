@@ -3140,3 +3140,71 @@ o toast cita o vinculado, e reverter também traz o filho de volta. `npx
 tsc --noEmit`, `npm run build`, `npx vitest run` (48/48) e `npm run
 check:contrast` (24/24) limpos. `npx playwright test`: suíte completa 298
 passando (1 teste novo), 34 skipped, sem falhas (Desktop e Mobile 390).
+
+## 51. Painel: card "Metas" trocado por comparação de produtos + atalho de equipe
+
+Pedido do usuário, com opinião estruturada antes de implementar (aprovada
+com "ok, pode seguir"): três mudanças no painel da empresa e da Holding.
+
+**1) Removido o card "Metas"** (`CompanyDashboard.tsx`) — listava até 8
+indicadores com valor cru, sem alvo nem contexto, repetindo o que
+"Produtos"/"Alvos" já mostravam. Único caso que ele cobria e mais nada
+cobria: indicador de empresa (sem produto/turma) cadastrado sem nenhum
+lançamento ainda (bug histórico do item #21, "KPI sem lançamento sumia do
+painel"). Esse caso ganhou um card próprio, pequeno e só aparece quando
+existe: **"Indicadores sem lançamento"**.
+
+**2) No lugar entrou "Comparação entre produtos"** — gráfico de linha,
+faturamento de cada produto principal (sem sub-produto) mês a mês, soma
+das turmas incluída. Reaproveita o mesmo truque de "folha da árvore" que
+`productRevenue` já usa no painel da Holding (`kpiRollup.ts`: um nó do
+meio nunca lança direto, só soma os filhos) — aqui como série no tempo em
+vez de ranking de um instante só. Só indicador em moeda (mesma razão de
+sempre: unidades diferentes não comparam na mesma escala). Precisou de
+uma consulta nova (`kpi_values` sem filtro de período, todo o histórico
+da empresa — mesmo custo que `KpisPage.tsx` já paga pro histórico de um
+indicador).
+
+**3) Atalho de performance por responsável** — pedido literal: "clico em
+Felipe e tenho um painel com todas as metas e tarefas dele". Novo módulo
+`src/modules/team/PersonDashboard.tsx`, rotas
+`/empresa/:companyId/equipe/:userId` e `/holding/usuarios/:userId` (o
+`:companyId` só define o link de "voltar" — a tela em si já busca em
+TODO o grupo, a RLS decide o que aparece, mesmo padrão de "Minhas
+tarefas" na Holding). Mostra toda meta (`meta_latest_values`, todo
+nível — diferente dos painéis, que escopam a alvo de empresa inteira de
+propósito) e toda tarefa da pessoa, com valor de verdade via o mesmo
+rollup group-wide que `HoldingDashboard.tsx` já monta.
+
+**Entrada**: novo card **"Equipe"** no painel da empresa (ranking dos
+membros com meta em risco/tarefa vencida, reaproveitando dados já
+carregados — sem consulta nova) e **"Equipe do grupo"** na Holding
+(mesma ideia, cross-empresa, a partir de `metasEffective` + uma consulta
+nova de `profiles`, `is_super_admin()` já dá acesso a todo cadastro).
+Nome do responsável no card "Alvos" também virou link — precisou tirar
+a linha "prazo" de dentro do `<Link>` da meta (não dá pra aninhar `<a>`
+dentro de `<a>`), ficando como um parágrafo próprio logo abaixo.
+
+**Sugestão complementar implementada**: badge "N sem responsável" no
+cabeçalho do card "Alvos", quando alguma meta em aberto não tem dono.
+
+**Achado real durante a implementação** (não relacionado ao pedido, mas
+bloqueava o card "Indicadores sem lançamento"): três `Kpi` das fixtures
+e2e (`KPI_NOVALUE`/`KPI_WITH`/`KPI_EXTRA`) datam de antes do campo
+`product_id` existir no tipo e nunca ganharam a chave — em JS,
+`objeto.product_id` vira `undefined`, não `null`, então todo filtro
+`=== null` (inclusive um pré-existente em `metaRows`, nunca coberto por
+teste até agora) falhava silenciosamente pra eles. Postgrest de verdade
+NUNCA omite uma coluna nullable — é só as fixtures que mentiam. Corrigido
+preenchendo `product_id`/`product_edition_id`/`parent_kpi_id`/
+`archived_at`/`entry_frequency`/`department_id: null` explícitos nos
+três, em vez de espalhar `?? null`/`!row.product_id` pelo código real
+pra tolerar um formato que a API de verdade nunca produz.
+
+**Verificação**: 3 testes e2e novos (linha por produto no gráfico com
+dois produtos e dois meses; card "Equipe" leva à performance da pessoa
+com meta+tarefa dela visíveis; "Equipe do grupo" na Holding com o mesmo
+link). `npx tsc --noEmit`, `npm run build`, `npx vitest run` (48/48) e
+`npm run check:contrast` (24/24) limpos. `npx playwright test`: suíte
+completa 309 passando (3 testes novos), 35 skipped, sem falhas (Desktop
+e Mobile 390).

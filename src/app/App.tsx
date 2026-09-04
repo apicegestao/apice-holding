@@ -24,6 +24,7 @@ import DepartmentDashboard from '../modules/dashboard/DepartmentDashboard'
 import IntegrationsPage from '../modules/integrations/IntegrationsPage'
 import InsightsPage from '../modules/insights/InsightsPage'
 import UsersPage from '../modules/users/UsersPage'
+import PersonDashboard from '../modules/team/PersonDashboard'
 import SettingsPage from '../modules/settings/SettingsPage'
 import AuditPage from '../modules/audit/AuditPage'
 
@@ -132,6 +133,17 @@ export default function App() {
             </HoldingOnly>
           }
         />
+        {/* Atalho de performance por responsável, cruzando toda empresa do
+            grupo — mesma tela usada a partir da Equipe de uma empresa
+            (rota abaixo), só que sem contexto de empresa nenhum aqui. */}
+        <Route
+          path="/holding/usuarios/:userId"
+          element={
+            <HoldingOnly>
+              <PersonDashboard />
+            </HoldingOnly>
+          }
+        />
         <Route
           path="/holding/notas"
           element={
@@ -225,6 +237,11 @@ export default function App() {
           <Route path="integracoes" element={<IntegrationsPage />} />
           <Route path="insights" element={<InsightsPage scope="company" />} />
           <Route path="equipe" element={<UsersPage scope="company" />} />
+          {/* Mesmo atalho de performance por responsável, chegando de
+              dentro de uma empresa — a tela em si já busca em TODO o grupo
+              (RLS decide o que aparece), o :companyId aqui só define o link
+              de "voltar". */}
+          <Route path="equipe/:userId" element={<PersonDashboard />} />
           <Route path="auditoria" element={<AuditPage scope="company" />} />
           <Route path="configuracoes" element={<CompanySettingsPage />} />
         </Route>

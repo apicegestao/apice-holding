@@ -30,6 +30,7 @@ import {
   PRODUCT_EDITIONS,
   PRODUCT_ID,
   PRODUCTS,
+  PROFILE,
   ROUTES,
   TASKS,
   USER_ID,
@@ -280,6 +281,262 @@ test.describe('painel', () => {
     await page.goto(`/empresa/${COMPANY_ID_2}`)
     await page.waitForLoadState('networkidle')
     await expect(page.getByText('1 meta(s) desativada(s) — não entram nos números acima.')).toBeVisible()
+  })
+})
+
+// Sugestão do usuário no lugar do card "Metas" (removido, redundante com
+// "Produtos"/"Alvos"): faturamento de cada produto, mês a mês, no mesmo
+// gráfico — mesmo truque de "folha da árvore" que productRevenue já usa no
+// painel da Holding (kpiRollup.ts), aplicado como série no tempo em vez de
+// ranking de um instante só.
+test.describe('comparação de produtos no painel da empresa', () => {
+  test('mostra uma linha por produto quando há faturamento em mais de um mês', async ({ page }) => {
+    await login(page)
+
+    const MENTORIA_ID = 'produto-mentoria-teste'
+    const KPI_MENTORIA = 'kpi-mentoria-teste'
+    const products = PRODUCTS.concat({
+      id: MENTORIA_ID,
+      company_id: COMPANY_ID_2,
+      name: 'Mentoria',
+      description: null,
+      color: '#10B981',
+      display_order: 1,
+      is_active: true,
+      created_by: USER_ID,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    })
+    const kpis = KPIS.concat({
+      id: KPI_MENTORIA,
+      company_id: COMPANY_ID_2,
+      name: 'Faturamento Mentoria',
+      description: '',
+      category: 'Financeiro',
+      unit: 'currency',
+      direction: 'up',
+      frequency: 'monthly',
+      source: 'manual',
+      integration_id: null,
+      display_order: 6,
+      is_active: true,
+      created_by: USER_ID,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      product_id: MENTORIA_ID,
+      product_edition_id: null,
+      parent_kpi_id: null,
+      archived_at: null,
+      entry_frequency: null,
+    })
+    // Dois meses pra cada produto — "Entre Donos" via KPI_EDITION (a folha
+    // real, ligada por parent_kpi_id a KPI_PRODUCT), "Mentoria" via um kpi
+    // sem filho nenhum (ele mesmo já é folha).
+    const kpiValues = [
+      { kpi_id: KPI_EDITION, period_start: '2026-07-01', value: 20000 },
+      { kpi_id: KPI_EDITION, period_start: '2026-08-01', value: 32000 },
+      { kpi_id: KPI_MENTORIA, period_start: '2026-07-01', value: 5000 },
+      { kpi_id: KPI_MENTORIA, period_start: '2026-08-01', value: 7000 },
+    ].map((row, i) => ({
+      id: `v-teste-${i}`,
+      company_id: COMPANY_ID_2,
+      period_end: `${row.period_start.slice(0, 7)}-28`,
+      target_value: null,
+      note: null,
+      source: 'manual',
+      created_by: USER_ID,
+      created_at: `${row.period_start}T00:00:00Z`,
+      updated_at: `${row.period_start}T00:00:00Z`,
+      occurred_at: `${row.period_start}T00:00:00Z`,
+      ...row,
+    }))
+
+    await page.route('**/rest/v1/products*', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(products) }),
+    )
+    await page.route('**/rest/v1/kpis*', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) }),
+    )
+    await page.route('**/rest/v1/kpi_values*', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpiValues) }),
+    )
+
+    await page.goto(`/empresa/${COMPANY_ID_2}`)
+    await page.waitForLoadState('networkidle')
+
+    const chartCard = page.locator('section', { has: page.getByRole('heading', { name: 'Comparação entre produtos' }) })
+    await expect(chartCard.getByText('Entre Donos')).toBeVisible()
+    await expect(chartCard.getByText('Mentoria')).toBeVisible()
+    // O card "Metas" antigo não existe mais — só o resto que ele cobria
+    // (indicador sem lançamento) continua, num card à parte.
+    await expect(page.getByRole('heading', { name: 'Metas', exact: true })).toHaveCount(0)
+  })
+})
+
+// Pedido do usuário: "clico em Felipe e tenho um painel de controle com
+// todas as metas direcionadas e de responsabilidade dele" — atalho a
+// partir do card "Equipe" (empresa) e "Equipe do grupo" (Holding), levando
+// pra uma tela só da pessoa, cruzando toda empresa em comum.
+test.describe('atalho de performance por responsável', () => {
+  const TEAMMATE_ID = '11111111-1111-1111-1111-111111111199'
+  const TEAMMATE_PROFILE = {
+    id: TEAMMATE_ID,
+    email: 'felipe@apice.test',
+    full_name: 'Felipe Nunes',
+    phone: null,
+    job_title: 'Gerente comercial',
+    avatar_url: null,
+    is_super_admin: false,
+    must_change_password: false,
+    is_active: true,
+    last_login_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+  }
+  const TEAMMATE_META = {
+    id: 'meta-teammate-teste',
+    company_id: COMPANY_ID_2,
+    kpi_id: KPI_WITH,
+    target_value: 100000,
+    due_date: '2026-10-31',
+    owner_id: TEAMMATE_ID,
+    status: 'at_risk',
+    archived_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+  const TEAMMATE_META_LATEST = {
+    meta_id: 'meta-teammate-teste',
+    kpi_id: KPI_WITH,
+    company_id: COMPANY_ID_2,
+    name: 'Receita recorrente (MRR)',
+    unit: 'currency',
+    direction: 'up',
+    product_id: null as string | null,
+    product_edition_id: null as string | null,
+    parent_kpi_id: null as string | null,
+    value: 92345.67,
+    period_start: '2026-08-01',
+    period_end: '2026-08-31',
+    target_value: 100000,
+    due_date: '2026-10-31',
+    owner_id: TEAMMATE_ID,
+    status: 'at_risk',
+    archived_at: null as string | null,
+  }
+  const TEAMMATE_TASK = {
+    id: 'task-teammate-teste',
+    company_id: COMPANY_ID_2,
+    title: 'Follow-up com o cliente X',
+    description: null,
+    assignee_id: TEAMMATE_ID,
+    created_by: USER_ID,
+    due_date: '2020-01-01',
+    remind_at: null,
+    reminder_sent_at: null,
+    priority: 'high',
+    status: 'todo',
+    visibility: 'company',
+    tags: [],
+    kpi_id: null,
+    completed_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+
+    // Rotas com filtro de verdade — o catch-all padrão devolve a tabela
+    // inteira ignorando query string (ver comentário no topo de fixtures.ts),
+    // mas PersonDashboard.tsx filtra por owner_id/assignee_id/id de
+    // propósito, então o mock precisa respeitar isso aqui. `matchesId`
+    // cobre tanto `.eq('id', x)` (id=eq.x) quanto `.in('id', [...])`
+    // (id=in.(x,y)) — CompanyDashboard usa o segundo pra achar profiles a
+    // partir de company_members.
+    const matchesId = (filter: string | null, id: string) => {
+      if (!filter) return true
+      if (filter.startsWith('in.')) return filter.slice(4, -1).split(',').includes(id)
+      return filter === `eq.${id}`
+    }
+    await page.route('**/rest/v1/profiles*', async (route) => {
+      const idFilter = new URL(route.request().url()).searchParams.get('id')
+      const rows = [PROFILE, TEAMMATE_PROFILE].filter((p) => matchesId(idFilter, p.id))
+      const accept = route.request().headers()['accept'] ?? ''
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(accept.includes('vnd.pgrst.object') ? (rows[0] ?? null) : rows),
+      })
+    })
+    // Felipe vira membro da Vibra — sem isso, o card "Equipe" (que só
+    // considera quem já é company_members desta empresa) nunca chegaria a
+    // olhar pra ele.
+    await page.route('**/rest/v1/company_members*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { company_id: HOLDING_ID, user_id: USER_ID, role: 'admin', created_at: '2026-01-01T00:00:00Z' },
+          { company_id: COMPANY_ID, user_id: USER_ID, role: 'admin', created_at: '2026-01-01T00:00:00Z' },
+          { company_id: COMPANY_ID_2, user_id: USER_ID, role: 'admin', created_at: '2026-01-01T00:00:00Z' },
+          { company_id: COMPANY_ID_2, user_id: TEAMMATE_ID, role: 'collaborator', created_at: '2026-01-01T00:00:00Z' },
+        ]),
+      }),
+    )
+    await page.route('**/rest/v1/metas*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(METAS.concat(TEAMMATE_META)),
+      }),
+    )
+    await page.route('**/rest/v1/meta_latest_values*', async (route) => {
+      const ownerFilter = new URL(route.request().url()).searchParams.get('owner_id')
+      const all = META_LATEST_VALUES.concat(TEAMMATE_META_LATEST)
+      const rows = ownerFilter ? all.filter((m) => ownerFilter === `eq.${m.owner_id}`) : all
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+    })
+    await page.route('**/rest/v1/tasks*', async (route) => {
+      const assigneeFilter = new URL(route.request().url()).searchParams.get('assignee_id')
+      const all = TASKS.concat(TEAMMATE_TASK)
+      const rows = assigneeFilter ? all.filter((t) => assigneeFilter === `eq.${t.assignee_id}`) : all
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+    })
+  })
+
+  test('card "Equipe" no painel da empresa mostra quem precisa de atenção e leva à performance dela', async ({
+    page,
+  }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}`)
+    await page.waitForLoadState('networkidle')
+
+    // Rafael (admin da fixture) também aparece no ranking — tem uma tarefa
+    // vencida dele mesmo (mock global, sem filtro de empresa de verdade) —
+    // por isso a linha do Felipe é buscada por nome pra não colidir com a
+    // dele na mesma checagem de badge.
+    const teamCard = page.locator('section', { has: page.getByRole('heading', { name: 'Equipe' }) })
+    const felipeRow = teamCard.getByRole('link', { name: /Felipe Nunes/ })
+    await expect(felipeRow).toBeVisible()
+    await expect(felipeRow.getByText('1 vencida(s)')).toBeVisible()
+
+    await felipeRow.click()
+    await page.waitForURL(`**/equipe/${TEAMMATE_ID}`)
+    await expect(page.getByRole('heading', { name: 'Felipe Nunes', level: 1 })).toBeVisible()
+    await expect(page.getByText('Receita recorrente (MRR)')).toBeVisible()
+    await expect(page.getByText('Follow-up com o cliente X')).toBeVisible()
+  })
+
+  test('"Equipe do grupo" no painel da Holding mostra quem está em risco em qualquer empresa', async ({ page }) => {
+    await page.goto('/holding')
+    await page.waitForLoadState('networkidle')
+
+    const teamCard = page.locator('section', { has: page.getByRole('heading', { name: 'Equipe do grupo' }) })
+    await expect(teamCard.getByText('Felipe Nunes')).toBeVisible()
+    await expect(teamCard.getByText('1 em risco')).toBeVisible()
+
+    await teamCard.getByText('Felipe Nunes').click()
+    await page.waitForURL(`**/holding/usuarios/${TEAMMATE_ID}`)
+    await expect(page.getByRole('heading', { name: 'Felipe Nunes', level: 1 })).toBeVisible()
   })
 })
 

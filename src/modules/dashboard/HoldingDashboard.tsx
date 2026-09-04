@@ -38,6 +38,7 @@ import {
   formatCompact,
   formatDate,
   formatValue,
+  initials,
   isOnTarget,
   relativeDays,
 } from '../../core/lib/format'
@@ -63,6 +64,7 @@ import {
   type KpiLatestValue,
   type MetaLatestValue,
   type Product,
+  type Profile,
   type Task,
   type TaskStatus,
 } from '../../core/types'
@@ -101,6 +103,10 @@ export default function HoldingDashboard() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
   const [inactiveKpiCount, setInactiveKpiCount] = useState(0)
+  // Só pra montar o card "Equipe do grupo" — não precisa de mais nada de
+  // cada pessoa (nem company_members: quem é dono de meta em risco já
+  // basta pra saber quem chamar a atenção).
+  const [teamProfiles, setTeamProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [creatingTask, setCreatingTask] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
@@ -116,6 +122,7 @@ export default function HoldingDashboard() {
       taskResult,
       insightResult,
       inactiveKpiResult,
+      teamProfileResult,
     ] = await Promise.all([
       supabase.rpc('company_snapshots'),
       supabase.from('meta_latest_values').select('*').is('archived_at', null),
@@ -144,6 +151,10 @@ export default function HoldingDashboard() {
       // Só a contagem, em todo o grupo (a RLS já limita ao que enxergo) —
       // mesmo aviso discreto de CompanyDashboard.tsx.
       supabase.from('kpis').select('id').eq('is_active', false).is('archived_at', null),
+      // Só pro card "Equipe do grupo" — is_super_admin() bypassa o
+      // shares_company() da policy de profiles, então aqui volta TODO
+      // cadastro do sistema.
+      supabase.from('profiles').select('*').order('full_name'),
     ])
 
     setSnapshots((snapshotResult.data as CompanySnapshot[]) ?? [])
@@ -162,6 +173,7 @@ export default function HoldingDashboard() {
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
     setInactiveKpiCount((inactiveKpiResult.data ?? []).length)
+    setTeamProfiles((teamProfileResult.data as Profile[]) ?? [])
     setLoading(false)
   }, [profile?.id])
 
@@ -244,6 +256,28 @@ export default function HoldingDashboard() {
     (companyId: string) => targetCountsByCompany.get(companyId) ?? { onTarget: 0, offTarget: 0 },
     [targetCountsByCompany],
   )
+
+  // Pedido do usuário: atalho rápido pra performance de cada responsável,
+  // agora em todo o grupo — quem tem meta em risco ou fora do alvo em
+  // QUALQUER empresa entra no ranking, sem precisar abrir cada painel pra
+  // achar. Escopado a alvo de empresa inteira, mesma razão de sempre
+  // (metasEffective já é só isso, filtrado no load()).
+  const teamRanking = useMemo(() => {
+    const map = new Map<string, { atRisk: number; offTarget: number }>()
+    for (const meta of metasEffective) {
+      if (!meta.owner_id) continue
+      const entry = map.get(meta.owner_id) ?? { atRisk: 0, offTarget: 0 }
+      if (meta.status === 'at_risk') entry.atRisk += 1
+      if (meta.value !== null && meta.target_value !== null && isOnTarget(meta.value, meta.target_value, meta.direction) === false)
+        entry.offTarget += 1
+      map.set(meta.owner_id, entry)
+    }
+    return teamProfiles
+      .map((person) => ({ person, ...(map.get(person.id) ?? { atRisk: 0, offTarget: 0 }) }))
+      .filter((row) => row.atRisk > 0 || row.offTarget > 0)
+      .sort((a, b) => b.atRisk * 2 + b.offTarget - (a.atRisk * 2 + a.offTarget))
+      .slice(0, 6)
+  }, [metasEffective, teamProfiles])
 
   const totals = useMemo(
     () =>
@@ -634,6 +668,37 @@ export default function HoldingDashboard() {
               </ul>
             )}
           </Card>
+
+          {/* Pedido do usuário: atalho rápido pra performance de cada
+              responsável, agora em todo o grupo. */}
+          {teamRanking.length > 0 && (
+            <Card
+              title="Equipe do grupo"
+              description="Quem tem meta em risco ou fora do alvo em qualquer empresa — clique pra ver tudo dessa pessoa."
+            >
+              <ul className="divide-y divide-line">
+                {teamRanking.map(({ person, atRisk, offTarget }) => (
+                  <li key={person.id}>
+                    <Link
+                      to={`/holding/usuarios/${person.id}`}
+                      className="-mx-1 flex items-center gap-3 rounded-md px-1 py-2.5 transition hover:bg-hover"
+                    >
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-hover text-xs font-semibold text-content-muted">
+                        {initials(person.full_name || person.email)}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-content">
+                        {person.full_name}
+                      </span>
+                      <span className="flex shrink-0 gap-1.5">
+                        {atRisk > 0 && <Badge tone="amber">{atRisk} em risco</Badge>}
+                        {offTarget > 0 && <Badge tone="red">{offTarget} fora do alvo</Badge>}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           {/* ------------------------------------------- metas x realizado */}
           <Card
