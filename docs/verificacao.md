@@ -2919,3 +2919,72 @@ já têm, não é regressão desta migração).
 **Pendente pra próxima rodada (Fase 3, segunda metade):** CRM genérico de
 contatos (`contacts` com campos customizáveis em jsonb + `contact_stages`
 + Kanban reaproveitando o padrão de Tarefas) — não iniciado ainda.
+
+## 47. Contatos — CRM genérico (Fase 3, segunda metade)
+
+Fecha a Fase 3 do plano de gestão completa: depois do Financeiro (seção
+46), o último módulo novo do roadmap aprovado. Diferente de tudo que já
+existe no sistema (indicador, tarefa, orçamento, financeiro — todos
+amarrados a uma métrica ou um valor), contato é um registro livre: pessoa
+ou organização que a empresa se relaciona (lead, cliente, fornecedor,
+parceiro...), sem esquema fixo — cada empresa/área acompanha coisas
+diferentes de um contato.
+
+**Migração `0041_contacts.sql`:** duas tabelas novas. `contact_stages` é o
+pipeline (Kanban) — cada empresa define as próprias etapas, mesmo padrão
+livre de `departments`/`products` (nada fixo pro grupo inteiro).
+`contacts` tem `stage_id` **obrigatório** (todo contato está em algum
+lugar do funil) com `on delete restrict` — diferente do padrão de vínculo
+opcional (`set null`) usado em toda parte do sistema até aqui, porque
+apagar uma etapa que ainda tem contato dentro é bloqueado, nunca silencioso
+(a pessoa move ou exclui os contatos primeiro). Guard trigger
+(`app.assert_contact_stage()`) valida que a etapa é da mesma empresa, RLS
+no padrão de sempre. Como contato é conceito novo (sem dado real pra
+herdar, diferente de como `departments` nasceu dos `kpis.category` já em
+uso), toda empresa existente ganha um pipeline comercial genérico de
+largada (Novo lead → Em contato → Proposta enviada → Fechado, ganho/
+perdido) — texto renomeável/removível livremente depois; sem isso o
+Kanban nasceria vazio e travado (não dá pra criar contato sem etapa).
+
+**`ContactsPage.tsx`:** Kanban por etapa, mesmo padrão de setas avançar/
+voltar + select de `TasksPage.tsx`, só que a "coluna" é dinâmica (etapa
+cadastrada pela empresa) em vez de um enum fixo — cada card tem também o
+próprio select pra pular direto pra qualquer etapa. Cabeçalho de cada
+coluna tem editar/excluir da etapa e "+ novo contato nesta etapa";
+"Excluir etapa" fica bloqueado (erro amigável) enquanto ela tiver contato.
+Card de contato: nome, organização, e-mail, telefone, responsável (mesmo
+padrão de avatar+iniciais de tarefa), e campos personalizados como badges
+(`custom_fields`, pares livres de chave/valor editados no formulário via
+uma lista dinâmica "Campo + Valor + remover"). Empresa-only, sem
+equivalente na holding — mesmo padrão de Produtos/Áreas (não é um módulo
+com contrapartida consolidada faz sentido pro grupo inteiro).
+
+Rota (`/empresa/:id/contatos`) e item de menu ("Contatos", ícone
+`Contact2`) logo abaixo das áreas cadastradas, antes de Notas.
+
+**Achado no processo (mesma categoria das rodadas 45 e 46):** o teste que
+checava `getByText('Novo lead')`/`getByText('Em contato')` colidiu com o
+próprio `<option>` de cada `<select>` de etapa dentro de cada card (todo
+card lista as etapas como opção, incluindo o nome de todas as outras) —
+diferente das colisões anteriores (texto de nav vs. conteúdo), aqui é
+o mesmo elemento do próprio Kanban duplicando o texto. Corrigido trocando
+por `getByRole('heading', ...)`, que só pega o `<h2>` do cabeçalho da
+coluna, nunca as opções do select.
+
+**Verificação:** `npx tsc --noEmit`, `npm run build`, `npm run test`
+(48/48) e `npm run check:contrast` (24/24) limpos. `npm run test:e2e`:
+suíte completa 290 passando (7 testes novos de Contatos — etapas com
+contato e campos certos, criar contato numa etapa, editar, avançar de
+etapa com a seta, pedir exclusão sem excluir direto, criar etapa nova,
+pedir exclusão de etapa sem excluir direto — mais 1 rota nova coberta
+pelos audits gerais de CSP/zoom/rolagem lateral), 34 skipped, sem falhas
+(Desktop e Mobile 390). `mcp__Supabase__get_advisors`: nenhum item novo de
+segurança; performance sem item novo além do padrão já existente de
+`created_by` sem índice (mesmo lint que toda outra tabela já tem).
+
+Com isso, a Fase 3 do plano de virar um sistema de gestão completo por
+empresa está concluída: painel por produto/turma (seção 43), painel por
+área (seção 44), granularidade de tarefa + menu por área (seção 45),
+Financeiro (seção 46) e Contatos (esta seção). Próximos incrementos ficam
+a critério do usuário — nenhum item pendente conhecido do roadmap
+original.

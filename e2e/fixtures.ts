@@ -738,6 +738,70 @@ export const FINANCIAL_ENTRIES = [
   },
 ]
 
+// CRM (Fase 3, segunda metade) — duas etapas e um contato em cada, pra
+// exercitar avançar/voltar de etapa sem precisar de uma terceira.
+export const CONTACT_STAGE_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1'
+export const CONTACT_STAGE_ID_2 = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2'
+export const CONTACT_STAGES = [
+  {
+    id: CONTACT_STAGE_ID,
+    company_id: COMPANY_ID_2,
+    name: 'Novo lead',
+    color: '#0EA5E9',
+    display_order: 0,
+    is_active: true,
+    created_by: USER_ID,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: CONTACT_STAGE_ID_2,
+    company_id: COMPANY_ID_2,
+    name: 'Em contato',
+    color: '#F59E0B',
+    display_order: 1,
+    is_active: true,
+    created_by: USER_ID,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+]
+export const CONTACT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1'
+export const CONTACTS = [
+  {
+    id: CONTACT_ID,
+    company_id: COMPANY_ID_2,
+    stage_id: CONTACT_STAGE_ID,
+    name: 'Ana Beatriz',
+    organization: 'Consultoria ABZ',
+    email: 'ana@abz.com',
+    phone: '(11) 90000-0000',
+    owner_id: USER_ID,
+    custom_fields: { Origem: 'Indicação' } as Record<string, string>,
+    notes: null,
+    display_order: 0,
+    created_by: USER_ID,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'contact-2',
+    company_id: COMPANY_ID_2,
+    stage_id: CONTACT_STAGE_ID_2,
+    name: 'Carlos Nunes',
+    organization: null as string | null,
+    email: null as string | null,
+    phone: null as string | null,
+    owner_id: null as string | null,
+    custom_fields: {} as Record<string, string>,
+    notes: null,
+    display_order: 0,
+    created_by: USER_ID,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+]
+
 // Dois insights em dias diferentes — dá pra conferir o agrupamento por data
 // (item 1 do pedido) sem depender de fuso ou hora exata.
 const today = new Date()
@@ -796,6 +860,8 @@ const TABLES: Record<string, unknown[]> = {
   budgets: BUDGETS,
   budget_items: BUDGET_ITEMS,
   financial_entries: FINANCIAL_ENTRIES,
+  contact_stages: CONTACT_STAGES,
+  contacts: CONTACTS,
   integrations: [],
   integration_mappings: [],
   integration_runs: [],
@@ -866,6 +932,7 @@ export const ROUTES: [string, string][] = [
   [`/empresa/${COMPANY_ID_2}/produtos/${PRODUCT_ID}/turmas/${EDITION_ID}`, 'Painel da turma'],
   [`/empresa/${COMPANY_ID_2}/areas`, 'Áreas'],
   [`/empresa/${COMPANY_ID_2}/areas/${DEPARTMENT_ID}`, 'Painel da área'],
+  [`/empresa/${COMPANY_ID_2}/contatos`, 'Contatos'],
   [`/empresa/${COMPANY_ID_2}/notas`, 'Notas'],
   [`/empresa/${COMPANY_ID_2}/orcamentos`, 'Orçamentos'],
   [`/empresa/${COMPANY_ID_2}/financeiro`, 'Financeiro'],

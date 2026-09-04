@@ -610,6 +610,42 @@ export type FinancialEntry = {
   updated_at: string
 }
 
+// CRM genérico — Fase 3 (segunda parte). Etapa do funil (Kanban), definida
+// por empresa — mesmo padrão livre de `Department`/`Product` (nada fixo
+// pro grupo inteiro).
+export type ContactStage = {
+  id: string
+  company_id: string
+  name: string
+  color: string | null
+  display_order: number
+  is_active: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+// Pessoa ou organização que a empresa se relaciona (lead, cliente,
+// fornecedor, parceiro...). `custom_fields` existe porque cada empresa/área
+// acompanha coisas diferentes de um contato — não dá pra prever um esquema
+// fixo que sirva pra todas.
+export type Contact = {
+  id: string
+  company_id: string
+  stage_id: string
+  name: string
+  organization: string | null
+  email: string | null
+  phone: string | null
+  owner_id: string | null
+  custom_fields: Record<string, string>
+  notes: string | null
+  display_order: number
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 // Uma linha por INDICADOR (view kpi_latest_values) — só medição, sem meta
 // nenhuma embutida. Pra saber se um indicador tem meta e como ela anda,
 // ver `MetaLatestValue`.

@@ -16,6 +16,7 @@ import HoldingTasksPage from '../modules/tasks/HoldingTasksPage'
 import NotesPage from '../modules/notes/NotesPage'
 import BudgetsPage from '../modules/budgets/BudgetsPage'
 import FinancialsPage from '../modules/financials/FinancialsPage'
+import ContactsPage from '../modules/contacts/ContactsPage'
 import ProductsPage from '../modules/products/ProductsPage'
 import ProductDashboard from '../modules/dashboard/ProductDashboard'
 import DepartmentsPage from '../modules/departments/DepartmentsPage'
@@ -212,6 +213,9 @@ export default function App() {
               agora por área/departamento interno em vez de produto. */}
           <Route path="areas" element={<DepartmentsPage />} />
           <Route path="areas/:departmentId" element={<DepartmentDashboard />} />
+          {/* CRM genérico — Fase 3 (segunda metade). Por empresa, sem
+              equivalente na holding (mesmo padrão de Produtos/Áreas). */}
+          <Route path="contatos" element={<ContactsPage />} />
           <Route path="notas" element={<NotesPage />} />
           {/* /mapa-mental virou /notas — mesmo tratamento do link de /metas
               logo acima: cai num lugar de verdade, não em 404. */}

@@ -6,6 +6,11 @@ import { expect, test } from '@playwright/test'
 import {
   COMPANY_ID,
   COMPANY_ID_2,
+  CONTACT_ID,
+  CONTACT_STAGE_ID,
+  CONTACT_STAGE_ID_2,
+  CONTACT_STAGES,
+  CONTACTS,
   DEPARTMENT_ID,
   DEPARTMENTS,
   EDITION_ID,
@@ -648,6 +653,152 @@ test.describe('financeiro', () => {
     const row = page.getByRole('row', { name: /Recebimento de cliente/ })
     await row.getByRole('button', { name: 'Excluir lançamento' }).click()
     await expect(page.getByText('Excluir lançamento?')).toBeVisible()
+  })
+})
+
+// CRM genérico de contatos — Fase 3, segunda metade. Kanban por etapa
+// (contact_stages, livre por empresa), setas avançar/voltar + select no
+// card, mesmo padrão de Tarefas.
+test.describe('contatos', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+  })
+
+  test('mostra as etapas com os contatos e campos certos', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/contatos`)
+    await page.waitForLoadState('networkidle')
+
+    await expect(page.getByRole('heading', { name: 'Novo lead' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Em contato' })).toBeVisible()
+
+    const anaCard = page.locator('article', { hasText: 'Ana Beatriz' })
+    await expect(anaCard).toContainText('Consultoria ABZ')
+    await expect(anaCard).toContainText('ana@abz.com')
+    await expect(anaCard).toContainText('Rafael Portela')
+    await expect(anaCard).toContainText('Origem: Indicação')
+
+    const carlosCard = page.locator('article', { hasText: 'Carlos Nunes' })
+    await expect(carlosCard).toContainText('sem responsável')
+
+    const overflow = await page.evaluate(() => {
+      const doc = document.documentElement
+      return { scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth }
+    })
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1)
+  })
+
+  test('criar contato numa etapa', async ({ page }) => {
+    const contacts = [...CONTACTS]
+    await page.route('**/rest/v1/contacts*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        contacts.push({ id: 'novo-contato', notes: null, ...body })
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(contacts) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/contatos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Novo contato em Novo lead' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Novo contato' })).toBeVisible()
+    await page.getByLabel('Nome').fill('Fernanda Lima')
+    await page.getByRole('button', { name: 'Criar contato' }).click()
+
+    await expect(page.getByText('Contato criado.')).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    // Sobe até a coluna (div "flex flex-col") a partir do próprio título —
+    // evita colidir com "Em contato" aparecendo como opção dentro do select
+    // de qualquer card (um filtro por texto pegaria isso também).
+    const stageColumn = page
+      .getByRole('heading', { name: 'Novo lead' })
+      .locator('xpath=ancestor::div[contains(@class, "flex-col")][1]')
+    await expect(stageColumn.getByText('Fernanda Lima')).toBeVisible()
+  })
+
+  test('editar contato existente', async ({ page }) => {
+    const contacts = CONTACTS.map((c) => ({ ...c }))
+    await page.route('**/rest/v1/contacts*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'PATCH') {
+        const body = JSON.parse(req.postData() || '{}')
+        const target = contacts.find((c) => c.id === CONTACT_ID)
+        if (target) Object.assign(target, body)
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(contacts) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/contatos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Editar contato "Ana Beatriz"' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Editar Ana Beatriz' })).toBeVisible()
+    await page.getByLabel('Nome').fill('Ana Beatriz Souza')
+    await page.getByRole('button', { name: 'Salvar' }).click()
+
+    await expect(page.getByText('Contato atualizado.')).toBeVisible()
+    await expect(page.getByText('Ana Beatriz Souza')).toBeVisible()
+  })
+
+  test('avançar contato de etapa com a seta', async ({ page }) => {
+    const contacts = CONTACTS.map((c) => ({ ...c }))
+    await page.route('**/rest/v1/contacts*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'PATCH') {
+        const body = JSON.parse(req.postData() || '{}')
+        const target = contacts.find((c) => c.id === CONTACT_ID)
+        if (target) Object.assign(target, body)
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(contacts) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/contatos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Avançar "Ana Beatriz" de etapa' }).click()
+
+    const emContatoColumn = page
+      .getByRole('heading', { name: 'Em contato' })
+      .locator('xpath=ancestor::div[contains(@class, "flex-col")][1]')
+    await expect(emContatoColumn.getByText('Ana Beatriz')).toBeVisible()
+    await expect(emContatoColumn.getByText('Carlos Nunes')).toBeVisible()
+  })
+
+  test('pedir exclusão de contato abre confirmação, não exclui direto', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/contatos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Excluir contato "Ana Beatriz"' }).click()
+    await expect(page.getByText('Excluir contato?')).toBeVisible()
+  })
+
+  test('criar etapa nova', async ({ page }) => {
+    const stages = [...CONTACT_STAGES]
+    await page.route('**/rest/v1/contact_stages*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        stages.push({ id: 'nova-etapa', is_active: true, ...body })
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(stages) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/contatos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Nova etapa' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Nova etapa' })).toBeVisible()
+    await page.getByLabel('Nome da etapa').fill('Fechado')
+    await page.getByRole('button', { name: 'Criar etapa' }).click()
+
+    await expect(page.getByText('Etapa criada.')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Fechado' })).toBeVisible()
+  })
+
+  test('pedir exclusão de etapa abre confirmação, não exclui direto', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/contatos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Excluir etapa "Novo lead"' }).click()
+    await expect(page.getByText('Excluir etapa?')).toBeVisible()
   })
 })
 
