@@ -1826,6 +1826,46 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await expect(card).not.toHaveClass(/opacity-60/)
   })
 
+  // Bug real encontrado em produção: desativar só a RAIZ deixava
+  // produto/turma por baixo ativos, sem lançamento nenhum, ainda contando
+  // nos painéis e poluindo o cartão "Metas" deles — o cartão de Metas
+  // mostra a família inteira como uma coisa só, então o botão precisa
+  // desativar (e reativar) a família toda de uma vez, não só a linha
+  // clicada. KPI_PRODUCT ("Faturamento Entre Donos") tem KPI_EDITION
+  // ("Faturamento Imersão Set/2026") como filho — ver fixtures.ts.
+  test('desativar a raiz arrasta produto/turma vinculados junto (cascata)', async ({ page }) => {
+    const kpis = KPIS.map((item) => ({ ...item }))
+    const patchedIdSets: string[][] = []
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'PATCH') {
+        const body = JSON.parse(req.postData() || '{}')
+        const idFilter = new URL(req.url()).searchParams.get('id') ?? ''
+        const ids = idFilter.startsWith('in.') ? idFilter.slice(4, -1).split(',') : [idFilter.replace('eq.', '')]
+        patchedIdSets.push(ids)
+        for (const kpi of kpis) {
+          if (ids.includes(kpi.id)) Object.assign(kpi, body)
+        }
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+
+    await page.getByRole('button', { name: 'Desativar meta "Faturamento Entre Donos"' }).click()
+    await expect(page.getByText('Meta e 1 vinculado(s) desativados.')).toBeVisible()
+
+    // A raiz E a turma vinculada entraram no mesmo update — não só a raiz.
+    expect(patchedIdSets.at(-1)).toEqual(expect.arrayContaining([KPI_PRODUCT, KPI_EDITION]))
+    expect(kpis.find((k) => k.id === KPI_EDITION)?.is_active).toBe(false)
+
+    // Reverte — reativar a raiz também traz a turma de volta junto.
+    await page.getByRole('button', { name: 'Ativar meta "Faturamento Entre Donos"' }).click()
+    await expect(page.getByText('Meta e 1 vinculado(s) ativados.')).toBeVisible()
+    expect(kpis.find((k) => k.id === KPI_EDITION)?.is_active).toBe(true)
+  })
+
   // Pedido do usuário: buscar por nome, útil conforme a lista cresce. Acha
   // a família tanto pelo nome da própria meta quanto pelo nome de um
   // produto/turma vinculado em qualquer profundidade.

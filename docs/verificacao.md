@@ -3091,3 +3091,52 @@ teste, outro pela troca do seletor de "Financeiro" depois de remover o
 wrapper `.card` único da lista), 34 skipped, sem falhas (Desktop e Mobile
 390). `mcp__Supabase__get_advisors`: nenhum item novo de segurança (a
 migração só muda um `default` de coluna, não mexe em RLS/índice).
+
+## 50. Bug: desativar só a raiz deixava produto/turma ativos por baixo
+
+Relato do usuário: "as metas desativadas e sem lançamentos ainda aparecem
+no painel das empresas no card metas." Investigação em produção (não em
+fixture) encontrou o caso exato: a empresa MDD tinha um indicador raiz
+"Faturamento 2027" desativado (`is_active = false`, criado como
+planejamento antecipado, nunca lançado), mas seus 4 produtos e 4 turmas
+por baixo (`parent_kpi_id` na cadeia) continuavam `is_active = true`,
+cada um com o próprio alvo e zero lançamentos.
+
+**Causa raiz**: `toggleKpiActive` (rodada 49, acima) só atualizava a linha
+clicada (`eq('id', kpi.id)`) — igual a `archiveKpi`, que também nunca
+cascateou. Isso é aceitável pra arquivar (ação mais rara, tela de
+histórico), mas quebra a expectativa de ativar/desativar: o cartão da
+tela de Metas mostra a família inteira (raiz + produto + turma) como UMA
+coisa só; a pessoa clica o botão daquele cartão achando que desativou
+"aquilo tudo", mas por baixo só a raiz mudava — os filhos continuavam
+100% ativos, contando em `company_snapshots()`/`meta_latest_values` (que
+só olham o `is_active` da PRÓPRIA linha, nunca o da cadeia de pais) e
+aparecendo com "sem lançamento" no cartão "Metas" do painel da empresa
+(`kpiRows`, que lista todo indicador ativo de qualquer nível, não só
+raiz).
+
+**Correção**: `KpisPage.tsx` ganhou `descendantIds(kpiId)` (percorre
+`childrenByParent` recursivamente, mesma árvore já usada por
+`rollupRows`) e `toggleKpiActive` agora atualiza `.in('id', [kpi.id,
+...descendantIds(kpi.id)])` numa única chamada — ativar/desativar vale
+pra família toda, nos dois sentidos (reativar a raiz também reativa quem
+foi desativado só por estar por baixo dela). Toast avisa quando há
+vinculados: "Meta e N vinculado(s) desativados/ativados." `archiveKpi`
+não mudou nesta rodada — o relato foi especificamente sobre "desativar",
+e arquivar já tem o próprio aviso de que não cascateia (comentário em
+`KpisPage.tsx`); ficou registrado como decisão deliberada, não descuido.
+
+**Correção retroativa dos dados**: os 8 descendentes já ativos de
+"Faturamento 2027" na empresa MDD foram desativados via
+`mcp__Supabase__execute_sql` (`update kpis set is_active = false where id
+in (<descendentes, achados por CTE recursiva>) and is_active = true`) —
+sem isso, o código novo só valeria pra próxima vez que alguém mexesse no
+botão; o caso relatado continuaria visível até lá.
+
+**Verificação**: novo teste e2e "desativar a raiz arrasta produto/turma
+vinculados junto (cascata)" (`KPI_PRODUCT`/`KPI_EDITION` das fixtures,
+que já formam pai→filho) confere que o PATCH sai com os dois ids juntos,
+o toast cita o vinculado, e reverter também traz o filho de volta. `npx
+tsc --noEmit`, `npm run build`, `npx vitest run` (48/48) e `npm run
+check:contrast` (24/24) limpos. `npx playwright test`: suíte completa 298
+passando (1 teste novo), 34 skipped, sem falhas (Desktop e Mobile 390).

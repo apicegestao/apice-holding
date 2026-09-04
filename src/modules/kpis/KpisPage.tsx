@@ -327,6 +327,25 @@ export default function KpisPage() {
     return map
   }, [kpis])
 
+  // Todo descendente (filho, neto...) de um kpi — usado por toggleKpiActive
+  // pra ativar/desativar a família inteira de uma vez. `seen` só protege
+  // contra ciclo (o banco já impede formar um, mas o cliente não precisa
+  // confiar cegamente nisso).
+  const descendantIds = useCallback(
+    (kpiId: string, seen: Set<string> = new Set()): string[] => {
+      if (seen.has(kpiId)) return []
+      seen.add(kpiId)
+      const children = childrenByParent.get(kpiId) ?? []
+      const ids: string[] = []
+      for (const child of children) {
+        ids.push(child.id)
+        ids.push(...descendantIds(child.id, seen))
+      }
+      return ids
+    },
+    [childrenByParent],
+  )
+
   // Valor "de verdade" de cada meta — mesmo algoritmo de soma em cadeia que
   // ProductsPage/CompanyDashboard já usam (core/lib/kpiRollup.ts), sem
   // reimplementar a recursão aqui de novo.
@@ -646,13 +665,29 @@ export default function KpisPage() {
   // dos painéis (mesmo `is_active` que eles já filtram na consulta) e para
   // de contar na soma de quem tem produto/turma por baixo (`rollupRows`,
   // acima).
+  //
+  // Em cascata pra família inteira (raiz + produtos + turmas por baixo):
+  // o cartão de Metas mostra tudo isso como UMA coisa só, então
+  // ativar/desativar só a raiz deixaria os filhos ativos por baixo,
+  // continuando a contar nos painéis e a poluir o cartão "Metas" deles —
+  // bug real encontrado (raiz desativada com produtos/turmas ativos por
+  // baixo, todos sem nenhum lançamento).
   const toggleKpiActive = async (kpi: Kpi) => {
-    const { error } = await supabase.from('kpis').update({ is_active: !kpi.is_active }).eq('id', kpi.id)
+    const nextActive = !kpi.is_active
+    const ids = [kpi.id, ...descendantIds(kpi.id)]
+    const { error } = await supabase.from('kpis').update({ is_active: nextActive }).in('id', ids)
     if (error) {
       notify(error.message, 'error')
       return
     }
-    notify(kpi.is_active ? 'Meta desativada.' : 'Meta ativada.')
+    const extra = ids.length - 1
+    notify(
+      extra > 0
+        ? `Meta e ${extra} vinculado(s) ${nextActive ? 'ativados' : 'desativados'}.`
+        : nextActive
+          ? 'Meta ativada.'
+          : 'Meta desativada.',
+    )
     await load()
   }
 
