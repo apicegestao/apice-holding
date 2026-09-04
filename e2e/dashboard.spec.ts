@@ -256,6 +256,31 @@ test.describe('painel', () => {
     await expect(page.getByText('Vibra puxa o resultado do grupo')).toBeVisible()
     await expect(page.getByText('MDD sem lançamento de faturamento há semanas')).toBeVisible()
   })
+
+  // Pedido do usuário: quando uma meta é desativada (na tela de Metas), ela
+  // some dos números do painel — mas não em silêncio: um aviso discreto
+  // avisa quantas existem, sem trazer os dados delas de volta.
+  test('card "metas desativadas" aparece no painel quando há alguma', async ({ page }) => {
+    const inactiveKpi = {
+      ...KPIS[0],
+      id: 'kpi-desativado-teste',
+      company_id: COMPANY_ID_2,
+      name: 'Indicador desativado (teste)',
+      is_active: false,
+    }
+    // O mock padrão de `kpis` não filtra por query string — aqui precisa
+    // filtrar de verdade por `is_active`, senão a consulta que busca só
+    // desativados voltaria com a tabela inteira (inclusive ativos).
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      const isInactiveQuery = new URL(route.request().url()).searchParams.get('is_active') === 'eq.false'
+      const body = isInactiveQuery ? [inactiveKpi] : KPIS
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}`)
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByText('1 meta(s) desativada(s) — não entram nos números acima.')).toBeVisible()
+  })
 })
 
 // Busca no seletor de empresa (celular): só aparece com empresas de sobra
@@ -994,14 +1019,62 @@ test.describe('metas de produto e sub-produto', () => {
     const targetsCard = page.locator('section', { has: page.getByRole('heading', { name: 'Alvos' }) })
     await expect(targetsCard.getByText('R$ 32.000,00 de R$ 400.000,00')).toBeVisible()
 
-    // Turmas do produto, com atalho pro painel de cada uma.
+    // Turma de setembro: sempre visível aqui (mesmo teste roda em qualquer
+    // data — ver teste dedicado abaixo pra turma com início num mês futuro,
+    // que usa datas relativas a "hoje" de propósito, por causa disso).
     await expect(page.getByRole('link', { name: /Imersão Setembro 2026/ })).toBeVisible()
-    await expect(page.getByRole('link', { name: /Imersão Outubro 2026/ })).toBeVisible()
 
     // Tarefa e orçamento deste produto, antes só visíveis em outras telas.
     await expect(page.getByText('Confirmar local do evento')).toBeVisible()
     await expect(page.getByText('Orçamento Entre Donos 2026')).toBeVisible()
     await expect(page.getByText('R$ 6.000,00 de R$ 10.000,00 previstos')).toBeVisible()
+  })
+
+  // Pedido explícito: turma com início num mês ainda não chegado fica fora
+  // da lista de "Turmas" do painel do produto — só citada num aviso
+  // discreto — pra não confundir quem olha achando que ela já devia ter
+  // dado alguma coisa. Datas relativas a "hoje" de propósito (não
+  // hardcoded): o comportamento depende do mês real em que o teste roda.
+  test('turma com início em mês futuro fica fora da lista de "Turmas", só citada no aviso', async ({ page }) => {
+    const today = new Date()
+    const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10)
+    const threeMonthsAhead = new Date(today.getFullYear(), today.getMonth() + 3, 1).toISOString().slice(0, 10)
+    const editions = [
+      {
+        id: 'edicao-atual-teste',
+        product_id: PRODUCT_ID,
+        company_id: COMPANY_ID_2,
+        name: 'Turma Já Chegou',
+        start_date: thisMonthStart,
+        end_date: thisMonthStart,
+        status: 'em_andamento',
+        created_by: USER_ID,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'edicao-futura-teste',
+        product_id: PRODUCT_ID,
+        company_id: COMPANY_ID_2,
+        name: 'Turma Ainda Não Chegou',
+        start_date: threeMonthsAhead,
+        end_date: threeMonthsAhead,
+        status: 'planejamento',
+        created_by: USER_ID,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+    await page.route('**/rest/v1/product_editions*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(editions) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/produtos/${PRODUCT_ID}`)
+    await page.waitForLoadState('networkidle')
+
+    await expect(page.getByRole('link', { name: /Turma Já Chegou/ })).toBeVisible()
+    await expect(page.getByRole('link', { name: /Turma Ainda Não Chegou/ })).toHaveCount(0)
+    await expect(page.getByText('1 turma(s) programada(s) ainda não aparece(m) aqui')).toBeVisible()
   })
 
   // Turma: mesmo painel, e agora TAMBÉM com seção de tarefas — desde
@@ -1400,8 +1473,12 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
 
     // Financeiro é a categoria de "Receita recorrente (MRR)" — o cabeçalho
     // do grupo aparece antes da linha, e nada aninhado (turma/produto)
-    // aparece inline aqui.
-    await expect(page.locator('.card').getByText('Financeiro', { exact: true })).toBeVisible()
+    // aparece inline aqui. `p.text-brand-text` é a classe do cabeçalho de
+    // grupo (ver MetasOverview.tsx) — precisa de um seletor específico
+    // assim porque "Financeiro" sozinho colide com o item do menu lateral
+    // (módulo à parte) e com a <option> de mesmo nome em "Filtrar por
+    // categoria".
+    await expect(page.locator('p.text-brand-text', { hasText: 'Financeiro' })).toBeVisible()
     const row = page.getByRole('link', { name: /Receita recorrente \(MRR\)/ })
     await expect(row).toContainText('R$ 92.345,67')
     await expect(row).toContainText('R$ 80.000,00')
@@ -1628,9 +1705,20 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
       const req = route.request()
       if (req.method() === 'POST') {
         const body = JSON.parse(req.postData() || '{}')
-        for (const row of Array.isArray(body) ? body : [body]) {
-          kpis.push({ id: `novo-kpi-${kpis.length}`, is_active: true, archived_at: null, entry_frequency: null, ...row })
-        }
+        // Responde só com as linhas recém-criadas (como o `.select('id')`
+        // de verdade faria) — devolver a tabela inteira faria `created[0]`
+        // (usado logo depois pra criar o alvo já vinculado) apontar pro
+        // primeiro kpi ORIGINAL da lista, não pro que acabou de nascer.
+        const inserted = (Array.isArray(body) ? body : [body]).map((row, index) => ({
+          id: `novo-kpi-${kpis.length + index}`,
+          is_active: true,
+          archived_at: null,
+          entry_frequency: null,
+          ...row,
+        }))
+        kpis.push(...inserted)
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(inserted) })
+        return
       }
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
     })
@@ -1665,6 +1753,11 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
 
     await dialog.getByRole('button', { name: 'Adicionar meta e alvo' }).click()
     await expect(page.getByText('Inadimplência e alvo criados.')).toBeVisible()
+
+    // Pedido do usuário: alvo novo nasce "Planejada", não "Em andamento" —
+    // ninguém tocou no seletor de status acima, então é o padrão de
+    // verdade sendo exercitado (não um valor escolhido no teste).
+    await expect(page.getByRole('link', { name: /^Inadimplência,/ })).toContainText('Planejada')
   })
 
   // Bug relatado: o valor do alvo ficava escondido no cartão — só aparecia
@@ -1696,6 +1789,41 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await expect(page.getByText('6 em andamento')).toBeVisible()
     await expect(page.getByText('1 em risco')).toBeVisible()
     await expect(page.getByText('0 não atingido(s)')).toBeVisible()
+  })
+
+  // Pedido do usuário: botão fácil de ativar/desativar uma meta direto na
+  // lista, sem abrir o modal de editar. Desativada, a linha fica esmaecida
+  // (mesmo tratamento visual que já existia, só sem atalho pra chegar lá).
+  test('botão de ativar/desativar na lista muda is_active sem abrir modal', async ({ page }) => {
+    const kpis = KPIS.map((item) => ({ ...item }))
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'PATCH') {
+        const body = JSON.parse(req.postData() || '{}')
+        const target = kpis.find((item) => item.id === KPI_WITH)
+        if (target) Object.assign(target, body)
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+
+    const row = page.getByRole('link', { name: /^Receita recorrente \(MRR\)/ })
+    // O pai direto do link é o cartão dimível nos dois formatos (linha no
+    // desktop, cartão empilhado no celular) — sobe só um nível em vez de
+    // depender de uma classe específica de um dos dois layouts.
+    const card = row.locator('xpath=..')
+    await expect(card).not.toHaveClass(/opacity-60/)
+
+    await page.getByRole('button', { name: 'Desativar meta "Receita recorrente (MRR)"' }).click()
+    await expect(page.getByText('Meta desativada.')).toBeVisible()
+    await expect(card).toHaveClass(/opacity-60/)
+
+    // Reverte — o mesmo botão, agora com o rótulo trocado, reativa.
+    await page.getByRole('button', { name: 'Ativar meta "Receita recorrente (MRR)"' }).click()
+    await expect(page.getByText('Meta ativada.')).toBeVisible()
+    await expect(card).not.toHaveClass(/opacity-60/)
   })
 
   // Pedido do usuário: buscar por nome, útil conforme a lista cresce. Acha

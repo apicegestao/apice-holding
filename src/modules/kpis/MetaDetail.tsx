@@ -17,6 +17,8 @@ import {
   Plus,
   SquarePen,
   Target,
+  ToggleLeft,
+  ToggleRight,
   Trash2,
   TrendingUp,
 } from 'lucide-react'
@@ -26,6 +28,13 @@ import { contributionRatio } from '../../core/lib/kpiRollup'
 import { Badge, Card, EmptyState, Loading } from '../../core/ui'
 import { CHECKPOINT_FREQUENCY_LABEL, GOAL_STATUS_LABEL, type Kpi, type Meta } from '../../core/types'
 import { statusTone, type KpisCtx } from './KpisPage'
+
+// Compartilhada entre o cabeçalho, o grid INTERNO do link de cada ChildRow
+// e a linha de total — só existe num lugar pra nunca desalinhar um do
+// outro. Mesmo padrão de MetasOverview.tsx (ROW_GRID_COLUMNS): última
+// coluna (20px) é a seta de abrir; o atalho de ativar/desativar fica FORA
+// desse grid (ver ChildRow) — ver o comentário lá pro motivo.
+const CHILD_GRID_COLUMNS = 'minmax(200px, 2fr) 110px 90px 110px 150px 110px 130px 20px'
 
 export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string }) {
   const kpi = ctx.kpiById.get(kpiId)
@@ -233,6 +242,27 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
                 <SquarePen className="h-3.5 w-3.5" /> {kpi.product_edition_id ? 'Editar turma' : 'Editar produto'}
               </button>
             )}
+            {/* Ativar/desativar: some dos painéis e para de contar na soma
+                de quem tem produto/turma por baixo, mas continua aqui
+                (esmaecido), diferente de arquivar (abaixo), que some da
+                própria lista de Metas. */}
+            {ctx.canWrite && (
+              <button
+                type="button"
+                className="btn-ghost py-1.5 text-xs"
+                onClick={() => void ctx.toggleKpiActive(kpi)}
+              >
+                {kpi.is_active ? (
+                  <>
+                    <ToggleRight className="h-3.5 w-3.5" /> Desativar
+                  </>
+                ) : (
+                  <>
+                    <ToggleLeft className="h-3.5 w-3.5" /> Ativar
+                  </>
+                )}
+              </button>
+            )}
             {ctx.canWrite &&
               (kpi.archived_at ? (
                 <button type="button" className="btn-ghost py-1.5 text-xs" onClick={() => void ctx.unarchiveKpi(kpi)}>
@@ -343,41 +373,51 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
                 telas bem estreitas). Abaixo de sm: cartão empilhado por
                 filho — mesma informação, sem espremer 8 colunas num celular. */}
             <div className="hidden overflow-x-auto sm:block">
-              <div className="min-w-[820px]">
-                <div
-                  className="grid items-center gap-4 border-b border-line px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-content-faint"
-                  style={{ gridTemplateColumns: 'minmax(200px, 2fr) 110px 90px 110px 150px 110px 130px 20px' }}
-                >
-                  <div className="text-center">{kpi.product_id ? 'Turma' : 'Produto'}</div>
-                  <div className="text-center">Atual</div>
-                  <div className="text-center">Contrib.</div>
-                  <div className="text-center">Alvo</div>
-                  <div className="text-center">Progresso</div>
-                  <div className="text-center">Status</div>
-                  <div className="text-center">Prazo</div>
-                  <div />
+              <div className="min-w-[850px]">
+                {/* Mesma divisão flex (grid + coluna à parte) de ChildRow —
+                    pra régua e total baterem certinho com cada linha. */}
+                <div className="flex items-center gap-2 border-b border-line px-5 py-2.5">
+                  <div
+                    className="grid flex-1 items-center gap-4 text-[11px] font-semibold uppercase tracking-wide text-content-faint"
+                    style={{ gridTemplateColumns: CHILD_GRID_COLUMNS }}
+                  >
+                    <div className="text-center">{kpi.product_id ? 'Turma' : 'Produto'}</div>
+                    <div className="text-center">Atual</div>
+                    <div className="text-center">Contrib.</div>
+                    <div className="text-center">Alvo</div>
+                    <div className="text-center">Progresso</div>
+                    <div className="text-center">Status</div>
+                    <div className="text-center">Prazo</div>
+                    <div />
+                  </div>
+                  {ctx.canWrite && <div className="w-6 shrink-0" />}
                 </div>
-                {children.map((child) => (
-                  <ChildRow key={child.id} kpi={child} ctx={ctx} parentValue={value} />
-                ))}
+                <div className="space-y-2 px-2 py-2">
+                  {children.map((child) => (
+                    <ChildRow key={child.id} kpi={child} ctx={ctx} parentValue={value} />
+                  ))}
+                </div>
                 {/* Total — soma do que já foi lançado e soma dos alvos que
                     cada produto/turma assumiu (os dois são contas
                     independentes: nada garante que a soma dos alvos bate
                     com o alvo definido lá em cima no cartão). */}
-                <div
-                  className="grid items-center gap-4 border-t border-line-strong bg-hover/40 px-5 py-2.5 text-sm font-semibold text-content"
-                  style={{ gridTemplateColumns: 'minmax(200px, 2fr) 110px 90px 110px 150px 110px 130px 20px' }}
-                >
-                  <div>Total</div>
-                  <div className="text-right">{value !== null ? formatValue(value, kpi.unit) : '—'}</div>
-                  <div />
-                  <div className="text-right">
-                    {childrenAlvoSum !== null ? formatValue(childrenAlvoSum, kpi.unit) : '—'}
+                <div className="flex items-center gap-2 border-t border-line-strong bg-hover/40 px-5 py-2.5">
+                  <div
+                    className="grid flex-1 items-center gap-4 text-sm font-semibold text-content"
+                    style={{ gridTemplateColumns: CHILD_GRID_COLUMNS }}
+                  >
+                    <div>Total</div>
+                    <div className="text-right">{value !== null ? formatValue(value, kpi.unit) : '—'}</div>
+                    <div />
+                    <div className="text-right">
+                      {childrenAlvoSum !== null ? formatValue(childrenAlvoSum, kpi.unit) : '—'}
+                    </div>
+                    <div />
+                    <div />
+                    <div />
+                    <div />
                   </div>
-                  <div />
-                  <div />
-                  <div />
-                  <div />
+                  {ctx.canWrite && <div className="w-6 shrink-0" />}
                 </div>
               </div>
             </div>
@@ -444,49 +484,66 @@ function ChildRow({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentVal
   }`
 
   return (
-    <Link
-      to={`/empresa/${ctx.companyId}/kpis/${kpi.id}`}
-      aria-label={ariaLabel}
-      className={`grid items-center gap-4 border-b border-line px-5 py-3.5 text-sm transition last:border-b-0 hover:bg-hover ${
+    <div
+      className={`card flex items-center gap-2 px-5 py-3.5 text-sm transition hover:border-content-faint hover:bg-hover ${
         kpi.is_active ? '' : 'opacity-60'
       }`}
-      style={{ gridTemplateColumns: 'minmax(200px, 2fr) 110px 90px 110px 150px 110px 130px 20px' }}
     >
-      <div className="min-w-0">
-        <p className="truncate font-semibold text-content">{label}</p>
-        {grandchildren.length > 0 && (
-          <p className="text-xs text-content-faint">{grandchildren.length} turma(s)</p>
-        )}
-      </div>
-      <div className="text-right font-semibold text-content">
-        {value !== null ? formatValue(value, kpi.unit) : '—'}
-      </div>
-      <div className="text-right text-content-soft">{contributionPct !== null ? `${contributionPct}%` : '—'}</div>
-      <div className="text-right text-content-soft">
-        {alvo?.target_value != null ? formatValue(alvo.target_value, kpi.unit) : '—'}
-      </div>
-      <div>
-        {pct !== null ? (
-          <>
-            <div className="h-1.5 overflow-hidden rounded-full bg-hover">
-              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
-            </div>
-            <p className={`mt-1 text-xs font-semibold ${pctColor}`}>{pct}%</p>
-          </>
-        ) : (
-          <span className="text-xs text-content-faint">—</span>
-        )}
-      </div>
-      <div>
-        {alvo ? (
-          <Badge tone={statusTone(alvo.status)}>{GOAL_STATUS_LABEL[alvo.status]}</Badge>
-        ) : (
-          <Badge tone="slate">Sem alvo</Badge>
-        )}
-      </div>
-      <div className="text-xs text-content-soft">{alvo?.due_date ? formatDate(alvo.due_date) : '—'}</div>
-      <ChevronRight className="h-4 w-4 text-content-faint" />
-    </Link>
+      {/* Mesmo padrão de MetaRow (MetasOverview.tsx) — ver o comentário lá
+          pro motivo de o link ser o grid, não a linha inteira. */}
+      <Link
+        to={`/empresa/${ctx.companyId}/kpis/${kpi.id}`}
+        aria-label={ariaLabel}
+        className="grid min-w-0 flex-1 items-center gap-4"
+        style={{ gridTemplateColumns: CHILD_GRID_COLUMNS }}
+      >
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-content">{label}</p>
+          {grandchildren.length > 0 && (
+            <p className="text-xs text-content-faint">{grandchildren.length} turma(s)</p>
+          )}
+        </div>
+        <div className="text-right font-semibold text-content">
+          {value !== null ? formatValue(value, kpi.unit) : '—'}
+        </div>
+        <div className="text-right text-content-soft">{contributionPct !== null ? `${contributionPct}%` : '—'}</div>
+        <div className="text-right text-content-soft">
+          {alvo?.target_value != null ? formatValue(alvo.target_value, kpi.unit) : '—'}
+        </div>
+        <div>
+          {pct !== null ? (
+            <>
+              <div className="h-1.5 overflow-hidden rounded-full bg-hover">
+                <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
+              </div>
+              <p className={`mt-1 text-xs font-semibold ${pctColor}`}>{pct}%</p>
+            </>
+          ) : (
+            <span className="text-xs text-content-faint">—</span>
+          )}
+        </div>
+        <div>
+          {alvo ? (
+            <Badge tone={statusTone(alvo.status)}>{GOAL_STATUS_LABEL[alvo.status]}</Badge>
+          ) : (
+            <Badge tone="slate">Sem alvo</Badge>
+          )}
+        </div>
+        <div className="text-xs text-content-soft">{alvo?.due_date ? formatDate(alvo.due_date) : '—'}</div>
+        <ChevronRight className="h-4 w-4 text-content-faint" />
+      </Link>
+      {ctx.canWrite && (
+        <button
+          type="button"
+          onClick={() => void ctx.toggleKpiActive(kpi)}
+          className="w-6 shrink-0 rounded p-0.5 text-content-faint hover:bg-hover hover:text-content-muted"
+          aria-label={kpi.is_active ? `Desativar "${label}"` : `Ativar "${label}"`}
+          title={kpi.is_active ? 'Desativar' : 'Ativar'}
+        >
+          {kpi.is_active ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -500,51 +557,63 @@ function ChildCard({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentVa
   }`
 
   return (
-    <Link
-      to={`/empresa/${ctx.companyId}/kpis/${kpi.id}`}
-      aria-label={ariaLabel}
-      className={`block rounded-xl border border-line-strong bg-surface px-4 py-3.5 shadow-card transition
+    <div
+      className={`relative rounded-xl border border-line-strong bg-surface px-4 py-3.5 shadow-card transition
         hover:border-content-faint hover:bg-hover ${kpi.is_active ? '' : 'opacity-60'}`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate font-semibold text-content">{label}</p>
-          {grandchildren.length > 0 && (
-            <p className="text-xs text-content-faint">{grandchildren.length} turma(s)</p>
-          )}
-        </div>
-        <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-content-faint" />
-      </div>
-      <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-content-faint">Atual</p>
-          <p className="font-semibold text-content">{value !== null ? formatValue(value, kpi.unit) : '—'}</p>
-        </div>
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-content-faint">Contribuição</p>
-          <p className="text-content-soft">{contributionPct !== null ? `${contributionPct}%` : '—'}</p>
-        </div>
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-content-faint">Alvo</p>
-          <p className="text-content-soft">{alvo?.target_value != null ? formatValue(alvo.target_value, kpi.unit) : '—'}</p>
-        </div>
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-content-faint">Prazo</p>
-          <p className="text-content-soft">{alvo?.due_date ? formatDate(alvo.due_date) : '—'}</p>
-        </div>
-      </div>
-      <div className="mt-2.5 flex items-center gap-3">
-        {alvo ? <Badge tone={statusTone(alvo.status)}>{GOAL_STATUS_LABEL[alvo.status]}</Badge> : <Badge tone="slate">Sem alvo</Badge>}
-        {pct !== null && (
-          <div className="min-w-0 flex-1">
-            <div className="h-1.5 overflow-hidden rounded-full bg-hover">
-              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
-            </div>
+      {/* Mesmo padrão de MetaCard (MetasOverview.tsx). */}
+      <Link to={`/empresa/${ctx.companyId}/kpis/${kpi.id}`} aria-label={ariaLabel} className="block">
+        <div className="flex items-start justify-between gap-2 pr-7">
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-content">{label}</p>
+            {grandchildren.length > 0 && (
+              <p className="text-xs text-content-faint">{grandchildren.length} turma(s)</p>
+            )}
           </div>
-        )}
-        {pct !== null && <span className={`shrink-0 text-xs font-semibold ${pctColor}`}>{pct}%</span>}
-      </div>
-    </Link>
+          <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-content-faint" />
+        </div>
+        <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-content-faint">Atual</p>
+            <p className="font-semibold text-content">{value !== null ? formatValue(value, kpi.unit) : '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-content-faint">Contribuição</p>
+            <p className="text-content-soft">{contributionPct !== null ? `${contributionPct}%` : '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-content-faint">Alvo</p>
+            <p className="text-content-soft">{alvo?.target_value != null ? formatValue(alvo.target_value, kpi.unit) : '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-content-faint">Prazo</p>
+            <p className="text-content-soft">{alvo?.due_date ? formatDate(alvo.due_date) : '—'}</p>
+          </div>
+        </div>
+        <div className="mt-2.5 flex items-center gap-3">
+          {alvo ? <Badge tone={statusTone(alvo.status)}>{GOAL_STATUS_LABEL[alvo.status]}</Badge> : <Badge tone="slate">Sem alvo</Badge>}
+          {pct !== null && (
+            <div className="min-w-0 flex-1">
+              <div className="h-1.5 overflow-hidden rounded-full bg-hover">
+                <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
+              </div>
+            </div>
+          )}
+          {pct !== null && <span className={`shrink-0 text-xs font-semibold ${pctColor}`}>{pct}%</span>}
+        </div>
+      </Link>
+      {ctx.canWrite && (
+        <button
+          type="button"
+          onClick={() => void ctx.toggleKpiActive(kpi)}
+          className="absolute right-3 top-3.5 rounded p-0.5 text-content-faint hover:bg-hover hover:text-content-muted"
+          aria-label={kpi.is_active ? `Desativar "${label}"` : `Ativar "${label}"`}
+          title={kpi.is_active ? 'Desativar' : 'Ativar'}
+        >
+          {kpi.is_active ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+        </button>
+      )}
+    </div>
   )
 }
 

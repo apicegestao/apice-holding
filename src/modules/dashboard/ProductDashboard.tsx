@@ -71,6 +71,24 @@ type MetaRow = {
 
 type BudgetItemTotals = Pick<BudgetItem, 'budget_id' | 'kind' | 'planned_amount' | 'actual_amount' | 'status'>
 
+// Turma com início num mês ainda não chegado fica fora da lista abaixo —
+// pedido explícito do usuário: uma turma programada pra daqui a alguns
+// meses, sem indicador/tarefa/orçamento rodando ainda, só confunde quem
+// olha o painel achando que já devia ter dado alguma coisa. Ela aparece
+// sozinha assim que o mês do início chegar (comparação por ano+mês, não
+// por dia exato — uma turma de 1/9 e uma de 30/9 "chegam" as duas em
+// setembro) e nunca mais some depois disso (mesmo passado o fim dela —
+// isso já é histórico, não "ainda não começou"). Sem data de início
+// definida, não dá pra saber "quando chega" — mostra sempre.
+function editionIsUpcoming(edition: ProductEdition): boolean {
+  if (!edition.start_date) return false
+  const [year, month] = edition.start_date.split('-').map(Number)
+  const today = new Date()
+  const startOfEditionMonth = new Date(year, month - 1, 1)
+  const startOfCurrentMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+  return startOfEditionMonth > startOfCurrentMonth
+}
+
 export default function ProductDashboard() {
   const { company } = useCompany()
   const { productId, editionId } = useParams<{ productId: string; editionId?: string }>()
@@ -205,6 +223,10 @@ export default function ProductDashboard() {
   )
 
   const scopedKpiRows = useMemo(() => kpiRows.filter(inScope), [kpiRows, inScope])
+
+  // "Turmas" (abaixo) só lista quem já chegou — ver editionIsUpcoming.
+  const visibleEditions = useMemo(() => editions.filter((item) => !editionIsUpcoming(item)), [editions])
+  const upcomingEditionsCount = editions.length - visibleEditions.length
 
   const metaRows = useMemo<MetaRow[]>(
     () =>
@@ -445,27 +467,35 @@ export default function ProductDashboard() {
           title="Turmas"
           description="Cada edição desta frente — clique pra abrir o painel completo dela."
         >
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {editions.map((item) => (
-              <Link
-                key={item.id}
-                to={`/empresa/${company.id}/produtos/${product.id}/turmas/${item.id}`}
-                className="block rounded-lg border border-line p-3 transition hover:border-line-strong hover:bg-hover"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="min-w-0 truncate text-sm font-medium text-content">{item.name}</p>
-                  <Badge tone="slate">{PRODUCT_EDITION_STATUS_LABEL[item.status]}</Badge>
-                </div>
-                {(item.start_date || item.end_date) && (
-                  <p className="mt-1 flex items-center gap-1 text-xs text-content-faint">
-                    <CalendarRange className="h-3.5 w-3.5" />
-                    {item.start_date ? formatDate(item.start_date) : '—'} a{' '}
-                    {item.end_date ? formatDate(item.end_date) : '—'}
-                  </p>
-                )}
-              </Link>
-            ))}
-          </div>
+          {visibleEditions.length > 0 && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleEditions.map((item) => (
+                <Link
+                  key={item.id}
+                  to={`/empresa/${company.id}/produtos/${product.id}/turmas/${item.id}`}
+                  className="block rounded-lg border border-line p-3 transition hover:border-line-strong hover:bg-hover"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="min-w-0 truncate text-sm font-medium text-content">{item.name}</p>
+                    <Badge tone="slate">{PRODUCT_EDITION_STATUS_LABEL[item.status]}</Badge>
+                  </div>
+                  {(item.start_date || item.end_date) && (
+                    <p className="mt-1 flex items-center gap-1 text-xs text-content-faint">
+                      <CalendarRange className="h-3.5 w-3.5" />
+                      {item.start_date ? formatDate(item.start_date) : '—'} a{' '}
+                      {item.end_date ? formatDate(item.end_date) : '—'}
+                    </p>
+                  )}
+                </Link>
+              ))}
+            </div>
+          )}
+          {upcomingEditionsCount > 0 && (
+            <p className={`text-xs text-content-faint ${visibleEditions.length > 0 ? 'mt-3' : ''}`}>
+              {upcomingEditionsCount} turma(s) programada(s) ainda não aparece(m) aqui — some(m) quando o mês dela(s)
+              chegar.
+            </p>
+          )}
         </Card>
       )}
 

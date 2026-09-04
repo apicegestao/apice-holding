@@ -8,6 +8,7 @@ import {
   Building2,
   CalendarClock,
   ClipboardList,
+  EyeOff,
   Layers,
   Lock,
   Plus,
@@ -99,39 +100,51 @@ export default function HoldingDashboard() {
   const [products, setProducts] = useState<Product[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
+  const [inactiveKpiCount, setInactiveKpiCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [creatingTask, setCreatingTask] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [snapshotResult, metaResult, kpiValueResult, kpiDefResult, productResult, taskResult, insightResult] =
-      await Promise.all([
-        supabase.rpc('company_snapshots'),
-        supabase.from('meta_latest_values').select('*').is('archived_at', null),
-        // Mesmo padrão acima (sem filtro de empresa, a RLS já entrega só o
-        // que enxergo): é a fonte do ranking "Faturamento por produto" —
-        // meta_latest_values só traz indicador COM alvo, e um indicador de
-        // produto/turma que só soma filhos (ver kpiRollup.ts) costuma não
-        // ter alvo próprio nenhum, então não apareceria ali.
-        supabase.from('kpi_latest_values').select('*').is('archived_at', null),
-        // Cadeia de soma completa (ver comentário do estado kpiDefs acima).
-        supabase.from('kpis').select('id, company_id, parent_kpi_id').eq('is_active', true).is('archived_at', null),
-        supabase.from('products').select('*').eq('is_active', true),
-        // A RLS já entrega só o que enxergo; aqui reduzo ao que é meu.
-        supabase
-          .from('tasks')
-          .select('*')
-          .or(`assignee_id.eq.${profile?.id},created_by.eq.${profile?.id}`)
-          .order('due_date', { ascending: true, nullsFirst: false }),
-        supabase
-          .from('insights')
-          .select('*')
-          .eq('scope', 'holding')
-          .eq('is_archived', false)
-          .order('generated_at', { ascending: false })
-          .limit(4),
-      ])
+    const [
+      snapshotResult,
+      metaResult,
+      kpiValueResult,
+      kpiDefResult,
+      productResult,
+      taskResult,
+      insightResult,
+      inactiveKpiResult,
+    ] = await Promise.all([
+      supabase.rpc('company_snapshots'),
+      supabase.from('meta_latest_values').select('*').is('archived_at', null),
+      // Mesmo padrão acima (sem filtro de empresa, a RLS já entrega só o
+      // que enxergo): é a fonte do ranking "Faturamento por produto" —
+      // meta_latest_values só traz indicador COM alvo, e um indicador de
+      // produto/turma que só soma filhos (ver kpiRollup.ts) costuma não
+      // ter alvo próprio nenhum, então não apareceria ali.
+      supabase.from('kpi_latest_values').select('*').is('archived_at', null),
+      // Cadeia de soma completa (ver comentário do estado kpiDefs acima).
+      supabase.from('kpis').select('id, company_id, parent_kpi_id').eq('is_active', true).is('archived_at', null),
+      supabase.from('products').select('*').eq('is_active', true),
+      // A RLS já entrega só o que enxergo; aqui reduzo ao que é meu.
+      supabase
+        .from('tasks')
+        .select('*')
+        .or(`assignee_id.eq.${profile?.id},created_by.eq.${profile?.id}`)
+        .order('due_date', { ascending: true, nullsFirst: false }),
+      supabase
+        .from('insights')
+        .select('*')
+        .eq('scope', 'holding')
+        .eq('is_archived', false)
+        .order('generated_at', { ascending: false })
+        .limit(4),
+      // Só a contagem, em todo o grupo (a RLS já limita ao que enxergo) —
+      // mesmo aviso discreto de CompanyDashboard.tsx.
+      supabase.from('kpis').select('id').eq('is_active', false).is('archived_at', null),
+    ])
 
     setSnapshots((snapshotResult.data as CompanySnapshot[]) ?? [])
     // Alvo agora existe em todo nível (empresa/produto/turma — ver tela de
@@ -148,6 +161,7 @@ export default function HoldingDashboard() {
     setProducts((productResult.data as Product[]) ?? [])
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
+    setInactiveKpiCount((inactiveKpiResult.data ?? []).length)
     setLoading(false)
   }, [profile?.id])
 
@@ -529,6 +543,18 @@ export default function HoldingDashboard() {
               </>
             )
           })()}
+
+          {/* Aviso discreto — mesmo padrão de CompanyDashboard.tsx: não traz
+              os dados de volta, só avisa que existem (evita a sensação de
+              "sumiu sem explicação" quando alguém desativa uma meta). Sem
+              link pra uma meta específica (são várias empresas possíveis) —
+              cada uma tem a própria tela de Metas onde reativar. */}
+          {inactiveKpiCount > 0 && (
+            <div className="card flex items-center gap-2 p-4 text-sm text-content-soft">
+              <EyeOff className="h-4 w-4 shrink-0 text-content-faint" />
+              {inactiveKpiCount} meta(s) desativada(s) no grupo — não entram nos números acima.
+            </div>
+          )}
 
           {/* ------------------------------------------ tarefas unificadas —
               logo depois dos cartões-resumo, é a segunda coisa da página */}

@@ -5,11 +5,21 @@
 // quebra por produto/turma vive de verdade.
 import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronRight, Plus, Search } from 'lucide-react'
+import { ChevronRight, Plus, Search, ToggleLeft, ToggleRight } from 'lucide-react'
 import { attainmentRatio, formatDate, formatValue, relativeDays } from '../../core/lib/format'
 import { Badge, EmptyState, Loading, PageHeader } from '../../core/ui'
 import { GOAL_STATUS_LABEL, type Kpi } from '../../core/types'
 import { statusTone, type KpisCtx } from './KpisPage'
+
+// Compartilhada entre o cabeçalho de coluna e o grid INTERNO do link de
+// cada MetaRow (não a linha inteira) — só existe num lugar pra nunca
+// desalinhar cabeçalho e linha por engano. Última coluna (20px) é a seta
+// de "abrir"; o atalho de ativar/desativar fica FORA desse grid (ver
+// MetaRow) — um <button> dentro de <a> é inválido em HTML, e colocar o
+// link inteiro como `display: contents` (a alternativa mais óbvia pra
+// "linha inteira clicável + botão ao lado") quebra `boundingBox()` em
+// teste (elemento com display:contents não tem geometria própria).
+const ROW_GRID_COLUMNS = 'minmax(240px, 2fr) 110px 110px 150px 110px 130px 140px 20px'
 
 // Múltiplas formas de ordenar dentro de cada grupo de categoria — a
 // categoria continua sendo o agrupamento principal (não faria sentido
@@ -322,16 +332,18 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
           }
         />
       ) : (
-        <div className="card overflow-hidden">
+        <div>
           {/* Cabeçalho de coluna só existe a partir de sm: (a versão mobile
               não tem coluna nenhuma pra rotular). O rótulo de categoria, em
               compensação, é UM só por grupo — nunca duplicado entre as duas
               apresentações, senão qualquer busca por texto vira ambígua. */}
           <div className="hidden overflow-x-auto sm:block">
-            <div className="min-w-[900px]">
+            {/* Mesma divisão flex (grid + coluna à parte) de MetaRow — pra
+                a régua de baixo bater certinho com cada linha. */}
+            <div className="flex min-w-[940px] items-center gap-2 px-5 py-1.5">
               <div
-                className="grid items-center gap-4 border-b border-line px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-content-faint"
-                style={{ gridTemplateColumns: 'minmax(240px, 2fr) 110px 110px 150px 110px 130px 140px 20px' }}
+                className="grid flex-1 items-center gap-4 text-[11px] font-semibold uppercase tracking-wide text-content-faint"
+                style={{ gridTemplateColumns: ROW_GRID_COLUMNS }}
               >
                 <div className="text-center">Meta</div>
                 <div className="text-center">Atual</div>
@@ -342,6 +354,7 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
                 <div className="text-center">Responsável</div>
                 <div />
               </div>
+              {ctx.canWrite && <div className="w-6 shrink-0" />}
             </div>
           </div>
           {groups.map((group, groupIndex) => (
@@ -350,19 +363,20 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
                   segunda) — no desktop nada muda (sm: sempre volta a pt-3),
                   a queixa era só a versão empilhada parecendo uma massa só. */}
               <p
-                className={`px-4 pb-2 text-xs font-bold uppercase tracking-wide text-brand-text sm:px-5 sm:pb-1 sm:pt-3 sm:text-[11px] ${
+                className={`px-4 pb-2 text-xs font-bold uppercase tracking-wide text-brand-text sm:px-5 sm:pb-1.5 sm:pt-3 sm:text-[11px] ${
                   groupIndex === 0 ? 'pt-3' : 'pt-6'
                 }`}
               >
                 {group.label}
               </p>
-              {/* A partir de sm: tabela em grid. Abaixo de sm: um cartão
-                  próprio por meta (borda + fundo, não só uma linha
-                  divisória) — 8 colunas nunca cabem legíveis num celular, e
-                  um cartão de verdade separa cada meta claramente das
-                  vizinhas em vez de tudo grudado num bloco só. */}
-              <div className="hidden overflow-x-auto sm:block">
-                <div className="min-w-[900px]">
+              {/* Cada meta no seu próprio cartão (borda + fundo + respiro
+                  entre um e outro), a partir de sm: em grid pra aproveitar a
+                  largura da tela, abaixo disso empilhado — nem uma faixa só
+                  com linhas coladas (o problema relatado: tudo parecia um
+                  bloco só sem separação nenhuma), nem uma tabela comprimida
+                  demais pro celular. */}
+              <div className="hidden overflow-x-auto pb-1 sm:block">
+                <div className="min-w-[940px] space-y-2 px-1">
                   {group.items.map((kpi) => (
                     <MetaRow key={kpi.id} kpi={kpi} ctx={ctx} />
                   ))}
@@ -415,58 +429,78 @@ function MetaRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
   }`
 
   return (
-    <Link
-      to={kpi.id}
-      aria-label={ariaLabel}
-      className={`grid items-center gap-4 border-b border-line px-5 py-3.5 text-sm transition last:border-b-0 hover:bg-hover ${
+    <div
+      className={`card flex items-center gap-2 px-5 py-3.5 text-sm transition hover:border-content-faint hover:bg-hover ${
         kpi.is_active ? '' : 'opacity-60'
       }`}
-      style={{ gridTemplateColumns: 'minmax(240px, 2fr) 110px 110px 150px 110px 130px 140px 20px' }}
     >
-      <div className="min-w-0">
-        <p className="truncate font-semibold text-content">{kpi.name}</p>
-        <p className="text-xs text-content-faint">{levelSummary}</p>
-      </div>
-      <div className="text-right font-semibold text-content">
-        {value !== null ? formatValue(value, kpi.unit) : '—'}
-      </div>
-      <div className="text-right text-content-soft">
-        {alvo?.target_value != null ? formatValue(alvo.target_value, kpi.unit) : '—'}
-      </div>
-      <div>
-        {pct !== null ? (
-          <>
-            <div className="h-1.5 overflow-hidden rounded-full bg-hover">
-              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
-            </div>
-            <p className={`mt-1 text-xs font-semibold ${pctColor}`}>{pct}%</p>
-          </>
-        ) : (
-          <span className="text-xs text-content-faint">—</span>
-        )}
-      </div>
-      <div>
-        {alvo ? (
-          <Badge tone={statusTone(alvo.status)}>{GOAL_STATUS_LABEL[alvo.status]}</Badge>
-        ) : (
-          <Badge tone="slate">Sem alvo</Badge>
-        )}
-      </div>
-      <div className="text-xs text-content-soft">
-        {alvo?.due_date ? (
-          <>
-            {formatDate(alvo.due_date)}
-            <div className="text-content-faint">{relativeDays(alvo.due_date)}</div>
-          </>
-        ) : (
-          '—'
-        )}
-      </div>
-      <div className="truncate text-xs text-content-soft">
-        {alvo ? (ctx.ownerName(alvo.owner_id) ?? 'Sem responsável') : '—'}
-      </div>
-      <ChevronRight className="h-4 w-4 text-content-faint" />
-    </Link>
+      {/* O link é o grid de verdade (não a linha inteira) — o botão de
+          ativar/desativar fica FORA dele, ao lado: um <button> dentro de
+          <a> é inválido em HTML, e um <a style="display: contents"> pra
+          "linha inteira clicável" quebra `boundingBox()` em teste
+          (elemento com display:contents não tem geometria própria). */}
+      <Link
+        to={kpi.id}
+        aria-label={ariaLabel}
+        className="grid min-w-0 flex-1 items-center gap-4"
+        style={{ gridTemplateColumns: ROW_GRID_COLUMNS }}
+      >
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-content">{kpi.name}</p>
+          <p className="text-xs text-content-faint">{levelSummary}</p>
+        </div>
+        <div className="text-right font-semibold text-content">
+          {value !== null ? formatValue(value, kpi.unit) : '—'}
+        </div>
+        <div className="text-right text-content-soft">
+          {alvo?.target_value != null ? formatValue(alvo.target_value, kpi.unit) : '—'}
+        </div>
+        <div>
+          {pct !== null ? (
+            <>
+              <div className="h-1.5 overflow-hidden rounded-full bg-hover">
+                <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
+              </div>
+              <p className={`mt-1 text-xs font-semibold ${pctColor}`}>{pct}%</p>
+            </>
+          ) : (
+            <span className="text-xs text-content-faint">—</span>
+          )}
+        </div>
+        <div>
+          {alvo ? (
+            <Badge tone={statusTone(alvo.status)}>{GOAL_STATUS_LABEL[alvo.status]}</Badge>
+          ) : (
+            <Badge tone="slate">Sem alvo</Badge>
+          )}
+        </div>
+        <div className="text-xs text-content-soft">
+          {alvo?.due_date ? (
+            <>
+              {formatDate(alvo.due_date)}
+              <div className="text-content-faint">{relativeDays(alvo.due_date)}</div>
+            </>
+          ) : (
+            '—'
+          )}
+        </div>
+        <div className="truncate text-xs text-content-soft">
+          {alvo ? (ctx.ownerName(alvo.owner_id) ?? 'Sem responsável') : '—'}
+        </div>
+        <ChevronRight className="h-4 w-4 text-content-faint" />
+      </Link>
+      {ctx.canWrite && (
+        <button
+          type="button"
+          onClick={() => void ctx.toggleKpiActive(kpi)}
+          className="w-6 shrink-0 rounded p-0.5 text-content-faint hover:bg-hover hover:text-content-muted"
+          aria-label={kpi.is_active ? `Desativar meta "${kpi.name}"` : `Ativar meta "${kpi.name}"`}
+          title={kpi.is_active ? 'Desativar' : 'Ativar'}
+        >
+          {kpi.is_active ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -479,48 +513,61 @@ function MetaCard({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
   }`
 
   return (
-    <Link
-      to={kpi.id}
-      aria-label={ariaLabel}
-      className={`block rounded-xl border border-line-strong bg-surface px-4 py-3.5 shadow-card transition
+    <div
+      className={`relative rounded-xl border border-line-strong bg-surface px-4 py-3.5 shadow-card transition
         hover:border-content-faint hover:bg-hover ${kpi.is_active ? '' : 'opacity-60'}`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate font-semibold text-content">{kpi.name}</p>
-          <p className="text-xs text-content-faint">{levelSummary}</p>
-        </div>
-        <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-content-faint" />
-      </div>
-      <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-content-faint">Atual</p>
-          <p className="font-semibold text-content">{value !== null ? formatValue(value, kpi.unit) : '—'}</p>
-        </div>
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-content-faint">Alvo</p>
-          <p className="text-content-soft">{alvo?.target_value != null ? formatValue(alvo.target_value, kpi.unit) : '—'}</p>
-        </div>
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-content-faint">Prazo</p>
-          <p className="text-content-soft">{alvo?.due_date ? formatDate(alvo.due_date) : '—'}</p>
-        </div>
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-content-faint">Responsável</p>
-          <p className="truncate text-content-soft">{alvo ? (ctx.ownerName(alvo.owner_id) ?? 'Sem responsável') : '—'}</p>
-        </div>
-      </div>
-      <div className="mt-2.5 flex items-center gap-3">
-        {alvo ? <Badge tone={statusTone(alvo.status)}>{GOAL_STATUS_LABEL[alvo.status]}</Badge> : <Badge tone="slate">Sem alvo</Badge>}
-        {pct !== null && (
-          <div className="min-w-0 flex-1">
-            <div className="h-1.5 overflow-hidden rounded-full bg-hover">
-              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
-            </div>
+      {/* O botão de ativar/desativar fica fora do link (absoluto, no
+          canto) — nunca aninhado num <a>, que é inválido em HTML. */}
+      <Link to={kpi.id} aria-label={ariaLabel} className="block">
+        <div className="flex items-start justify-between gap-2 pr-7">
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-content">{kpi.name}</p>
+            <p className="text-xs text-content-faint">{levelSummary}</p>
           </div>
-        )}
-        {pct !== null && <span className={`shrink-0 text-xs font-semibold ${pctColor}`}>{pct}%</span>}
-      </div>
-    </Link>
+          <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-content-faint" />
+        </div>
+        <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-content-faint">Atual</p>
+            <p className="font-semibold text-content">{value !== null ? formatValue(value, kpi.unit) : '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-content-faint">Alvo</p>
+            <p className="text-content-soft">{alvo?.target_value != null ? formatValue(alvo.target_value, kpi.unit) : '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-content-faint">Prazo</p>
+            <p className="text-content-soft">{alvo?.due_date ? formatDate(alvo.due_date) : '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-content-faint">Responsável</p>
+            <p className="truncate text-content-soft">{alvo ? (ctx.ownerName(alvo.owner_id) ?? 'Sem responsável') : '—'}</p>
+          </div>
+        </div>
+        <div className="mt-2.5 flex items-center gap-3">
+          {alvo ? <Badge tone={statusTone(alvo.status)}>{GOAL_STATUS_LABEL[alvo.status]}</Badge> : <Badge tone="slate">Sem alvo</Badge>}
+          {pct !== null && (
+            <div className="min-w-0 flex-1">
+              <div className="h-1.5 overflow-hidden rounded-full bg-hover">
+                <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
+              </div>
+            </div>
+          )}
+          {pct !== null && <span className={`shrink-0 text-xs font-semibold ${pctColor}`}>{pct}%</span>}
+        </div>
+      </Link>
+      {ctx.canWrite && (
+        <button
+          type="button"
+          onClick={() => void ctx.toggleKpiActive(kpi)}
+          className="absolute right-3 top-3.5 rounded p-0.5 text-content-faint hover:bg-hover hover:text-content-muted"
+          aria-label={kpi.is_active ? `Desativar meta "${kpi.name}"` : `Ativar meta "${kpi.name}"`}
+          title={kpi.is_active ? 'Desativar' : 'Ativar'}
+        >
+          {kpi.is_active ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+        </button>
+      )}
+    </div>
   )
 }

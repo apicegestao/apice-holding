@@ -145,6 +145,7 @@ export type KpisCtx = {
   openEdit: (kpi: Kpi) => void
   archiveKpi: (kpi: Kpi) => Promise<void>
   unarchiveKpi: (kpi: Kpi) => Promise<void>
+  toggleKpiActive: (kpi: Kpi) => Promise<void>
   setRemovingKpi: (kpi: Kpi | null) => void
   setRemovingMeta: (meta: Meta | null) => void
   setMetaModalFor: (v: { kpi: Kpi; meta: Meta | null } | null) => void
@@ -329,13 +330,24 @@ export default function KpisPage() {
   // Valor "de verdade" de cada meta — mesmo algoritmo de soma em cadeia que
   // ProductsPage/CompanyDashboard já usam (core/lib/kpiRollup.ts), sem
   // reimplementar a recursão aqui de novo.
+  //
+  // Só entra quem está ativo e não arquivado — mesmo filtro que todo painel
+  // (CompanyDashboard/ProductDashboard/DepartmentDashboard/HoldingDashboard)
+  // já aplica na CONSULTA (`.eq('is_active', true).is('archived_at', null)`).
+  // Esta tela busca todos os KPIs sem esse filtro de propósito (precisa
+  // mostrar o desativado, esmaecido, pra dar pra reativar) — mas o cálculo
+  // da soma tem que se comportar igual aos painéis: um produto/turma
+  // desativado para de contribuir pro total do pai, senão o número mostrado
+  // aqui divergiria do que os painéis mostram.
   const rollupRows = useMemo<RollupRow[]>(
     () =>
-      kpis.map((kpi) => {
-        const series = seriesByKpi.get(kpi.id) ?? []
-        const latest = series[series.length - 1]
-        return { kpi_id: kpi.id, value: latest ? Number(latest.value) : null, parent_kpi_id: kpi.parent_kpi_id }
-      }),
+      kpis
+        .filter((kpi) => kpi.is_active && !kpi.archived_at)
+        .map((kpi) => {
+          const series = seriesByKpi.get(kpi.id) ?? []
+          const latest = series[series.length - 1]
+          return { kpi_id: kpi.id, value: latest ? Number(latest.value) : null, parent_kpi_id: kpi.parent_kpi_id }
+        }),
     [kpis, seriesByKpi],
   )
   const rollupChildrenByParent = useMemo(() => buildChildrenByParent(rollupRows), [rollupRows])
@@ -459,6 +471,7 @@ export default function KpisPage() {
         target_value: metaDraft.target_value,
         due_date: metaDraft.due_date,
         owner_id: metaDraft.owner_id || null,
+        status: 'planned',
       })
       if (metaError) {
         setBusy(false)
@@ -572,6 +585,7 @@ export default function KpisPage() {
         target_value: metaDraft.target_value,
         due_date: metaDraft.due_date,
         owner_id: metaDraft.owner_id || null,
+        status: 'planned',
       })
       if (metaError) {
         setBusy(false)
@@ -626,6 +640,22 @@ export default function KpisPage() {
     await load()
   }
 
+  // Ativar/desativar direto da lista — atalho rápido, sem abrir o modal de
+  // editar. Diferente de arquivar (`archiveKpi`, acima): desativar não some
+  // com a linha aqui (fica esmaecida, fácil de achar e reverter), só some
+  // dos painéis (mesmo `is_active` que eles já filtram na consulta) e para
+  // de contar na soma de quem tem produto/turma por baixo (`rollupRows`,
+  // acima).
+  const toggleKpiActive = async (kpi: Kpi) => {
+    const { error } = await supabase.from('kpis').update({ is_active: !kpi.is_active }).eq('id', kpi.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify(kpi.is_active ? 'Meta desativada.' : 'Meta ativada.')
+    await load()
+  }
+
   const removeMeta = async () => {
     if (!removingMeta) return
     setBusy(true)
@@ -666,6 +696,7 @@ export default function KpisPage() {
     openEdit,
     archiveKpi,
     unarchiveKpi,
+    toggleKpiActive,
     setRemovingKpi,
     setRemovingMeta,
     setMetaModalFor,
@@ -1740,7 +1771,7 @@ export function MetaFormModal({
     target_value: meta?.target_value ?? null,
     due_date: meta?.due_date ?? '',
     owner_id: meta?.owner_id ?? '',
-    status: meta?.status ?? ('active' as GoalStatus),
+    status: meta?.status ?? ('planned' as GoalStatus),
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)

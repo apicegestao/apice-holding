@@ -3018,3 +3018,76 @@ mais.
 (48/48) e `npm run check:contrast` (24/24) limpos. `npm run test:e2e`:
 suíte completa 290 passando (mesmo total de antes — um teste reescrito,
 nenhum novo), 34 skipped, sem falhas (Desktop e Mobile 390).
+
+## 49. Metas: status padrão, ativar/desativar, turma futura escondida, cards desktop
+
+Rodada de 6 pedidos do usuário sobre a tela de Metas e os painéis —
+debatidos e confirmados antes de implementar (3 perguntas em aberto,
+todas respondidas): "desativar" usa `is_active` (não `archived_at`);
+turma escondida só nos painéis, leva junto indicador/tarefa/orçamento
+dela, aparece no dia 1 do mês e nunca mais some; resumo do topo continua
+juntando planejada+ativa (decisão documentada já existente em
+`MetasOverview.tsx`, mantida — só o padrão mudou, não o agrupamento).
+
+**1. Status padrão "Planejada":** `metas.status` tinha `default 'active'`
+no banco (`0032_metas.sql`) — migração `0042_meta_default_planned.sql`
+troca pra `'planned'`. Os dois pontos do código que inserem um alvo sem
+passar `status` explícito (fluxo "criar meta com alvo inicial", duas
+variantes em `KpisPage.tsx`) ganharam `status: 'planned'` explícito, e o
+valor padrão do formulário de alvo (`MetaFormModal`) também trocou.
+Só afeta alvo novo — os que já existem mantêm o status que já tinham.
+
+**2 e 3. Ativar/desativar direto na lista:** `kpis.is_active` já existia
+e já era filtrado em todo painel (`.eq('is_active', true)`) — faltava só
+o atalho de UI. Novo `ctx.toggleKpiActive()` em `KpisPage.tsx` (update de
+uma coluna só, sem abrir modal), com botão (ícone `ToggleRight`/
+`ToggleLeft`) em `MetaRow`/`MetaCard` (`MetasOverview.tsx`) e no cabeçalho
+de `MetaDetail.tsx` — cobre indicador raiz e qualquer produto/turma por
+baixo dele. **Achado corrigido junto:** o rollup de soma em cadeia
+(`KpisPage.tsx`, `rollupRows`) somava o valor de um filho mesmo
+desativado/arquivado — diferente de todo painel, que já exclui isso na
+própria consulta. `rollupRows` agora filtra `is_active && !archived_at`
+antes de montar a árvore de soma, igualando o comportamento desta tela ao
+dos painéis.
+
+**4. Card "metas desativadas":** novo em `CompanyDashboard.tsx` (contagem
+por empresa) e `HoldingDashboard.tsx` (contagem do grupo inteiro, sem
+link — são várias empresas possíveis, cada uma com a própria tela de
+Metas pra reativar). Não traz os dados de volta, só avisa que existem —
+evita a sensação de "sumiu sem explicação". Escopo deliberadamente restrito
+aos dois painéis "visão geral" (empresa e holding); `ProductDashboard.tsx`/
+`DepartmentDashboard.tsx` (painéis mais estreitos) ficam de fora desta
+rodada — mecânico de replicar se algum dia fizer falta.
+
+**5. Turma com início em mês futuro:** `ProductDashboard.tsx` ganhou
+`editionIsUpcoming()` (compara ano+mês do `start_date` com o mês atual) —
+a seção "Turmas" só lista quem já chegou, com um aviso discreto contando
+quantas ainda faltam ("N turma(s) programada(s) ainda não aparece(m)
+aqui"). Só afeta a listagem deste painel — a tela de Produtos (cadastro)
+continua mostrando todas, e uma turma futura acessada direto por link
+continua funcionando normalmente (só não aparece "por acaso" na lista).
+
+**6. Cards do desktop reorganizados:** `MetaRow`/`MetaCard`
+(`MetasOverview.tsx`) e `ChildRow`/`ChildCard` (`MetaDetail.tsx`) —
+cada meta agora é seu próprio cartão (borda + fundo + respiro), igual ao
+padrão que já existia só no celular, em vez de uma faixa de linhas
+coladas separadas só por uma borda fina (a "bagunça visual" relatada).
+**Achado técnico no meio do caminho:** a primeira versão fez o link da
+linha inteira virar `display: contents` (pra caber um botão de
+ativar/desativar ao lado sem aninhar `<button>` dentro de `<a>`, inválido
+em HTML) — quebrou dois testes que usam `boundingBox()` pra conferir
+ordem visual (`display: contents` não tem geometria própria, então
+`boundingBox()` retorna `null`). Corrigido: o link continua sendo só uma
+parte da linha/cartão (o grid de colunas), o botão fica ao lado como
+elemento irmão — nunca aninhado, e sempre com geometria própria.
+
+**Verificação:** `npx tsc --noEmit`, `npm run build`, `npm run test`
+(48/48) e `npm run check:contrast` (24/24) limpos. `npm run test:e2e`:
+suíte completa 296 passando (6 testes novos — status padrão "Planejada"
+na criação, toggle ativar/desativar na lista, card de desativadas no
+painel, turma futura escondida com datas relativas a "hoje" — mais 2
+testes existentes ajustados: um por causa da correção do rollup/mock de
+teste, outro pela troca do seletor de "Financeiro" depois de remover o
+wrapper `.card` único da lista), 34 skipped, sem falhas (Desktop e Mobile
+390). `mcp__Supabase__get_advisors`: nenhum item novo de segurança (a
+migração só muda um `default` de coluna, não mexe em RLS/índice).

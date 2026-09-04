@@ -4,7 +4,9 @@ import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronRight,
   ClipboardList,
+  EyeOff,
   Sparkles,
   Square,
   StickyNote,
@@ -181,34 +183,48 @@ export default function CompanyDashboard() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [insights, setInsights] = useState<Insight[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [inactiveKpiCount, setInactiveKpiCount] = useState(0)
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [kpiDefResult, kpiValueResult, metaResult, memberResult, taskResult, insightResult, productResult] =
-      await Promise.all([
-        supabase
-          .from('kpis')
-          .select('*')
-          .eq('company_id', company.id)
-          .eq('is_active', true)
-          .is('archived_at', null)
-          .order('display_order'),
-        supabase.from('kpi_latest_values').select('*').eq('company_id', company.id).is('archived_at', null),
-        supabase.from('metas').select('*').eq('company_id', company.id).is('archived_at', null),
-        supabase.from('company_members').select('user_id').eq('company_id', company.id),
-        supabase.from('tasks').select('*').eq('company_id', company.id),
-        isAdmin
-          ? supabase
-              .from('insights')
-              .select('*')
-              .eq('company_id', company.id)
-              .eq('is_archived', false)
-              .order('generated_at', { ascending: false })
-              .limit(3)
-          : Promise.resolve({ data: [] as Insight[] }),
-        supabase.from('products').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
-      ])
+    const [
+      kpiDefResult,
+      kpiValueResult,
+      metaResult,
+      memberResult,
+      taskResult,
+      insightResult,
+      productResult,
+      inactiveKpiResult,
+    ] = await Promise.all([
+      supabase
+        .from('kpis')
+        .select('*')
+        .eq('company_id', company.id)
+        .eq('is_active', true)
+        .is('archived_at', null)
+        .order('display_order'),
+      supabase.from('kpi_latest_values').select('*').eq('company_id', company.id).is('archived_at', null),
+      supabase.from('metas').select('*').eq('company_id', company.id).is('archived_at', null),
+      supabase.from('company_members').select('user_id').eq('company_id', company.id),
+      supabase.from('tasks').select('*').eq('company_id', company.id),
+      isAdmin
+        ? supabase
+            .from('insights')
+            .select('*')
+            .eq('company_id', company.id)
+            .eq('is_archived', false)
+            .order('generated_at', { ascending: false })
+            .limit(3)
+        : Promise.resolve({ data: [] as Insight[] }),
+      supabase.from('products').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
+      // Só a contagem — pra avisar que existem metas desativadas sem trazer
+      // os dados delas (o painel não mostra nada além do número, "ver
+      // todas" leva pra tela de Metas). Arquivada é outra coisa (some da
+      // própria lista de Metas) e não entra aqui.
+      supabase.from('kpis').select('id').eq('company_id', company.id).eq('is_active', false).is('archived_at', null),
+    ])
 
     const memberIds = (memberResult.data ?? []).map((row) => row.user_id)
     const { data: profileRows } = memberIds.length
@@ -222,6 +238,7 @@ export default function CompanyDashboard() {
     setTasks((taskResult.data as Task[]) ?? [])
     setInsights((insightResult.data as Insight[]) ?? [])
     setProducts((productResult.data as Product[]) ?? [])
+    setInactiveKpiCount((inactiveKpiResult.data ?? []).length)
     setLoading(false)
   }, [company.id, isAdmin])
 
@@ -494,6 +511,22 @@ export default function CompanyDashboard() {
           </>
         )
       })()}
+
+      {/* Aviso discreto — não traz os dados delas de volta pro painel (só
+          citação), mas evita a sensação de "sumiu sem explicação" quando
+          alguém desativa uma meta na tela de Metas. */}
+      {inactiveKpiCount > 0 && (
+        <Link
+          to={`/empresa/${company.id}/kpis`}
+          className="card flex items-center justify-between gap-3 p-4 text-sm text-content-soft transition hover:border-content-faint hover:bg-hover"
+        >
+          <span className="flex items-center gap-2">
+            <EyeOff className="h-4 w-4 shrink-0 text-content-faint" />
+            {inactiveKpiCount} meta(s) desativada(s) — não entram nos números acima.
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-content-faint" />
+        </Link>
+      )}
 
       {products.length > 0 && (
         <Card
