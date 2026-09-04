@@ -1133,11 +1133,7 @@ test.describe('Áreas', () => {
     await page.goto(`/empresa/${COMPANY_ID_2}/areas`)
     await page.waitForLoadState('networkidle')
 
-    // Escopado a <main> — "Comercial" também aparece na barra lateral
-    // agora que o menu lista cada área cadastrada (reorganização por
-    // área), então uma busca solta pegaria os dois.
-    const main = page.getByRole('main')
-    await expect(main.getByText('Comercial', { exact: true })).toBeVisible()
+    await expect(page.getByText('Comercial', { exact: true })).toBeVisible()
     // Nenhum indicador/tarefa/orçamento aponta pra esta área nas fixtures
     // compartilhadas — as contagens começam zeradas.
     await expect(page.getByText('0 indicador(es)')).toBeVisible()
@@ -1362,23 +1358,18 @@ test.describe('Áreas', () => {
     await expect(page.getByLabel('Área')).toHaveValue(DEPARTMENT_ID)
   })
 
-  // Pedido explícito: menu lateral organizado por área — cada área
-  // cadastrada aparece recuada, logo abaixo de "Áreas", linkando direto
-  // pro painel dela.
-  test('menu lateral lista a área cadastrada, recuada sob "Áreas", linkando pro painel dela', async ({ page }) => {
+  // Reconsiderado: o menu lateral tentou listar cada área cadastrada como
+  // sub-item de "Áreas" (ver histórico), mas ficava com aparência de item
+  // "aberto"/expandido permanentemente, diferente de todo o resto do menu
+  // — revertido a pedido do usuário. "Áreas" é um item plano, igual aos
+  // outros; entrar na área específica acontece de dentro da própria tela.
+  test('menu lateral mostra "Áreas" como item único, sem listar cada área cadastrada', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}`)
     await page.waitForLoadState('networkidle')
 
     const nav = page.locator('aside nav')
-    const areasLink = nav.getByRole('link', { name: 'Áreas', exact: true })
-    await expect(areasLink).toBeVisible()
-    const comercialLink = nav.getByRole('link', { name: 'Comercial', exact: true })
-    await expect(comercialLink).toBeVisible()
-    await expect(comercialLink).toHaveAttribute('href', `/empresa/${COMPANY_ID_2}/areas/${DEPARTMENT_ID}`)
-
-    await comercialLink.click()
-    await expect(page).toHaveURL(new RegExp(`/areas/${DEPARTMENT_ID}$`))
-    await expect(page.getByRole('heading', { name: 'Comercial', level: 1 })).toBeVisible()
+    await expect(nav.getByRole('link', { name: 'Áreas', exact: true })).toBeVisible()
+    await expect(nav.getByRole('link', { name: 'Comercial', exact: true })).toHaveCount(0)
   })
 })
 

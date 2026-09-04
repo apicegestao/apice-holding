@@ -2988,3 +2988,33 @@ empresa está concluída: painel por produto/turma (seção 43), painel por
 Financeiro (seção 46) e Contatos (esta seção). Próximos incrementos ficam
 a critério do usuário — nenhum item pendente conhecido do roadmap
 original.
+
+## 48. Reverter menu lateral expandido em "Áreas"
+
+Feedback direto do usuário com print: a seção 45 fez cada área cadastrada
+aparecer como sub-item recuado sob "Áreas" no menu — na prática, isso
+deixava aquele item com uma aparência de "sempre aberto/expandido",
+diferente visualmente de todo o resto do menu (item plano, um por linha).
+Revertido: `AppLayout.tsx` volta a tratar "Áreas" como qualquer outro item
+da lista — um único link, mesmo ícone, sem sub-itens. Removido junto: a
+busca de `departments` da empresa ativa (não tinha mais nenhum uso depois
+disso), o campo `indent` de `NavItem` e a lógica de recuo/marcador
+(`•`) na renderização do menu.
+
+Entrar no painel de uma área específica continua existindo — só não é
+mais um atalho direto no menu; acontece de dentro da tela `/areas`
+("Ver painel" em cada linha, já existente desde a seção 44).
+
+**e2e:** o teste que conferia o sub-item recuado (`menu lateral lista a
+área cadastrada, recuada sob "Áreas"...`) foi reescrito pro comportamento
+novo (`menu lateral mostra "Áreas" como item único, sem listar cada área
+cadastrada` — confere que o link "Comercial" NÃO aparece na nav). Um
+segundo teste (`lista mostra a área existente...`) tinha um workaround de
+escopo (`page.getByRole('main')`) só por causa da colisão com o nome da
+área também aparecendo no menu — removido, já que a colisão não existe
+mais.
+
+**Verificação:** `npx tsc --noEmit`, `npm run build`, `npm run test`
+(48/48) e `npm run check:contrast` (24/24) limpos. `npm run test:e2e`:
+suíte completa 290 passando (mesmo total de antes — um teste reescrito,
+nenhum novo), 34 skipped, sem falhas (Desktop e Mobile 390).
