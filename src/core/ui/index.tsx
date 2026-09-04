@@ -11,11 +11,38 @@ import {
   type ReactNode,
 } from 'react'
 import { AlertTriangle, CheckCircle2, Info, Loader2, X } from 'lucide-react'
+import { NavLink } from 'react-router-dom'
 
 export { NumberInput } from './NumberInput'
 export { Logo } from './Logo'
 
 // ------------------------------------------------------------------ blocos
+
+// Abas internas de uma página (ex.: Financeiro/Orçamentos, que vivem numa
+// única entrada no menu lateral mas continuam sendo telas/rotas distintas).
+export function SectionTabs({ items }: { items: { to: string; label: string; end?: boolean }[] }) {
+  return (
+    <div className="mb-6 flex gap-1 border-b border-line">
+      {items.map((item) => (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          end={item.end}
+          className={({ isActive }) =>
+            `border-b-2 px-3 py-2 text-sm font-medium transition ${
+              isActive
+                ? 'border-brand-500 text-brand-text'
+                : 'border-transparent text-content-soft hover:text-content'
+            }`
+          }
+        >
+          {item.label}
+        </NavLink>
+      ))}
+    </div>
+  )
+}
+
 export function PageHeader({
   title,
   subtitle,

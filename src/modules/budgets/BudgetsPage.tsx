@@ -20,6 +20,7 @@ import {
   NumberInput,
   PageHeader,
   ProgressBar,
+  SectionTabs,
   Spinner,
   useConfirmDelete,
   useToast,
@@ -57,7 +58,15 @@ const monthLabel = (yearMonth: string) => {
 type BudgetForm = { title: string; description: string; event_date: string; department_id: string }
 const blankBudgetForm: BudgetForm = { title: '', description: '', event_date: '', department_id: '' }
 
-function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boolean }) {
+function BudgetsBoard({
+  company,
+  canWrite,
+  basePath,
+}: {
+  company: Company
+  canWrite: boolean
+  basePath: string
+}) {
   const { profile } = useAuth()
   const { notify } = useToast()
 
@@ -330,6 +339,12 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col">
+      <SectionTabs
+        items={[
+          { to: `${basePath}/orcamentos`, label: 'Orçamentos' },
+          { to: `${basePath}/financeiro`, label: 'Financeiro' },
+        ]}
+      />
       <PageHeader
         title={`Orçamentos · ${company.name}`}
         subtitle="Um orçamento por evento ou projeto: cotações, despesas e a projeção de caixa, tudo num lugar."
@@ -775,7 +790,7 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
 // tabela, mesma RLS — igual às notas e às tarefas da holding.
 function CompanyBudgets() {
   const { company, canWrite } = useCompany()
-  return <BudgetsBoard company={company} canWrite={canWrite} />
+  return <BudgetsBoard company={company} canWrite={canWrite} basePath={`/empresa/${company.id}`} />
 }
 
 function HoldingBudgets() {
@@ -791,7 +806,7 @@ function HoldingBudgets() {
     )
   }
 
-  return <BudgetsBoard company={holding} canWrite={isSuperAdmin} />
+  return <BudgetsBoard company={holding} canWrite={isSuperAdmin} basePath="/holding" />
 }
 
 export default function BudgetsPage({ scope = 'company' }: { scope?: 'company' | 'holding' }) {

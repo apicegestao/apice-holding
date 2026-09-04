@@ -116,6 +116,18 @@ test.describe('painel', () => {
     await expect(page.getByText('Metas: realizado x alvo')).toBeVisible()
   })
 
+  // Novo indicador do painel (item 10 da rodada — "repensar outros
+  // indicadores" — aprovado pelo usuário com "faça como achar melhor"):
+  // fluxo de caixa mês a mês, direto do Financeiro.
+  test('fluxo de caixa aparece no painel quando há lançamento financeiro', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}`)
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByText('Fluxo de caixa', { exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Ver Financeiro' })).toBeVisible()
+    await expect(page.getByText('Receita', { exact: true })).toBeVisible()
+    await expect(page.getByText('Despesa', { exact: true })).toBeVisible()
+  })
+
   test('gráfico comparativo entre empresas aparece no painel da holding', async ({ page }) => {
     await page.goto('/holding')
     await page.waitForLoadState('networkidle')
@@ -836,6 +848,29 @@ test.describe('orçamentos', () => {
 test.describe('financeiro', () => {
   test.beforeEach(async ({ page }) => {
     await login(page)
+  })
+
+  // Item 3 da rodada ("Orçamento pode ir pra dentro do financeiro"):
+  // Orçamentos e Financeiro continuam sendo dados/telas separados, mas
+  // dividem uma única entrada no menu lateral, com abas internas pra
+  // trocar entre as duas sem sair da seção.
+  test('Orçamentos e Financeiro dividem uma única entrada de menu, com abas internas', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/orcamentos`)
+    await page.waitForLoadState('networkidle')
+
+    const sidebar = page.locator('aside nav')
+    await expect(sidebar.getByRole('link', { name: 'Financeiro' })).toBeVisible()
+    await expect(sidebar.getByRole('link', { name: 'Orçamentos' })).toHaveCount(0)
+    // O item de menu fica destacado mesmo estando na rota "orçamentos".
+    await expect(sidebar.getByRole('link', { name: 'Financeiro' })).toHaveClass(/text-brand-text/)
+
+    const main = page.getByRole('main')
+    await expect(main.getByRole('link', { name: 'Orçamentos' })).toBeVisible()
+    await main.getByRole('link', { name: 'Financeiro' }).click()
+    await page.waitForLoadState('networkidle')
+    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/financeiro$`))
+    await expect(page.getByText('Receita no mês')).toBeVisible()
+    await expect(sidebar.getByRole('link', { name: 'Financeiro' })).toHaveClass(/text-brand-text/)
   })
 
   test('mostra os totais do mês e o saldo geral calculados corretamente', async ({ page }) => {

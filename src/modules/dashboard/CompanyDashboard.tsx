@@ -39,6 +39,7 @@ import { useChartTheme } from '../../core/theme/ThemeProvider'
 import { Badge, Card, CardCarousel, EmptyState, Loading, PageHeader, ProgressBar } from '../../core/ui'
 import {
   GOAL_STATUS_LABEL,
+  type FinancialEntry,
   type GoalStatus,
   type Insight,
   type Kpi,
@@ -169,6 +170,7 @@ export default function CompanyDashboard() {
   const [insights, setInsights] = useState<Insight[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [kpiHistory, setKpiHistory] = useState<KpiValue[]>([])
+  const [financialEntries, setFinancialEntries] = useState<FinancialEntry[]>([])
   const [inactiveKpiCount, setInactiveKpiCount] = useState(0)
   const [loading, setLoading] = useState(true)
 
@@ -184,6 +186,7 @@ export default function CompanyDashboard() {
       productResult,
       inactiveKpiResult,
       kpiHistoryResult,
+      financialEntryResult,
     ] = await Promise.all([
       supabase
         .from('kpis')
@@ -216,6 +219,11 @@ export default function CompanyDashboard() {
       // de pegar só o valor atual (ver productHistory). Mesmo custo que
       // KpisPage.tsx já paga pra montar o histórico de um indicador.
       supabase.from('kpi_values').select('*').eq('company_id', company.id),
+      // Sugestão aceita pelo usuário no lugar de um novo card fixo: já que o
+      // Financeiro virou uma fonte de dados rica (Fase 3), o painel ganha um
+      // indicador de fluxo de caixa mês a mês — sem precisar de KPI cadastrado
+      // pra isso, é direto da tabela de lançamentos.
+      supabase.from('financial_entries').select('*').eq('company_id', company.id),
     ])
 
     const memberIds = (memberResult.data ?? []).map((row) => row.user_id)
@@ -232,6 +240,7 @@ export default function CompanyDashboard() {
     setProducts((productResult.data as Product[]) ?? [])
     setInactiveKpiCount((inactiveKpiResult.data ?? []).length)
     setKpiHistory((kpiHistoryResult.data as KpiValue[]) ?? [])
+    setFinancialEntries((financialEntryResult.data as FinancialEntry[]) ?? [])
     setLoading(false)
   }, [company.id, isAdmin])
 
@@ -422,6 +431,32 @@ export default function CompanyDashboard() {
 
     return { points, products: productsWithData }
   }, [products, kpiDefs, kpiHistory])
+
+  // ------------------------------------------------------------- fluxo de caixa
+  // Novo indicador do painel (sugestão aceita pelo usuário): já que o
+  // Financeiro virou uma fonte de dados rica, mostra receita/despesa/saldo
+  // mês a mês direto dos lançamentos — mesma conta de FinancialsPage.tsx
+  // (cashflow), só que os últimos 6 meses, pra caber num cartão do painel.
+  const cashflow = useMemo(() => {
+    const byMonth = new Map<string, { revenue: number; expense: number }>()
+    for (const entry of financialEntries) {
+      const month = entry.occurred_at.slice(0, 7)
+      const bucket = byMonth.get(month) ?? { revenue: 0, expense: 0 }
+      if (entry.kind === 'receita') bucket.revenue += Number(entry.amount)
+      else bucket.expense += Number(entry.amount)
+      byMonth.set(month, bucket)
+    }
+    const months = [...byMonth.keys()].sort().slice(-6)
+    return months.map((month) => {
+      const bucket = byMonth.get(month)!
+      return {
+        period: new Date(`${month}-01T12:00:00`).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
+        Receita: Math.round(bucket.revenue * 100) / 100,
+        Despesa: Math.round(bucket.expense * 100) / 100,
+        Saldo: Math.round((bucket.revenue - bucket.expense) * 100) / 100,
+      }
+    })
+  }, [financialEntries])
 
   const stats = useMemo(() => {
     const open = tasks.filter((task) => ['todo', 'doing', 'blocked'].includes(task.status))
@@ -784,6 +819,60 @@ export default function CompanyDashboard() {
           </Card>
         </div>
       </div>
+
+      {/* Novo indicador do painel: fluxo de caixa mês a mês, direto do
+          Financeiro (aprovado pelo usuário — "faça como achar melhor"). Sem
+          depender de nenhum KPI cadastrado: mostra o dado que já existe assim
+          que a empresa começa a lançar receita/despesa. */}
+      {cashflow.length > 0 && (
+        <Card
+          title="Fluxo de caixa"
+          description="Receita, despesa e saldo por mês, direto dos lançamentos do Financeiro."
+          actions={
+            <Link to={`/empresa/${company.id}/financeiro`} className="btn-ghost py-1.5 text-xs">
+              Ver Financeiro
+            </Link>
+          }
+        >
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={cashflow} margin={{ top: 20, right: 8, bottom: 0, left: 0 }}>
+                <XAxis
+                  dataKey="period"
+                  tick={{ fontSize: 11, fill: chart.tick }}
+                  axisLine={{ stroke: chart.axis }}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: chart.tick }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={54}
+                  tickFormatter={(value: number) => formatCompact(value, 'currency')}
+                />
+                <Tooltip
+                  cursor={{ stroke: chart.axis, strokeDasharray: '4 4' }}
+                  contentStyle={{
+                    fontSize: 12,
+                    borderRadius: 8,
+                    background: chart.tooltipBg,
+                    borderColor: chart.tooltipBorder,
+                    color: chart.tooltipText,
+                  }}
+                  itemStyle={{ color: chart.tooltipText }}
+                  labelStyle={{ color: chart.tooltipText }}
+                  formatter={(value: number, name: string) => [formatValue(value, 'currency'), name]}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <ReferenceLine y={0} stroke={chart.reference} strokeDasharray="4 4" />
+                <Line type="monotone" dataKey="Receita" stroke="#10B981" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="Despesa" stroke="#F43F5E" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="Saldo" stroke={chart.axis} strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
 
       {/* ------------------------------------------------- gráfico comparativo */}
       <Card

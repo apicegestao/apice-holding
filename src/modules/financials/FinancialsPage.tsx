@@ -20,6 +20,7 @@ import {
   Modal,
   NumberInput,
   PageHeader,
+  SectionTabs,
   Spinner,
   useConfirmDelete,
   useToast,
@@ -68,7 +69,15 @@ const blankForm = (): EntryForm => ({
   product_edition_id: '',
 })
 
-function FinancialsBoard({ company, canWrite }: { company: Company; canWrite: boolean }) {
+function FinancialsBoard({
+  company,
+  canWrite,
+  basePath,
+}: {
+  company: Company
+  canWrite: boolean
+  basePath: string
+}) {
   const { profile } = useAuth()
   const { notify } = useToast()
 
@@ -223,6 +232,12 @@ function FinancialsBoard({ company, canWrite }: { company: Company; canWrite: bo
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
+      <SectionTabs
+        items={[
+          { to: `${basePath}/orcamentos`, label: 'Orçamentos' },
+          { to: `${basePath}/financeiro`, label: 'Financeiro' },
+        ]}
+      />
       <PageHeader
         title={`Financeiro · ${company.name}`}
         subtitle="O livro de lançamentos da empresa: receita e despesa do dia a dia, sem precisar de um orçamento de evento."
@@ -532,7 +547,7 @@ function FinancialsBoard({ company, canWrite }: { company: Company; canWrite: bo
 // tabela, mesma RLS, mesmo critério já usado por orçamentos/notas/tarefas.
 function CompanyFinancials() {
   const { company, canWrite } = useCompany()
-  return <FinancialsBoard company={company} canWrite={canWrite} />
+  return <FinancialsBoard company={company} canWrite={canWrite} basePath={`/empresa/${company.id}`} />
 }
 
 function HoldingFinancials() {
@@ -548,7 +563,7 @@ function HoldingFinancials() {
     )
   }
 
-  return <FinancialsBoard company={holding} canWrite={isSuperAdmin} />
+  return <FinancialsBoard company={holding} canWrite={isSuperAdmin} basePath="/holding" />
 }
 
 export default function FinancialsPage({ scope = 'company' }: { scope?: 'company' | 'holding' }) {

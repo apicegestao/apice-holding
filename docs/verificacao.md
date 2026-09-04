@@ -3277,3 +3277,46 @@ playwright test`: suíte completa 311 passando (Desktop + Mobile), 35
 skipped, sem falhas. `mcp__Supabase__get_advisors`: nenhum item novo (a
 migração só adiciona uma coluna nullable + índice, mesmo padrão de
 `kpis.archived_at`).
+
+## 53. Orçamento dentro do menu Financeiro + novo indicador de fluxo de caixa
+
+Dois pontos deixados em aberto na rodada anterior ("Orçamento pode ir pra
+dentro do financeiro, o que acha?" e "vamos repensar outros indicadores
+que fazem mais sentido pro painel") — eu tinha dado minha opinião em texto
+sem mexer no código, esperando direção; o usuário respondeu **"faça como
+achar melhor"**, aprovando as duas sugestões que eu já tinha proposto.
+
+**1) Orçamentos + Financeiro numa única entrada de menu.** Os dados
+continuam sendo duas coisas bem diferentes — `Budget`/`BudgetItem`
+(previsto x realizado de um evento/projeto) e `FinancialEntry` (livro de
+receita/despesa do dia a dia, já linkável a um `budget_item_id` pra
+reconciliar) — então **não** fundi as tabelas nem as telas. O que mudou
+foi só a navegação: as duas rotas (`/orcamentos` e `/financeiro`, empresa
+e holding) continuam existindo e com o mesmo conteúdo de sempre, mas a
+barra lateral ganhou uma única entrada "Financeiro" cobrindo as duas —
+`AppLayout.tsx`'s `NavItem` ganhou `matchPrefixes?: string[]`, que mantém
+o item destacado mesmo quando a rota ativa é a outra da dupla. Por dentro,
+`BudgetsPage.tsx` e `FinancialsPage.tsx` ganharam um cabeçalho de abas
+(`SectionTabs`, novo componente em `core/ui/index.tsx`, reaproveitável pra
+qualquer outra dupla de telas que precise disso no futuro) que alterna
+entre as duas rotas sem precisar passar pela barra lateral.
+
+**2) Fluxo de caixa no painel da empresa.** Novo indicador em
+`CompanyDashboard.tsx`: um cartão "Fluxo de caixa" com receita, despesa e
+saldo mês a mês, direto de `financial_entries` — sem depender de nenhum
+KPI cadastrado, aparece assim que a empresa começa a lançar no Financeiro
+(fica escondido quando não há nenhum lançamento ainda, mesmo padrão de
+"Comparação entre produtos"). Reaproveita a mesma conta por mês que
+`FinancialsPage.tsx` já usa no card "Fluxo de caixa por mês" (bucket por
+`occurred_at.slice(0,7)`), limitada aos últimos 6 meses pra caber num
+cartão de painel — o objetivo aqui é o retrato rápido, o detalhe completo
+(inclusive saldo acumulado) já mora na própria tela de Financeiro.
+
+**Verificação**: 2 novos testes e2e (abas Orçamentos/Financeiro trocando
+de tela sem sair da seção + item de menu continua destacado nas duas
+rotas; cartão "Fluxo de caixa" aparecendo no painel com lançamento
+financeiro). `npx tsc --noEmit`, `npm run build`, `npx vitest run`
+(49/49) e `npm run check:contrast` (24/24) limpos. `npx playwright test`:
+suíte completa 315 passando (Desktop + Mobile), 35 skipped, sem falhas.
+Sem migração nesta rodada (nenhuma tabela nova, `financial_entries` já
+existia desde "Financeiro: livro de lançamentos").

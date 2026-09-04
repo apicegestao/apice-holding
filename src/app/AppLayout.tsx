@@ -24,7 +24,6 @@ import {
   Sun,
   Target,
   Users,
-  Wallet,
 } from 'lucide-react'
 import { useAuth } from '../core/auth/AuthProvider'
 import CompanySwitcher from './CompanySwitcher'
@@ -36,7 +35,10 @@ import { useClickOutside } from '../core/lib/useClickOutside'
 import { useToast } from '../core/ui'
 import type { Notification } from '../core/types'
 
-type NavItem = { to: string; label: string; icon: typeof Gauge; end?: boolean }
+// `matchPrefixes` cobre entradas de menu que, por dentro, viram duas rotas
+// distintas com abas internas (Financeiro/Orçamentos) — o item do menu deve
+// continuar destacado em ambas, não só na rota que leva o nome dele.
+type NavItem = { to: string; label: string; icon: typeof Gauge; end?: boolean; matchPrefixes?: string[] }
 
 const THEMES: { value: ThemeChoice; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Claro', icon: Sun },
@@ -117,8 +119,12 @@ export default function AppLayout() {
         { to: '/holding/empresas', label: 'Empresas', icon: Building2 },
         { to: '/holding/usuarios', label: 'Usuários', icon: Users },
         { to: '/holding/notas', label: 'Notas', icon: StickyNote },
-        { to: '/holding/orcamentos', label: 'Orçamentos', icon: Wallet },
-        { to: '/holding/financeiro', label: 'Financeiro', icon: Landmark },
+        {
+          to: '/holding/financeiro',
+          label: 'Financeiro',
+          icon: Landmark,
+          matchPrefixes: ['/holding/orcamentos'],
+        },
         { to: '/holding/insights', label: 'Insights de IA', icon: Sparkles },
         { to: '/holding/auditoria', label: 'Auditoria', icon: ScrollText },
         { to: '/holding/configuracoes', label: 'Configurações', icon: Settings },
@@ -134,8 +140,12 @@ export default function AppLayout() {
       { to: `${base}/areas`, label: 'Áreas', icon: Boxes },
       { to: `${base}/contatos`, label: 'Contatos', icon: Contact2 },
       { to: `${base}/notas`, label: 'Notas', icon: StickyNote },
-      { to: `${base}/orcamentos`, label: 'Orçamentos', icon: Wallet },
-      { to: `${base}/financeiro`, label: 'Financeiro', icon: Landmark },
+      {
+        to: `${base}/financeiro`,
+        label: 'Financeiro',
+        icon: Landmark,
+        matchPrefixes: [`${base}/orcamentos`],
+      },
       { to: `${base}/equipe`, label: 'Equipe', icon: Users },
     ]
     if (activeMembership?.role === 'admin' || isSuperAdmin) {
@@ -334,23 +344,26 @@ export default function AppLayout() {
         {navItems.length > 0 && (
           <aside className="shrink-0 border-b border-line bg-surface lg:w-60 lg:border-b-0 lg:border-r">
             <nav className="flex gap-1 overflow-x-auto p-3 lg:flex-col lg:overflow-visible">
-              {navItems.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  className={({ isActive }) =>
-                    `flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
-                      isActive
-                        ? 'bg-brand/10 font-medium text-brand-text'
-                        : 'text-content-muted hover:bg-hover'
-                    }`
-                  }
-                >
-                  <item.icon className="h-4 w-4" />
-                  <span className="truncate">{item.label}</span>
-                </NavLink>
-              ))}
+              {navItems.map((item) => {
+                const extraActive = item.matchPrefixes?.some((prefix) => location.pathname.startsWith(prefix))
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    className={({ isActive }) =>
+                      `flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
+                        isActive || extraActive
+                          ? 'bg-brand/10 font-medium text-brand-text'
+                          : 'text-content-muted hover:bg-hover'
+                      }`
+                    }
+                  >
+                    <item.icon className="h-4 w-4" />
+                    <span className="truncate">{item.label}</span>
+                  </NavLink>
+                )
+              })}
             </nav>
           </aside>
         )}
