@@ -12,11 +12,12 @@
 // da empresa (StatTile/IndicatorLine/ProgressBar), só trocando o escopo
 // dos dados.
 //
-// Uma limitação real do modelo de dados, não deste componente: `tasks` só
-// tem `product_id` (granularidade de produto), não `product_edition_id` —
-// não existe "tarefa desta turma" separada de "tarefa deste produto". Por
-// isso a seção de tarefas só aparece no painel do PRODUTO, nunca no da
-// turma (ver `showTasks` abaixo).
+// `tasks` já teve granularidade só de produto (`product_id`), sem
+// `product_edition_id` — a seção de tarefas só existia no painel do
+// produto. `0039_task_product_edition.sql` fechou essa lacuna: agora uma
+// tarefa pode apontar direto pra uma turma, então o painel da turma
+// mostra as tarefas DELA (não as do produto inteiro), do mesmo jeito que
+// já acontece com indicador, alvo e orçamento.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { CalendarRange, ChevronRight, ClipboardList, LayoutDashboard, Square, Target, Wallet } from 'lucide-react'
@@ -254,11 +255,19 @@ export default function ProductDashboard() {
     }
   }, [metaRows])
 
-  // Tarefas — só existem no nível de produto (ver comentário no topo).
-  const showTasks = edition === null
+  // Tarefas: no painel do produto, só as do PRÓPRIO produto (sem edição) —
+  // as de cada turma aparecem no painel dela, mesmo critério já usado pra
+  // orçamento (`budgetsInScope` abaixo) e indicador (`inScope`).
+  const tasksInScope = useMemo(
+    () =>
+      tasks.filter((task) =>
+        edition ? task.product_edition_id === edition.id : task.product_edition_id === null,
+      ),
+    [tasks, edition],
+  )
   const openTasks = useMemo(
-    () => tasks.filter((task) => ['todo', 'doing', 'blocked'].includes(task.status)),
-    [tasks],
+    () => tasksInScope.filter((task) => ['todo', 'doing', 'blocked'].includes(task.status)),
+    [tasksInScope],
   )
   const upcomingTasks = useMemo(
     () =>
@@ -356,7 +365,7 @@ export default function ProductDashboard() {
         </div>
       )}
 
-      <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${showTasks ? 'lg:grid-cols-3' : ''}`}>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatTile
           label="Metas no alvo"
           value={`${stats.onTarget.length}/${stats.onTarget.length + stats.offTarget.length}`}
@@ -365,7 +374,7 @@ export default function ProductDashboard() {
           icon={Target}
         />
         <StatTile label="Indicadores" value={scopedKpiRows.length} icon={LayoutDashboard} />
-        {showTasks && <StatTile label="Tarefas abertas" value={openTasks.length} icon={ClipboardList} />}
+        <StatTile label="Tarefas abertas" value={openTasks.length} icon={ClipboardList} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -460,11 +469,10 @@ export default function ProductDashboard() {
         </Card>
       )}
 
-      {showTasks && (
-        <Card
-          title="Próximos prazos"
-          description="Tarefas abertas deste produto."
-          actions={
+      <Card
+        title="Próximos prazos"
+        description={edition ? 'Tarefas abertas desta turma.' : 'Tarefas abertas deste produto.'}
+        actions={
             <Link to={`/empresa/${company.id}/tarefas`} className="btn-ghost py-1.5 text-xs">
               Ver Tarefas
             </Link>
@@ -500,7 +508,6 @@ export default function ProductDashboard() {
             </ul>
           )}
         </Card>
-      )}
 
       {budgetsInScope.length > 0 && (
         <Card title="Orçamento" description="Execução de despesa de cada orçamento deste escopo.">

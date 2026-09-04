@@ -2788,3 +2788,68 @@ pelos audits gerais), 31 skipped, sem falhas (Desktop e Mobile 390).
 mostrados — `system_settings` sem policy e leaked-password-protection —
 já existiam antes desta migração); nenhum item novo de performance (as
 colunas `department_id` novas já nasceram com índice parcial).
+
+## 45. Refinar granularidade de tarefa (turma) + menu lateral por área
+
+Pedido direto do usuário, com autorização explícita pra executar melhorias
+correlatas sem perguntar: "refine granularidade de tarefas" e "reorganize
+o menu lateral por área". Os dois já tinham sido identificados como
+lacuna/próximo passo nas seções 43 e 44 — esta rodada fecha os dois.
+
+**1. Granularidade de tarefa — migração `0039_task_product_edition.sql`:**
+`tasks.product_id` ia só até produto, nunca até turma — o painel de
+produto/turma (seção 43) só mostrava tarefas no nível de produto por
+causa exatamente disso, documentado ali como limitação real do modelo,
+não da tela. Corrigido:
+- Coluna nova `tasks.product_edition_id` (opcional, mesmo nível de
+  detalhe que `kpis`/`budgets` já tinham desde `0024_products.sql`).
+- **Achado de quebra, corrigido junto:** `tasks.product_id` nunca teve o
+  guard de "produto é da mesma empresa" que `kpis`/`budgets` já têm
+  desde `0024_products.sql` (`app.assert_kpi_product()`/
+  `app.assert_budget_product()`) — lacuna real, não intencional, sem
+  relação direta com o pedido mas descoberta ao mexer exatamente nesse
+  ponto. `app.assert_task_product()` fecha os dois de uma vez: produto
+  da mesma empresa + edição (se houver) do mesmo produto.
+- `TaskFormModal.tsx`: select "Turma" novo, em cascata — só aparece
+  depois de escolher um produto que tem edições, mesmo padrão de
+  `AttachProductModal` em Metas. Trocar de produto (ou de empresa) limpa
+  a turma escolhida antes, pra nunca submeter uma combinação inválida.
+- `ProductDashboard.tsx`: removida a limitação documentada na seção 43 —
+  a seção "Próximos prazos" agora aparece TAMBÉM no painel da turma,
+  mostrando só as tarefas dela (`tasksInScope`, mesmo critério já usado
+  pra orçamento/indicador). Comentário do topo do arquivo atualizado pra
+  não descrever mais uma limitação que não existe.
+- `ProductsPage.tsx`: contagem de tarefas do cartão do produto agora
+  conta só tarefas PRÓPRIAS dele (sem edição) — antes contava também as
+  de cada turma, porque não tinha como diferenciar. Cada linha de turma
+  ganhou a própria contagem (`openTasksByEdition`), antes impossível de
+  mostrar.
+
+**2. Menu lateral por área — `AppLayout.tsx`:** cada área cadastrada na
+empresa ativa entra como sub-item recuado logo abaixo de "Áreas",
+linkando direto pro painel dela (indicador+alvo+tarefa+orçamento juntos,
+seção 44) — "Áreas" continua levando pra lista/cadastro. Busca as áreas
+da empresa ativa (recarrega ao trocar de empresa), com um item por dot
+(•) no lugar do ícone repetido, pra marcar visualmente que é filho de
+"Áreas" sem precisar de um componente de árvore. Metas/Tarefas/
+Orçamentos continuam como itens globais (cross-área) — não fazia sentido
+duplicá-los por área, e nenhum dos três precisou de filtro por área
+nesta rodada (fica como possível próximo passo, não pedido agora).
+
+**Achado no processo:** duas fixtures de teste de rodadas anteriores
+(`task-produto-teste`, na seção 43) tinham `product_id` preenchido mas
+sem o campo `product_edition_id` — inofensivo antes (o campo não
+existia), mas com o filtro novo (`=== null`) um campo genuinamente
+ausente (`undefined`) não bate com `null` e a tarefa sumiria do escopo
+por engano. Corrigido preenchendo o campo explicitamente nas fixtures
+afetadas — o mesmo cuidado que já vale pra qualquer campo novo em tipo
+existente.
+
+**Verificação:** `npx tsc --noEmit`, `npm run build`, `npm run test`
+(48/48) e `npm run check:contrast` (24/24) limpos. `npm run test:e2e`:
+suíte completa 251 passando (reescrita a que assumia "turma nunca mostra
+tarefa" + 3 testes novos: cascata produto→turma no formulário salvando
+de verdade, painel da turma só com as tarefas dela, menu lateral
+mostrando a área e navegando pro painel dela), 31 skipped, sem falhas
+(Desktop e Mobile 390). `mcp__Supabase__get_advisors`: nenhum item novo
+de segurança nem performance.

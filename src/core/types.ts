@@ -368,6 +368,10 @@ export type Task = {
   tags: string[]
   kpi_id: string | null
   product_id: string | null
+  // Turma específica, dentro do produto acima — opcional, mesmo nível de
+  // detalhe que kpis/budgets já tinham desde 0024_products.sql (0039
+  // fechou a lacuna: tarefa só ia até produto, não até turma).
+  product_edition_id: string | null
   department_id: string | null
   completed_at: string | null
   created_at: string

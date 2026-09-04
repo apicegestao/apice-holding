@@ -15,6 +15,7 @@ import {
   VISIBILITY_LABEL,
   type Department,
   type Product,
+  type ProductEdition,
   type Profile,
   type Task,
   type TaskChecklistItem,
@@ -35,6 +36,7 @@ type FormState = {
   description: string
   assignee_id: string
   product_id: string
+  product_edition_id: string
   department_id: string
   due_date: string
   remind_days_before: string
@@ -51,6 +53,7 @@ const blank: FormState = {
   description: '',
   assignee_id: '',
   product_id: '',
+  product_edition_id: '',
   department_id: '',
   due_date: '',
   remind_days_before: '1',
@@ -122,6 +125,7 @@ export default function TaskFormModal({
         description: task.description ?? '',
         assignee_id: task.assignee_id ?? '',
         product_id: task.product_id ?? '',
+        product_edition_id: task.product_edition_id ?? '',
         department_id: task.department_id ?? '',
         due_date: task.due_date ?? '',
         remind_days_before: task.remind_days_before?.toString() ?? '',
@@ -326,6 +330,28 @@ export default function TaskFormModal({
     if (open) void loadProducts(form.company_id)
   }, [open, form.company_id, loadProducts])
 
+  // Turmas possíveis: todas as edições da empresa escolhida — filtradas
+  // pelo produto selecionado na hora de montar as opções (não por
+  // company_id de novo), mesmo formato que ProductsPage já usa.
+  const [editions, setEditions] = useState<ProductEdition[]>([])
+  const loadEditions = useCallback(async (companyId: string) => {
+    if (!companyId) {
+      setEditions([])
+      return
+    }
+    const { data } = await supabase.from('product_editions').select('*').eq('company_id', companyId)
+    setEditions((data as ProductEdition[]) ?? [])
+  }, [])
+
+  useEffect(() => {
+    if (open) void loadEditions(form.company_id)
+  }, [open, form.company_id, loadEditions])
+
+  const editionsForProduct = useMemo(
+    () => editions.filter((edition) => edition.product_id === form.product_id),
+    [editions, form.product_id],
+  )
+
   // Áreas possíveis: mesmo padrão de loadProducts — só faz sentido depois
   // de escolher a empresa.
   const loadDepartments = useCallback(async (companyId: string) => {
@@ -387,6 +413,7 @@ export default function TaskFormModal({
       description: form.description.trim() || null,
       assignee_id: form.assignee_id || null,
       product_id: form.product_id || null,
+      product_edition_id: form.product_edition_id || null,
       department_id: form.department_id || null,
       due_date: form.due_date || null,
       // remind_at é recalculado pelo próprio banco (trigger app.sync_task_reminder)
@@ -471,7 +498,13 @@ export default function TaskFormModal({
               className="input"
               value={form.company_id}
               onChange={(event) =>
-                setForm((c) => ({ ...c, company_id: event.target.value, assignee_id: '', product_id: '' }))
+                setForm((c) => ({
+                  ...c,
+                  company_id: event.target.value,
+                  assignee_id: '',
+                  product_id: '',
+                  product_edition_id: '',
+                }))
               }
             >
               {companyOptions.map((company) => (
@@ -531,12 +564,33 @@ export default function TaskFormModal({
             <select
               className="input"
               value={form.product_id}
-              onChange={(event) => setForm((c) => ({ ...c, product_id: event.target.value }))}
+              onChange={(event) =>
+                // Trocar de produto invalida a turma escolhida antes — ela
+                // pertencia ao produto anterior, não a este.
+                setForm((c) => ({ ...c, product_id: event.target.value, product_edition_id: '' }))
+              }
             >
               <option value="">Nenhum — tarefa da empresa toda</option>
               {products.map((product) => (
                 <option key={product.id} value={product.id}>
                   {product.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+
+        {form.product_id && editionsForProduct.length > 0 && (
+          <Field label="Turma" hint="Opcional — deixe em branco se for uma tarefa do produto inteiro.">
+            <select
+              className="input"
+              value={form.product_edition_id}
+              onChange={(event) => setForm((c) => ({ ...c, product_edition_id: event.target.value }))}
+            >
+              <option value="">Nenhuma — tarefa do produto inteiro</option>
+              {editionsForProduct.map((edition) => (
+                <option key={edition.id} value={edition.id}>
+                  {edition.name}
                 </option>
               ))}
             </select>

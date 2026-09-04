@@ -666,6 +666,7 @@ test.describe('metas de produto e sub-produto', () => {
       tags: [],
       kpi_id: null,
       product_id: PRODUCT_ID,
+      product_edition_id: null,
       completed_at: null,
       created_at: '2026-09-01T00:00:00Z',
       updated_at: '2026-09-01T00:00:00Z',
@@ -737,10 +738,11 @@ test.describe('metas de produto e sub-produto', () => {
     await expect(page.getByText('R$ 6.000,00 de R$ 10.000,00 previstos')).toBeVisible()
   })
 
-  // Turma: mesmo painel, mas sem seção de tarefas — `tasks` só tem
-  // granularidade de produto no modelo de dados atual, não de turma (ver
-  // comentário no topo de ProductDashboard.tsx).
-  test('painel da turma mostra indicador e alvo dela, sem seção de tarefas', async ({ page }) => {
+  // Turma: mesmo painel, e agora TAMBÉM com seção de tarefas — desde
+  // 0039_task_product_edition.sql, `tasks.product_edition_id` deixou de
+  // ser uma lacuna: uma tarefa pode apontar direto pra uma turma, então o
+  // painel da turma mostra só as tarefas DELA (não as do produto inteiro).
+  test('painel da turma mostra indicador, alvo e só as tarefas da própria turma', async ({ page }) => {
     // O mock genérico devolve a tabela inteira, ignorando filtro de
     // querystring — com 2 edições nas fixtures, `.maybeSingle()` (usado
     // pelo painel pra buscar A turma da URL) recebe as 2 linhas de volta e
@@ -757,6 +759,37 @@ test.describe('metas de produto e sub-produto', () => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
     })
 
+    const taskBase = {
+      company_id: COMPANY_ID_2,
+      description: null,
+      assignee_id: null,
+      created_by: USER_ID,
+      due_date: '2026-09-16',
+      remind_at: null,
+      reminder_sent_at: null,
+      remind_days_before: null,
+      remind_time: '08:00',
+      due_reminder_sent_at: null,
+      priority: 'medium' as const,
+      status: 'todo' as const,
+      visibility: 'company' as const,
+      tags: [],
+      kpi_id: null,
+      department_id: null,
+      completed_at: null,
+      created_at: '2026-09-01T00:00:00Z',
+      updated_at: '2026-09-01T00:00:00Z',
+    }
+    const tasks = TASKS.concat(
+      // Da turma — deve aparecer no painel dela.
+      { ...taskBase, id: 'task-turma-teste', title: 'Confirmar catering da turma', product_id: PRODUCT_ID, product_edition_id: EDITION_ID },
+      // Do produto inteiro (sem edição) — NÃO deve aparecer no painel da turma.
+      { ...taskBase, id: 'task-produto-so-teste', title: 'Renovar contrato do produto', product_id: PRODUCT_ID, product_edition_id: null },
+    )
+    await page.route('**/rest/v1/tasks*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tasks) })
+    })
+
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos/${PRODUCT_ID}/turmas/${EDITION_ID}`)
     await page.waitForLoadState('networkidle')
 
@@ -769,8 +802,40 @@ test.describe('metas de produto e sub-produto', () => {
     await expect(targetsCard.getByText('Em risco')).toBeVisible()
     await expect(targetsCard.getByText('R$ 32.000,00 de R$ 35.000,00')).toBeVisible()
 
-    await expect(page.getByRole('heading', { name: 'Próximos prazos' })).not.toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Próximos prazos' })).toBeVisible()
+    await expect(page.getByText('Confirmar catering da turma')).toBeVisible()
+    await expect(page.getByText('Renovar contrato do produto')).not.toBeVisible()
     await expect(page.getByRole('heading', { name: 'Turmas' })).not.toBeVisible()
+  })
+
+  // Escrita da mesma granularidade testada em leitura acima: o formulário
+  // de tarefa precisa oferecer "Turma" (cascata a partir do produto
+  // escolhido) e gravar o vínculo de verdade.
+  test('formulário de tarefa: escolher produto revela turma, e o vínculo é salvo', async ({ page }) => {
+    let savedPayload: Record<string, unknown> | null = null
+    await page.route('**/rest/v1/tasks*', async (route) => {
+      if (route.request().method() === 'POST') {
+        savedPayload = JSON.parse(route.request().postData() || '{}')
+        await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(savedPayload) })
+        return
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TASKS) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/tarefas`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Nova tarefa', exact: true }).first().click()
+
+    await page.getByLabel('O que precisa ser feito').fill('Confirmar catering da turma')
+    // "Turma" não existe antes de escolher um produto com edições.
+    await expect(page.getByLabel('Turma')).not.toBeVisible()
+    await page.getByLabel('Produto').selectOption({ label: 'Entre Donos' })
+    await expect(page.getByLabel('Turma')).toBeVisible()
+    await page.getByLabel('Turma').selectOption({ label: 'Imersão Setembro 2026' })
+
+    await page.getByRole('button', { name: 'Criar tarefa' }).click()
+    await expect(page.getByText('Tarefa criada.')).toBeVisible()
+    expect(savedPayload).toMatchObject({ product_id: PRODUCT_ID, product_edition_id: EDITION_ID })
   })
 
   // Atalho de descoberta: sem isso, chegar no painel de produto/turma exige
@@ -802,7 +867,11 @@ test.describe('Áreas', () => {
     await page.goto(`/empresa/${COMPANY_ID_2}/areas`)
     await page.waitForLoadState('networkidle')
 
-    await expect(page.getByText('Comercial', { exact: true })).toBeVisible()
+    // Escopado a <main> — "Comercial" também aparece na barra lateral
+    // agora que o menu lista cada área cadastrada (reorganização por
+    // área), então uma busca solta pegaria os dois.
+    const main = page.getByRole('main')
+    await expect(main.getByText('Comercial', { exact: true })).toBeVisible()
     // Nenhum indicador/tarefa/orçamento aponta pra esta área nas fixtures
     // compartilhadas — as contagens começam zeradas.
     await expect(page.getByText('0 indicador(es)')).toBeVisible()
@@ -1023,6 +1092,25 @@ test.describe('Áreas', () => {
     await page.getByRole('button', { name: 'Nova tarefa', exact: true }).first().click()
     await page.getByLabel('Área').selectOption({ label: 'Comercial' })
     await expect(page.getByLabel('Área')).toHaveValue(DEPARTMENT_ID)
+  })
+
+  // Pedido explícito: menu lateral organizado por área — cada área
+  // cadastrada aparece recuada, logo abaixo de "Áreas", linkando direto
+  // pro painel dela.
+  test('menu lateral lista a área cadastrada, recuada sob "Áreas", linkando pro painel dela', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}`)
+    await page.waitForLoadState('networkidle')
+
+    const nav = page.locator('aside nav')
+    const areasLink = nav.getByRole('link', { name: 'Áreas', exact: true })
+    await expect(areasLink).toBeVisible()
+    const comercialLink = nav.getByRole('link', { name: 'Comercial', exact: true })
+    await expect(comercialLink).toBeVisible()
+    await expect(comercialLink).toHaveAttribute('href', `/empresa/${COMPANY_ID_2}/areas/${DEPARTMENT_ID}`)
+
+    await comercialLink.click()
+    await expect(page).toHaveURL(new RegExp(`/areas/${DEPARTMENT_ID}$`))
+    await expect(page.getByRole('heading', { name: 'Comercial', level: 1 })).toBeVisible()
   })
 })
 

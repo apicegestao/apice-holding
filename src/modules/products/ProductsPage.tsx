@@ -71,7 +71,7 @@ function byValueDesc(a: number | null, b: number | null): number {
 
 // Tarefa enxuta só com o que esta tela precisa contar — nada de trazer
 // título/descrição de toda tarefa da empresa à toa.
-type TaskCount = { id: string; product_id: string | null; status: string }
+type TaskCount = { id: string; product_id: string | null; product_edition_id: string | null; status: string }
 
 // Uma meta ativa entra aqui com lançamento ou não — uma meta que só soma os
 // filhos (ex. a do produto, que nunca lança direto) não pode sumir da tela
@@ -126,7 +126,7 @@ export default function ProductsPage() {
         .order('start_date', { ascending: false, nullsFirst: false }),
       supabase.from('kpis').select('*').eq('company_id', company.id).eq('is_active', true).is('archived_at', null),
       supabase.from('kpi_latest_values').select('*').eq('company_id', company.id).is('archived_at', null),
-      supabase.from('tasks').select('id, product_id, status').eq('company_id', company.id),
+      supabase.from('tasks').select('id, product_id, product_edition_id, status').eq('company_id', company.id),
     ])
     setProducts((productRows as Product[]) ?? [])
     setEditions((editionRows as ProductEdition[]) ?? [])
@@ -198,7 +198,10 @@ export default function ProductsPage() {
   // Produto e turma são medição pura — alvo só existe na meta de empresa
   // inteira. O que o cartão do produto mostra é o valor das metas PRÓPRIAS
   // dele (sem edição — as de cada turma aparecem um nível abaixo, dentro
-  // do modal), mais quantas tarefas dele estão abertas.
+  // do modal), mais quantas tarefas PRÓPRIAS dele estão abertas — mesmo
+  // critério "sem edição" dos indicadores, agora que tarefa também
+  // distingue produto de turma (0039_task_product_edition.sql). As
+  // tarefas de cada turma entram em `openTasksByEdition`, abaixo.
   const statsByProduct = useMemo(() => {
     const map = new Map<string, { open: number; indicators: ProductKpiRow[] }>()
     for (const product of products) {
@@ -206,12 +209,28 @@ export default function ProductsPage() {
         (row) => row.product_id === product.id && row.product_edition_id === null,
       )
       const open = tasks.filter(
-        (task) => task.product_id === product.id && ['todo', 'doing', 'blocked'].includes(task.status),
+        (task) =>
+          task.product_id === product.id &&
+          task.product_edition_id === null &&
+          ['todo', 'doing', 'blocked'].includes(task.status),
       )
       map.set(product.id, { open: open.length, indicators })
     }
     return map
   }, [products, kpiRows, tasks])
+
+  // Tarefas abertas de cada turma — antes não dava pra saber (tarefa só
+  // tinha granularidade de produto); agora que tem, cada linha de edição
+  // mostra a própria contagem, do mesmo jeito que o cartão do produto já
+  // mostrava a dele.
+  const openTasksByEdition = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const task of tasks) {
+      if (!task.product_edition_id || !['todo', 'doing', 'blocked'].includes(task.status)) continue
+      map.set(task.product_edition_id, (map.get(task.product_edition_id) ?? 0) + 1)
+    }
+    return map
+  }, [tasks])
 
   // Toda meta raiz de empresa (sem produto, sem pai) — a lista que o atalho
   // de vincular em lote oferece, sempre recalculada a partir do que já está
@@ -573,6 +592,12 @@ export default function ProductsPage() {
                               <p className="text-xs text-content-faint">
                                 {edition.start_date ? formatDate(edition.start_date) : '—'} a{' '}
                                 {edition.end_date ? formatDate(edition.end_date) : '—'}
+                              </p>
+                            )}
+                            {(openTasksByEdition.get(edition.id) ?? 0) > 0 && (
+                              <p className="mt-0.5 flex items-center gap-1 text-xs text-content-faint">
+                                <ClipboardList className="h-3.5 w-3.5" />
+                                {openTasksByEdition.get(edition.id)} tarefa(s) aberta(s)
                               </p>
                             )}
                           </div>

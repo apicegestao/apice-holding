@@ -32,9 +32,12 @@ import { supabase } from '../core/lib/supabase'
 import { formatDateTime, initials } from '../core/lib/format'
 import { useClickOutside } from '../core/lib/useClickOutside'
 import { useToast } from '../core/ui'
-import type { Notification } from '../core/types'
+import type { Department, Notification } from '../core/types'
 
-type NavItem = { to: string; label: string; icon: typeof Gauge; end?: boolean }
+// `indent` marca um item filho de outro (ex.: cada área dentro de
+// "Áreas") — mesma lista plana de sempre, só com recuo visual pra deixar
+// o agrupamento claro sem precisar de um componente de árvore.
+type NavItem = { to: string; label: string; icon: typeof Gauge; end?: boolean; indent?: boolean }
 
 const THEMES: { value: ThemeChoice; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Claro', icon: Sun },
@@ -60,6 +63,30 @@ export default function AppLayout() {
 
   const onHolding = location.pathname.startsWith('/holding')
   const activeMembership = memberships.find((item) => item.company.id === companyId)
+
+  // Áreas da empresa ativa — pra listar cada uma como sub-item de "Áreas"
+  // no menu (pedido do usuário: menu organizado por área). Recarrega
+  // sempre que troca de empresa; fora de uma empresa (holding) fica vazio.
+  const [departments, setDepartments] = useState<Department[]>([])
+  useEffect(() => {
+    if (!companyId || onHolding) {
+      setDepartments([])
+      return
+    }
+    let active = true
+    supabase
+      .from('departments')
+      .select('*')
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+      .order('display_order')
+      .then(({ data }) => {
+        if (active) setDepartments((data as Department[]) ?? [])
+      })
+    return () => {
+      active = false
+    }
+  }, [companyId, onHolding])
 
   useEffect(() => {
     let active = true
@@ -129,6 +156,15 @@ export default function AppLayout() {
       { to: `${base}/tarefas`, label: 'Tarefas', icon: ClipboardList },
       { to: `${base}/produtos`, label: 'Produtos', icon: Layers },
       { to: `${base}/areas`, label: 'Áreas', icon: Boxes },
+      // Cada área cadastrada entra como sub-item, recuado, linkando direto
+      // pro painel dela (indicadores + alvos + tarefas + orçamento juntos)
+      // — o item "Áreas" acima continua levando pra lista/cadastro.
+      ...departments.map((department) => ({
+        to: `${base}/areas/${department.id}`,
+        label: department.name,
+        icon: Boxes,
+        indent: true,
+      })),
       { to: `${base}/notas`, label: 'Notas', icon: StickyNote },
       { to: `${base}/orcamentos`, label: 'Orçamentos', icon: Wallet },
       { to: `${base}/equipe`, label: 'Equipe', icon: Users },
@@ -142,7 +178,7 @@ export default function AppLayout() {
       )
     }
     return items
-  }, [onHolding, companyId, activeMembership?.role, isSuperAdmin])
+  }, [onHolding, companyId, activeMembership?.role, isSuperAdmin, departments])
 
   const tabs = memberships.filter((item) => !item.company.is_holding)
   const holdingCompany = memberships.find((item) => item.company.is_holding)
@@ -335,15 +371,21 @@ export default function AppLayout() {
                   to={item.to}
                   end={item.end}
                   className={({ isActive }) =>
-                    `flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
+                    `flex shrink-0 items-center gap-2 rounded-lg py-2 text-sm transition ${
+                      item.indent ? 'pl-7 pr-3 text-[13px]' : 'px-3'
+                    } ${
                       isActive
                         ? 'bg-brand/10 font-medium text-brand-text'
                         : 'text-content-muted hover:bg-hover'
                     }`
                   }
                 >
-                  <item.icon className="h-4 w-4" />
-                  {item.label}
+                  {item.indent ? (
+                    <span className="h-1 w-1 shrink-0 rounded-full bg-current opacity-60" aria-hidden="true" />
+                  ) : (
+                    <item.icon className="h-4 w-4" />
+                  )}
+                  <span className="truncate">{item.label}</span>
                 </NavLink>
               ))}
             </nav>
