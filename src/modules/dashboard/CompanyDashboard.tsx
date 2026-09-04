@@ -119,7 +119,10 @@ type MetaRow = {
   value: number | null
 }
 
-function StatTile({
+// Exportado — reaproveitado também no painel de produto/turma
+// (ProductDashboard.tsx), que mostra o mesmo tipo de cartão de resumo
+// escopado a uma frente/turma em vez da empresa inteira.
+export function StatTile({
   label,
   value,
   hint,
@@ -153,8 +156,10 @@ function StatTile({
 /** Nome do indicador + valor atual — produto e turma são medição pura (a
  *  meta de verdade vive só no indicador de empresa inteira), então aqui não
  *  tem alvo, nem ratio, nem barra: só o valor, já com a soma dos filhos
- *  incluída quando o indicador tiver sub-produtos. */
-function IndicatorLine({ row, value }: { row: KpiRow; value: number | null }) {
+ *  incluída quando o indicador tiver sub-produtos. Prop `row` aceita só
+ *  `name`/`unit` (não o `KpiRow` inteiro) — assim dá pra reaproveitar em
+ *  ProductDashboard.tsx sem precisar montar um `KpiRow` completo lá. */
+export function IndicatorLine({ row, value }: { row: Pick<KpiRow, 'name' | 'unit'>; value: number | null }) {
   return (
     <div>
       <p className="truncate text-xs font-medium text-content-soft">{row.name}</p>

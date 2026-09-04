@@ -22,6 +22,7 @@ import {
   PRODUCT_ID,
   PRODUCTS,
   ROUTES,
+  TASKS,
   USER_ID,
 } from './fixtures'
 
@@ -636,6 +637,154 @@ test.describe('metas de produto e sub-produto', () => {
     await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis/${KPI_PRODUCT}`))
     // O Detalhe mostra o valor somado (soma das turmas) em destaque.
     await expect(page.getByText(/R\$\s?32\.000,00/).first()).toBeVisible()
+  })
+
+  // Pedido explícito do usuário: acompanhar indicador + alvo + tarefas +
+  // orçamento de uma frente de produto juntos, numa tela só, sem pular de
+  // indicador em indicador dentro de Metas. KPI_PRODUCT/META_PRODUCT já
+  // cobrem indicador+alvo nas fixtures — só tarefa e orçamento precisam de
+  // um vínculo a PRODUCT_ID que não existe em nenhuma fixture ainda.
+  test('painel do produto mostra indicadores, alvos, turmas, tarefas e orçamento juntos', async ({ page }) => {
+    const tasks = TASKS.concat({
+      id: 'task-produto-teste',
+      company_id: COMPANY_ID_2,
+      title: 'Confirmar local do evento',
+      description: null,
+      assignee_id: null,
+      created_by: USER_ID,
+      due_date: '2026-09-20',
+      remind_at: null,
+      reminder_sent_at: null,
+      remind_days_before: null,
+      remind_time: '08:00',
+      due_reminder_sent_at: null,
+      priority: 'medium',
+      status: 'todo',
+      visibility: 'company',
+      tags: [],
+      kpi_id: null,
+      product_id: PRODUCT_ID,
+      completed_at: null,
+      created_at: '2026-09-01T00:00:00Z',
+      updated_at: '2026-09-01T00:00:00Z',
+    })
+    const budgets = [
+      {
+        id: 'budget-produto-teste',
+        company_id: COMPANY_ID_2,
+        title: 'Orçamento Entre Donos 2026',
+        description: null,
+        event_date: null,
+        status: 'em_andamento',
+        owner_id: null,
+        product_id: PRODUCT_ID,
+        product_edition_id: null,
+        created_by: USER_ID,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+    const budgetItems = [
+      {
+        id: 'bi-produto-teste',
+        budget_id: 'budget-produto-teste',
+        company_id: COMPANY_ID_2,
+        kind: 'despesa',
+        category: 'Geral',
+        title: 'Material gráfico',
+        vendor: null,
+        status: 'pago',
+        planned_amount: 10000,
+        actual_amount: 6000,
+        due_date: null,
+        notes: null,
+        created_by: USER_ID,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+    await page.route('**/rest/v1/tasks*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tasks) })
+    })
+    await page.route('**/rest/v1/budgets*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(budgets) })
+    })
+    await page.route('**/rest/v1/budget_items*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(budgetItems) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/produtos/${PRODUCT_ID}`)
+    await page.waitForLoadState('networkidle')
+
+    await expect(page.getByRole('heading', { name: 'Entre Donos', level: 1 })).toBeVisible()
+
+    // Indicador do produto (soma da turma) e o alvo dele, sem sair da tela.
+    const indicatorsCard = page.locator('section', { has: page.getByRole('heading', { name: 'Indicadores' }) })
+    await expect(indicatorsCard.getByText('Faturamento Entre Donos')).toBeVisible()
+    await expect(indicatorsCard.getByText('R$ 32.000,00')).toBeVisible()
+    const targetsCard = page.locator('section', { has: page.getByRole('heading', { name: 'Alvos' }) })
+    await expect(targetsCard.getByText('R$ 32.000,00 de R$ 400.000,00')).toBeVisible()
+
+    // Turmas do produto, com atalho pro painel de cada uma.
+    await expect(page.getByRole('link', { name: /Imersão Setembro 2026/ })).toBeVisible()
+    await expect(page.getByRole('link', { name: /Imersão Outubro 2026/ })).toBeVisible()
+
+    // Tarefa e orçamento deste produto, antes só visíveis em outras telas.
+    await expect(page.getByText('Confirmar local do evento')).toBeVisible()
+    await expect(page.getByText('Orçamento Entre Donos 2026')).toBeVisible()
+    await expect(page.getByText('R$ 6.000,00 de R$ 10.000,00 previstos')).toBeVisible()
+  })
+
+  // Turma: mesmo painel, mas sem seção de tarefas — `tasks` só tem
+  // granularidade de produto no modelo de dados atual, não de turma (ver
+  // comentário no topo de ProductDashboard.tsx).
+  test('painel da turma mostra indicador e alvo dela, sem seção de tarefas', async ({ page }) => {
+    // O mock genérico devolve a tabela inteira, ignorando filtro de
+    // querystring — com 2 edições nas fixtures, `.maybeSingle()` (usado
+    // pelo painel pra buscar A turma da URL) recebe as 2 linhas de volta e
+    // o próprio postgrest-js trata isso como erro ("multiple rows
+    // returned"), não como a primeira da lista. Só esta rota precisa de um
+    // filtro de verdade — as demais (kpis, metas, tasks, budgets) já
+    // funcionam com o mock genérico porque a tela busca listas, não uma
+    // linha específica por id.
+    await page.route('**/rest/v1/product_editions*', async (route) => {
+      const idFilter = new URL(route.request().url()).searchParams.get('id')
+      const rows = idFilter?.startsWith('eq.')
+        ? PRODUCT_EDITIONS.filter((edition) => edition.id === idFilter.slice(3))
+        : PRODUCT_EDITIONS
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/produtos/${PRODUCT_ID}/turmas/${EDITION_ID}`)
+    await page.waitForLoadState('networkidle')
+
+    await expect(page.getByRole('heading', { name: 'Imersão Setembro 2026', level: 1 })).toBeVisible()
+
+    const indicatorsCard = page.locator('section', { has: page.getByRole('heading', { name: 'Indicadores' }) })
+    await expect(indicatorsCard.getByText('Faturamento Imersão Set/2026')).toBeVisible()
+    await expect(indicatorsCard.getByText('R$ 32.000,00')).toBeVisible()
+    const targetsCard = page.locator('section', { has: page.getByRole('heading', { name: 'Alvos' }) })
+    await expect(targetsCard.getByText('Em risco')).toBeVisible()
+    await expect(targetsCard.getByText('R$ 32.000,00 de R$ 35.000,00')).toBeVisible()
+
+    await expect(page.getByRole('heading', { name: 'Próximos prazos' })).not.toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Turmas' })).not.toBeVisible()
+  })
+
+  // Atalho de descoberta: sem isso, chegar no painel de produto/turma exige
+  // digitar a URL de cabeça.
+  test('"Ver painel" em Produtos leva ao painel do produto e ao da turma', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByText('Entre Donos', { exact: true }).click()
+
+    await page.getByRole('link', { name: 'Ver painel', exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/produtos/${PRODUCT_ID}$`))
+
+    await page.goBack()
+    await page.getByText('Entre Donos', { exact: true }).click()
+    await page.getByRole('link', { name: 'Ver painel da turma' }).first().click()
+    await expect(page).toHaveURL(new RegExp(`/turmas/${EDITION_ID}$`))
   })
 })
 

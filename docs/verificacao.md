@@ -2660,3 +2660,61 @@ com `!== null` explícito antes de chamar `attainmentRatio`/`isOnTarget`.
 suíte completa 211 passando (1 teste novo), 27 skipped, sem falhas
 (Desktop e Mobile 390). Sem migração nesta rodada — nenhum
 `get_advisors` necessário.
+
+## 43. Painel por Produto/Turma (Fase 1 do plano de "sistema de gestão completo")
+
+Depois de discutir com o usuário como o sistema deveria evoluir pra virar
+uma gestão completa por empresa/área (comercial, financeiro,
+administrativo), a primeira fase acordada foi resolver uma dor concreta
+já sentida hoje: acompanhar várias metas de uma mesma turma ou produto
+(faturamento, vendas, ticket médio…) juntas, numa tela só, sem pular de
+indicador em indicador dentro de Metas.
+
+**O que já existia:** o modelo de dados (`kpis`/`metas`/`tasks`/
+`budgets`, todos com `product_id`/`product_edition_id` opcionais) já
+suportava esse escopo — só não existia uma TELA que juntasse tudo. A
+única visão "de uma turma/produto só" era a lista de leitura dentro de
+Produtos (nome + valor, sem alvo/status/tarefas/orçamento).
+
+- **`src/modules/dashboard/ProductDashboard.tsx` (novo):** mesmo tipo de
+  retrato do painel da empresa (indicadores, alvos com status/prazo/
+  progresso, tarefas, orçamento), escopado a um produto OU a uma turma
+  dele (o mesmo componente decide pela presença de `:editionId` na URL).
+  Reaproveita `StatTile`/`IndicatorLine` (agora exportados de
+  `CompanyDashboard.tsx`) e a mesma cadeia de soma de
+  `core/lib/kpiRollup.ts` — nenhuma lógica nova de rollup. Limitação real
+  do modelo de dados, documentada no topo do arquivo: `tasks` só tem
+  `product_id` (granularidade de produto), não `product_edition_id` — por
+  isso a seção de tarefas só aparece no painel do PRODUTO, nunca no da
+  turma. Orçamento é escopado por `product_edition_id` (null = do
+  produto, preenchido = da turma), pra não somar execução de turma dentro
+  do cartão do produto.
+- **Rotas novas** (`src/app/App.tsx`): `/empresa/:companyId/produtos/:productId`
+  e `/empresa/:companyId/produtos/:productId/turmas/:editionId`, dentro do
+  mesmo `CompanyProvider` de sempre.
+- **`ProductsPage.tsx`:** um link "Ver painel" no cabeçalho do modal de
+  produto e um ícone "Ver painel" por linha de turma — sem isso, chegar
+  no painel novo exigia digitar a URL de cabeça.
+- **e2e:** dois testes novos cobrindo o painel de produto (indicadores +
+  alvos + turmas + tarefa + orçamento, todos numa tela) e o de turma
+  (indicador + alvo, sem seção de tarefas), mais um teste do atalho "Ver
+  painel". As duas rotas novas entraram em `ROUTES` (fixtures.ts), então
+  passam automaticamente pelos audits gerais (sem rolagem lateral, sem
+  campo com zoom no celular, sem violação de CSP).
+  - **Achado no processo:** o mock de teste (`mockSupabase`) ignora
+    filtro de querystring e devolve a tabela inteira — com `kpi_id`/`id`
+    isso nunca importou porque as fixtures RAW já vinham "certas" pra
+    quem usa `.eq(...)` sem `.single()`. Mas `product_editions` tem 2
+    linhas nas fixtures, e o painel da turma busca UMA edição com
+    `.eq('id', editionId).maybeSingle()` — o próprio `postgrest-js`
+    trata "2 linhas voltaram pra uma query de single()" como ERRO
+    (`PGRST116`), não como "pega a primeira". Bug só do mock de teste,
+    não do app (PostgREST de verdade filtra direito no servidor) —
+    corrigido com uma rota específica só nesse teste, filtrando pelo
+    `id` de verdade da querystring.
+
+**Verificação:** `npx tsc --noEmit`, `npm run build`, `npm run test`
+(48/48) e `npm run check:contrast` (24/24) limpos. `npm run test:e2e`:
+suíte completa 227 passando (3 testes novos + 2 rotas novas cobertas
+pelos audits gerais), 29 skipped, sem falhas (Desktop e Mobile 390). Sem
+migração nesta rodada — nenhum `get_advisors` necessário.

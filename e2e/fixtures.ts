@@ -800,6 +800,8 @@ export const ROUTES: [string, string][] = [
   [`/empresa/${COMPANY_ID_2}/metas`, 'Metas (link antigo redireciona)'],
   [`/empresa/${COMPANY_ID_2}/tarefas`, 'Tarefas'],
   [`/empresa/${COMPANY_ID_2}/produtos`, 'Produtos'],
+  [`/empresa/${COMPANY_ID_2}/produtos/${PRODUCT_ID}`, 'Painel do produto'],
+  [`/empresa/${COMPANY_ID_2}/produtos/${PRODUCT_ID}/turmas/${EDITION_ID}`, 'Painel da turma'],
   [`/empresa/${COMPANY_ID_2}/notas`, 'Notas'],
   [`/empresa/${COMPANY_ID_2}/orcamentos`, 'Orçamentos'],
   [`/empresa/${COMPANY_ID_2}/equipe`, 'Equipe'],

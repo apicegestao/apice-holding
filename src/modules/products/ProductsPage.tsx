@@ -14,7 +14,7 @@
 // pra vincular vários indicadores de uma vez.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarRange, ClipboardList, Pencil, Plus, Target, Trash2 } from 'lucide-react'
+import { CalendarRange, ClipboardList, LayoutDashboard, Pencil, Plus, Target, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { formatDate, formatValue } from '../../core/lib/format'
 import { buildChildrenByParent, contributionRatio, effectiveKpiValue } from '../../core/lib/kpiRollup'
@@ -502,20 +502,25 @@ export default function ProductsPage() {
               <p className="text-sm text-content-soft">
                 {activeProduct.description || 'Sem descrição.'}
               </p>
-              {canWrite && (
-                <div className="flex shrink-0 gap-2">
-                  <button type="button" className="btn-ghost" onClick={() => openEdit(activeProduct)}>
-                    <Pencil className="h-3.5 w-3.5" /> Editar produto
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-ghost text-rose-600 dark:text-rose-400"
-                    onClick={() => productDelete.ask(activeProduct)}
-                  >
-                    <Trash2 className="h-4 w-4" /> Excluir
-                  </button>
-                </div>
-              )}
+              <div className="flex shrink-0 gap-2">
+                <Link to={`/empresa/${company.id}/produtos/${activeProduct.id}`} className="btn-ghost">
+                  <LayoutDashboard className="h-3.5 w-3.5" /> Ver painel
+                </Link>
+                {canWrite && (
+                  <>
+                    <button type="button" className="btn-ghost" onClick={() => openEdit(activeProduct)}>
+                      <Pencil className="h-3.5 w-3.5" /> Editar produto
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost text-rose-600 dark:text-rose-400"
+                      onClick={() => productDelete.ask(activeProduct)}
+                    >
+                      <Trash2 className="h-4 w-4" /> Excluir
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
 
             <div>
@@ -572,6 +577,14 @@ export default function ProductsPage() {
                             )}
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5">
+                            <Link
+                              to={`/empresa/${company.id}/produtos/${activeProduct.id}/turmas/${edition.id}`}
+                              className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
+                              aria-label="Ver painel da turma"
+                              title="Ver painel"
+                            >
+                              <LayoutDashboard className="h-3.5 w-3.5" />
+                            </Link>
                             {canWrite ? (
                               <select
                                 className="rounded border border-line bg-surface px-1.5 py-1 text-base sm:text-xs"

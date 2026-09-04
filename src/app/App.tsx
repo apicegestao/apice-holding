@@ -16,6 +16,7 @@ import HoldingTasksPage from '../modules/tasks/HoldingTasksPage'
 import NotesPage from '../modules/notes/NotesPage'
 import BudgetsPage from '../modules/budgets/BudgetsPage'
 import ProductsPage from '../modules/products/ProductsPage'
+import ProductDashboard from '../modules/dashboard/ProductDashboard'
 import IntegrationsPage from '../modules/integrations/IntegrationsPage'
 import InsightsPage from '../modules/insights/InsightsPage'
 import UsersPage from '../modules/users/UsersPage'
@@ -190,6 +191,12 @@ export default function App() {
           <Route path="metas" element={<Navigate to="../kpis" replace />} />
           <Route path="tarefas" element={<TasksPage />} />
           <Route path="produtos" element={<ProductsPage />} />
+          {/* Painel escopado a uma frente de produto ou a uma turma dela —
+              mesmo tipo de retrato do painel da empresa (indicadores, alvos,
+              tarefas, orçamento), só que filtrado a este produto/turma.
+              Mesmo componente decide o escopo pela presença de :editionId. */}
+          <Route path="produtos/:productId" element={<ProductDashboard />} />
+          <Route path="produtos/:productId/turmas/:editionId" element={<ProductDashboard />} />
           <Route path="notas" element={<NotesPage />} />
           {/* /mapa-mental virou /notas — mesmo tratamento do link de /metas
               logo acima: cai num lugar de verdade, não em 404. */}
