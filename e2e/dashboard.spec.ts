@@ -10,6 +10,8 @@ import {
   DEPARTMENTS,
   EDITION_ID,
   EDITION_ID_2,
+  FINANCIAL_ENTRIES,
+  FINANCIAL_ENTRY_ID,
   HOLDING_ID,
   KPI_EDITION,
   KPI_PRODUCT,
@@ -536,6 +538,119 @@ test.describe('orçamentos', () => {
   })
 })
 
+// Financeiro (livro de lançamentos) — Fase 3 do plano de gestão completa.
+// Diferente de Orçamentos (previsto x realizado de um evento), aqui é
+// receita/despesa avulsa do dia a dia da empresa.
+test.describe('financeiro', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+  })
+
+  test('mostra os totais do mês e o saldo geral calculados corretamente', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/financeiro`)
+    await page.waitForLoadState('networkidle')
+
+    // Os dois lançamentos da fixture (receita 15.000, despesa 4.000) caem
+    // no mês corrente (occurred_at é sempre "hoje") — saldo = 11.000.
+    await expect(page.getByText('Receita no mês')).toBeVisible()
+    await expect(page.getByText('R$ 15.000,00').first()).toBeVisible()
+    await expect(page.getByText('R$ 4.000,00').first()).toBeVisible()
+    await expect(page.getByText('R$ 11.000,00').first()).toBeVisible()
+    await expect(page.getByText('saldo geral: R$ 11.000,00')).toBeVisible()
+
+    // Só um mês de lançamento — a tabela de fluxo de caixa por mês só
+    // aparece quando há mais de um mês pra comparar.
+    await expect(page.getByText('Fluxo de caixa por mês')).toHaveCount(0)
+
+    const overflow = await page.evaluate(() => {
+      const doc = document.documentElement
+      return { scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth }
+    })
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1)
+  })
+
+  test('lista os lançamentos com tipo e vínculo formatados', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/financeiro`)
+    await page.waitForLoadState('networkidle')
+
+    const row = page.getByRole('row', { name: /Recebimento de cliente/ })
+    await expect(row.getByText('Receita')).toBeVisible()
+    await expect(row.getByText('Vendas')).toBeVisible()
+    await expect(row).toContainText('R$ 15.000,00')
+
+    const expenseRow = page.getByRole('row', { name: /Pagamento de fornecedor/ })
+    await expect(expenseRow.getByText('Despesa')).toBeVisible()
+    await expect(expenseRow).toContainText('-R$ 4.000,00')
+    // Nenhum dos dois lançamentos da fixture está vinculado a área/produto/turma.
+    await expect(row.getByText('—')).toBeVisible()
+  })
+
+  test('criar lançamento com vínculo de área e produto', async ({ page }) => {
+    const entries = [...FINANCIAL_ENTRIES]
+    await page.route('**/rest/v1/financial_entries*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}')
+        entries.push({ id: 'novo-lancamento', notes: null, ...body })
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(entries) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/financeiro`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Novo lançamento' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Novo lançamento' })).toBeVisible()
+    await page.getByRole('button', { name: 'Receita' }).click()
+    await page.getByLabel('Descrição').fill('Venda de curso avulso')
+    await page.getByLabel('Valor').fill('2500')
+    await page.getByLabel('Área').selectOption('Comercial')
+    await page.getByLabel('Produto').selectOption('Entre Donos')
+    await page.getByLabel('Turma').selectOption('Imersão Setembro 2026')
+    await page.getByRole('button', { name: 'Criar lançamento' }).click()
+
+    await expect(page.getByText('Lançamento criado.')).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    const newRow = page.getByRole('row', { name: /Venda de curso avulso/ })
+    await expect(newRow).toContainText('Comercial')
+    await expect(newRow).toContainText('Entre Donos')
+    await expect(newRow).toContainText('Imersão Setembro 2026')
+  })
+
+  test('editar lançamento existente', async ({ page }) => {
+    const entries = FINANCIAL_ENTRIES.map((entry) => ({ ...entry }))
+    await page.route('**/rest/v1/financial_entries*', async (route) => {
+      const req = route.request()
+      if (req.method() === 'PATCH') {
+        const body = JSON.parse(req.postData() || '{}')
+        const target = entries.find((entry) => entry.id === FINANCIAL_ENTRY_ID)
+        if (target) Object.assign(target, body)
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(entries) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/financeiro`)
+    await page.waitForLoadState('networkidle')
+    const row = page.getByRole('row', { name: /Recebimento de cliente/ })
+    await row.getByRole('button', { name: 'Editar lançamento' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Editar lançamento' })).toBeVisible()
+    await page.getByLabel('Descrição').fill('Recebimento de cliente (ajustado)')
+    await page.getByRole('button', { name: 'Salvar' }).click()
+
+    await expect(page.getByText('Lançamento atualizado.')).toBeVisible()
+    await expect(page.getByText('Recebimento de cliente (ajustado)')).toBeVisible()
+  })
+
+  test('pedir exclusão de lançamento abre confirmação, não exclui direto', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/financeiro`)
+    await page.waitForLoadState('networkidle')
+    const row = page.getByRole('row', { name: /Recebimento de cliente/ })
+    await row.getByRole('button', { name: 'Excluir lançamento' }).click()
+    await expect(page.getByText('Excluir lançamento?')).toBeVisible()
+  })
+})
+
 // Cadeia de valor turma → produto: "Entre Donos" (produto) nunca lança
 // direto — o valor dele é a soma das turmas, calculada no cliente. Alvo
 // agora existe em todo nível (empresa, produto e turma) — a tela de
@@ -913,14 +1028,16 @@ test.describe('Áreas', () => {
 
     await page.goto(`/empresa/${COMPANY_ID_2}/areas`)
     await page.waitForLoadState('networkidle')
-    await expect(page.getByText('Financeiro', { exact: true })).not.toBeVisible()
+    // Escopado ao conteúdo principal — a sidebar também tem um item
+    // "Financeiro" (módulo Fase 3, nada a ver com a área que este teste cria).
+    await expect(page.getByRole('main').getByText('Financeiro', { exact: true })).not.toBeVisible()
 
     await page.getByRole('button', { name: 'Nova área' }).click()
     await page.getByRole('button', { name: 'Financeiro' }).click()
     await page.getByRole('button', { name: 'Criar área' }).click()
 
     await expect(page.getByText('Área criada.')).toBeVisible()
-    await expect(page.getByText('Financeiro', { exact: true })).toBeVisible()
+    await expect(page.getByRole('main').getByText('Financeiro', { exact: true })).toBeVisible()
   })
 
   test('painel da área mostra indicador, alvo, tarefa e orçamento juntos', async ({ page }) => {

@@ -15,6 +15,7 @@ import TasksPage from '../modules/tasks/TasksPage'
 import HoldingTasksPage from '../modules/tasks/HoldingTasksPage'
 import NotesPage from '../modules/notes/NotesPage'
 import BudgetsPage from '../modules/budgets/BudgetsPage'
+import FinancialsPage from '../modules/financials/FinancialsPage'
 import ProductsPage from '../modules/products/ProductsPage'
 import ProductDashboard from '../modules/dashboard/ProductDashboard'
 import DepartmentsPage from '../modules/departments/DepartmentsPage'
@@ -157,6 +158,14 @@ export default function App() {
           }
         />
         <Route
+          path="/holding/financeiro"
+          element={
+            <HoldingOnly>
+              <FinancialsPage scope="holding" />
+            </HoldingOnly>
+          }
+        />
+        <Route
           path="/holding/insights"
           element={
             <HoldingOnly>
@@ -208,6 +217,7 @@ export default function App() {
               logo acima: cai num lugar de verdade, não em 404. */}
           <Route path="mapa-mental" element={<Navigate to="../notas" replace />} />
           <Route path="orcamentos" element={<BudgetsPage />} />
+          <Route path="financeiro" element={<FinancialsPage />} />
           <Route path="integracoes" element={<IntegrationsPage />} />
           <Route path="insights" element={<InsightsPage scope="company" />} />
           <Route path="equipe" element={<UsersPage scope="company" />} />

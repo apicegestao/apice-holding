@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Gauge,
   LayoutGrid,
+  Landmark,
   Layers,
   LogOut,
   ScrollText,
@@ -143,6 +144,7 @@ export default function AppLayout() {
         { to: '/holding/usuarios', label: 'Usuários', icon: Users },
         { to: '/holding/notas', label: 'Notas', icon: StickyNote },
         { to: '/holding/orcamentos', label: 'Orçamentos', icon: Wallet },
+        { to: '/holding/financeiro', label: 'Financeiro', icon: Landmark },
         { to: '/holding/insights', label: 'Insights de IA', icon: Sparkles },
         { to: '/holding/auditoria', label: 'Auditoria', icon: ScrollText },
         { to: '/holding/configuracoes', label: 'Configurações', icon: Settings },
@@ -167,6 +169,7 @@ export default function AppLayout() {
       })),
       { to: `${base}/notas`, label: 'Notas', icon: StickyNote },
       { to: `${base}/orcamentos`, label: 'Orçamentos', icon: Wallet },
+      { to: `${base}/financeiro`, label: 'Financeiro', icon: Landmark },
       { to: `${base}/equipe`, label: 'Equipe', icon: Users },
     ]
     if (activeMembership?.role === 'admin' || isSuperAdmin) {

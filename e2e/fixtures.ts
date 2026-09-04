@@ -697,6 +697,47 @@ const BUDGET_ITEMS = [
   },
 ]
 
+// Financeiro (livro de lançamentos) — datas relativas a "hoje" (não
+// fixas), pra "saldo no mês" bater independente de quando o teste roda.
+const financeToday = new Date().toISOString().slice(0, 10)
+export const FINANCIAL_ENTRY_ID = '88888888-8888-8888-8888-888888888881'
+export const FINANCIAL_ENTRIES = [
+  {
+    id: FINANCIAL_ENTRY_ID,
+    company_id: COMPANY_ID_2,
+    department_id: null as string | null,
+    product_id: null as string | null,
+    product_edition_id: null as string | null,
+    budget_item_id: null as string | null,
+    kind: 'receita',
+    category: 'Vendas',
+    description: 'Recebimento de cliente',
+    amount: 15000,
+    occurred_at: financeToday,
+    notes: null,
+    created_by: USER_ID,
+    created_at: `${financeToday}T00:00:00Z`,
+    updated_at: `${financeToday}T00:00:00Z`,
+  },
+  {
+    id: 'financial-entry-2',
+    company_id: COMPANY_ID_2,
+    department_id: null as string | null,
+    product_id: null as string | null,
+    product_edition_id: null as string | null,
+    budget_item_id: null as string | null,
+    kind: 'despesa',
+    category: 'Fornecedores',
+    description: 'Pagamento de fornecedor',
+    amount: 4000,
+    occurred_at: financeToday,
+    notes: null,
+    created_by: USER_ID,
+    created_at: `${financeToday}T00:00:00Z`,
+    updated_at: `${financeToday}T00:00:00Z`,
+  },
+]
+
 // Dois insights em dias diferentes — dá pra conferir o agrupamento por data
 // (item 1 do pedido) sem depender de fuso ou hora exata.
 const today = new Date()
@@ -754,6 +795,7 @@ const TABLES: Record<string, unknown[]> = {
   notes: NOTES,
   budgets: BUDGETS,
   budget_items: BUDGET_ITEMS,
+  financial_entries: FINANCIAL_ENTRIES,
   integrations: [],
   integration_mappings: [],
   integration_runs: [],
@@ -809,6 +851,7 @@ export const ROUTES: [string, string][] = [
   ['/holding/insights', 'Insights'],
   ['/holding/notas', 'Notas da holding'],
   ['/holding/orcamentos', 'Orçamentos da holding'],
+  ['/holding/financeiro', 'Financeiro da holding'],
   ['/holding/auditoria', 'Auditoria'],
   ['/holding/configuracoes', 'Configurações'],
   [`/empresa/${COMPANY_ID}`, 'Painel MDD (sem dados)'],
@@ -825,6 +868,7 @@ export const ROUTES: [string, string][] = [
   [`/empresa/${COMPANY_ID_2}/areas/${DEPARTMENT_ID}`, 'Painel da área'],
   [`/empresa/${COMPANY_ID_2}/notas`, 'Notas'],
   [`/empresa/${COMPANY_ID_2}/orcamentos`, 'Orçamentos'],
+  [`/empresa/${COMPANY_ID_2}/financeiro`, 'Financeiro'],
   [`/empresa/${COMPANY_ID_2}/equipe`, 'Equipe'],
   [`/empresa/${COMPANY_ID_2}/integracoes`, 'Integrações'],
   [`/empresa/${COMPANY_ID_2}/insights`, 'Insights da empresa'],

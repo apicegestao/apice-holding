@@ -586,6 +586,30 @@ export type BudgetItem = {
   updated_at: string
 }
 
+// Livro de lançamentos — Fase 3 do plano de gestão completa. Diferente de
+// `budgets`/`BudgetItem` (previsto x realizado de UM evento/projeto por
+// vez), `FinancialEntry` é o dia a dia da empresa: receita/despesa avulsa,
+// sem precisar amarrar a um orçamento — mas pode, opcionalmente, apontar
+// pra uma linha de orçamento específica (`budget_item_id`) pra reconciliar
+// o previsto com o que realmente entrou/saiu.
+export type FinancialEntry = {
+  id: string
+  company_id: string
+  department_id: string | null
+  product_id: string | null
+  product_edition_id: string | null
+  budget_item_id: string | null
+  kind: BudgetItemKind
+  category: string
+  description: string
+  amount: number
+  occurred_at: string
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 // Uma linha por INDICADOR (view kpi_latest_values) — só medição, sem meta
 // nenhuma embutida. Pra saber se um indicador tem meta e como ela anda,
 // ver `MetaLatestValue`.

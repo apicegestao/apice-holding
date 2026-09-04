@@ -2853,3 +2853,69 @@ de verdade, painel da turma só com as tarefas dela, menu lateral
 mostrando a área e navegando pro painel dela), 31 skipped, sem falhas
 (Desktop e Mobile 390). `mcp__Supabase__get_advisors`: nenhum item novo
 de segurança nem performance.
+
+## 46. Financeiro — livro de lançamentos (Fase 3, primeira metade)
+
+Primeiro módulo novo do plano de virar sistema de gestão completo por
+empresa (debatido e aprovado antes das seções 43-45, que cobriram as
+duas primeiras fases: painel por produto/turma e por área). Financeiro é
+diferente de Orçamentos: orçamento é previsto × realizado de UM
+evento/projeto por vez; financeiro é o dia a dia — receita e despesa
+avulsa da empresa, sem precisar amarrar a um orçamento.
+
+**Migração `0040_financial_entries.sql`:** tabela nova `financial_entries`
+(`company_id`, `kind` receita/despesa, `category`, `description`,
+`amount numeric(14,2) check (amount > 0)`, `occurred_at date`, `notes`),
+com o mesmo padrão de vínculo opcional já usado por `kpis`/`tasks`/
+`budgets`: `department_id`/`product_id`/`product_edition_id` (e também
+`budget_item_id`, pra reconciliar um lançamento com a linha de orçamento
+que ele realizou). Um guard só (`app.assert_financial_entry_links()`)
+valida os quatro vínculos de uma vez — mesma empresa, e a turma (se
+houver) do produto certo. RLS no padrão de sempre (`is_member`/
+`can_write`).
+
+**`FinancialsPage.tsx`:** módulo novo espelhando a estrutura de
+`BudgetsPage.tsx` (mesmo padrão `scope="company"|"holding"`, mesma
+função `round2` em centavos). Três cartões de resumo (Receita/Despesa/
+Saldo no mês, com o saldo geral como legenda), tabela de lançamentos
+(data, tipo, descrição, categoria, vínculo, valor, editar/excluir) e,
+quando há mais de um mês de histórico, uma segunda tabela de fluxo de
+caixa por mês com saldo acumulado. Formulário de criar/editar com Tipo
+(toggle receita/despesa), Descrição, Valor, Data, Categoria livre e os
+mesmos selects em cascata Área → Produto → Turma já usados em
+`TaskFormModal.tsx`/`KpisPage.tsx` (só aparecem se a empresa já tem
+área/produto cadastrado; Turma só depois de escolher um produto com
+edições).
+
+Rotas (`/holding/financeiro`, `/empresa/:id/financeiro`) e item de menu
+("Financeiro", ícone `Landmark`) adicionados no mesmo lugar de
+Orçamentos, holding e empresa.
+
+**Achado no processo (mesma categoria da seção 45):** a fixture de teste
+nova (`FINANCIAL_ENTRIES`) usa `occurred_at` calculado a partir de `new
+Date()` no momento em que o arquivo de fixtures carrega, em vez de uma
+data fixa — a tela usa "mês corrente" (`new Date().toISOString().slice(0,
+7)`) pra calcular Receita/Despesa/Saldo "no mês", e uma data hardcoded
+faria esse cálculo depender de em que mês a suíte é rodada.
+
+**Achado de colisão de texto (mesma categoria da seção 45):** o item de
+menu novo "Financeiro" colidiu com a sugestão de área "Financeiro" (do
+catálogo de categorias) num teste já existente de `Áreas` — corrigido
+escopando a asserção a `page.getByRole('main')`, mesmo tipo de ajuste já
+feito pra "Comercial" na rodada anterior.
+
+**Verificação:** `npx tsc --noEmit`, `npm run build`, `npm run test`
+(48/48) e `npm run check:contrast` (24/24) limpos. `npm run test:e2e`:
+suíte completa 271 passando (5 testes novos de Financeiro — totais do
+mês/saldo geral, listagem com tipo/vínculo formatados, criar com vínculo
+de área+produto+turma, editar, pedir exclusão sem excluir direto — mais
+2 rotas novas cobertas pelos audits gerais de CSP/zoom/rolagem lateral;
+1 teste de `Áreas` ajustado pela colisão de texto acima), 33 skipped, sem
+falhas (Desktop e Mobile 390). `mcp__Supabase__get_advisors`: nenhum item
+novo de segurança; performance sem item novo além do padrão já existente
+de `created_by` sem índice (mesmo lint que `kpis`/`budgets`/`products`
+já têm, não é regressão desta migração).
+
+**Pendente pra próxima rodada (Fase 3, segunda metade):** CRM genérico de
+contatos (`contacts` com campos customizáveis em jsonb + `contact_stages`
++ Kanban reaproveitando o padrão de Tarefas) — não iniciado ainda.
