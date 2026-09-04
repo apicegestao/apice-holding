@@ -326,6 +326,24 @@ export const PRODUCT_EDITIONS = [
     updated_at: '2026-01-01T00:00:00Z',
   },
 ]
+
+// Área/departamento (Fase 2) — uma já cadastrada na Vibra, pra testar o
+// painel dela sem precisar criar tudo do zero em cada teste.
+export const DEPARTMENT_ID = '77777777-7777-7777-7777-777777777771'
+export const DEPARTMENTS = [
+  {
+    id: DEPARTMENT_ID,
+    company_id: COMPANY_ID_2,
+    name: 'Comercial',
+    color: '#0EA5E9',
+    display_order: 0,
+    is_active: true,
+    created_by: USER_ID,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+]
+
 const LATEST = [
   {
     kpi_id: KPI_WITH,
@@ -727,6 +745,7 @@ const TABLES: Record<string, unknown[]> = {
   meta_latest_values: META_LATEST_VALUES,
   products: PRODUCTS,
   product_editions: PRODUCT_EDITIONS,
+  departments: DEPARTMENTS,
   tasks: TASKS,
   task_shares: [],
   kpi_checkpoints: [],
@@ -802,6 +821,8 @@ export const ROUTES: [string, string][] = [
   [`/empresa/${COMPANY_ID_2}/produtos`, 'Produtos'],
   [`/empresa/${COMPANY_ID_2}/produtos/${PRODUCT_ID}`, 'Painel do produto'],
   [`/empresa/${COMPANY_ID_2}/produtos/${PRODUCT_ID}/turmas/${EDITION_ID}`, 'Painel da turma'],
+  [`/empresa/${COMPANY_ID_2}/areas`, 'Áreas'],
+  [`/empresa/${COMPANY_ID_2}/areas/${DEPARTMENT_ID}`, 'Painel da área'],
   [`/empresa/${COMPANY_ID_2}/notas`, 'Notas'],
   [`/empresa/${COMPANY_ID_2}/orcamentos`, 'Orçamentos'],
   [`/empresa/${COMPANY_ID_2}/equipe`, 'Equipe'],

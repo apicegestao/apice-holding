@@ -17,6 +17,8 @@ import NotesPage from '../modules/notes/NotesPage'
 import BudgetsPage from '../modules/budgets/BudgetsPage'
 import ProductsPage from '../modules/products/ProductsPage'
 import ProductDashboard from '../modules/dashboard/ProductDashboard'
+import DepartmentsPage from '../modules/departments/DepartmentsPage'
+import DepartmentDashboard from '../modules/dashboard/DepartmentDashboard'
 import IntegrationsPage from '../modules/integrations/IntegrationsPage'
 import InsightsPage from '../modules/insights/InsightsPage'
 import UsersPage from '../modules/users/UsersPage'
@@ -197,6 +199,10 @@ export default function App() {
               Mesmo componente decide o escopo pela presença de :editionId. */}
           <Route path="produtos/:productId" element={<ProductDashboard />} />
           <Route path="produtos/:productId/turmas/:editionId" element={<ProductDashboard />} />
+          {/* Áreas — Fase 2 do mesmo plano: mesma ideia de painel escopado,
+              agora por área/departamento interno em vez de produto. */}
+          <Route path="areas" element={<DepartmentsPage />} />
+          <Route path="areas/:departmentId" element={<DepartmentDashboard />} />
           <Route path="notas" element={<NotesPage />} />
           {/* /mapa-mental virou /notas — mesmo tratamento do link de /metas
               logo acima: cai num lugar de verdade, não em 404. */}

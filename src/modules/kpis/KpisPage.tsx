@@ -71,6 +71,7 @@ import {
   GOAL_STATUS_LABEL,
   UNIT_LABEL,
   type CheckpointFrequency,
+  type Department,
   type GoalStatus,
   type Kpi,
   type KpiCheckpoint,
@@ -107,6 +108,7 @@ const emptyKpi = {
   product_edition_id: '',
   entry_frequency: '' as KpiFrequency | '',
   parent_kpi_id: '',
+  department_id: '',
 }
 
 // Rascunho do primeiro alvo, oferecido junto na hora de criar a meta —
@@ -165,6 +167,7 @@ export default function KpisPage() {
   const [checkpoints, setCheckpoints] = useState<KpiCheckpoint[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [editions, setEditions] = useState<ProductEdition[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
 
   const [kpiForm, setKpiForm] = useState(emptyKpi)
@@ -201,23 +204,30 @@ export default function KpisPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: kpiRows }, { data: memberRows }, { data: productRows }, { data: editionRows }, { data: metaRows }] =
-      await Promise.all([
-        supabase
-          .from('kpis')
-          .select('*')
-          .eq('company_id', company.id)
-          .order('display_order')
-          .order('name'),
-        supabase.from('company_members').select('user_id').eq('company_id', company.id),
-        supabase.from('products').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
-        supabase.from('product_editions').select('*').eq('company_id', company.id),
-        supabase
-          .from('metas')
-          .select('*')
-          .eq('company_id', company.id)
-          .order('due_date', { ascending: true, nullsFirst: false }),
-      ])
+    const [
+      { data: kpiRows },
+      { data: memberRows },
+      { data: productRows },
+      { data: editionRows },
+      { data: metaRows },
+      { data: departmentRows },
+    ] = await Promise.all([
+      supabase
+        .from('kpis')
+        .select('*')
+        .eq('company_id', company.id)
+        .order('display_order')
+        .order('name'),
+      supabase.from('company_members').select('user_id').eq('company_id', company.id),
+      supabase.from('products').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
+      supabase.from('product_editions').select('*').eq('company_id', company.id),
+      supabase
+        .from('metas')
+        .select('*')
+        .eq('company_id', company.id)
+        .order('due_date', { ascending: true, nullsFirst: false }),
+      supabase.from('departments').select('*').eq('company_id', company.id).eq('is_active', true).order('display_order'),
+    ])
 
     const ids = (kpiRows ?? []).map((row) => row.id)
     const metaIds = (metaRows ?? []).map((row) => row.id)
@@ -250,6 +260,7 @@ export default function KpisPage() {
     setPeople((profileRows as Profile[]) ?? [])
     setProducts((productRows as Product[]) ?? [])
     setEditions((editionRows as ProductEdition[]) ?? [])
+    setDepartments((departmentRows as Department[]) ?? [])
     setLoading(false)
   }, [company.id])
 
@@ -483,6 +494,7 @@ export default function KpisPage() {
       product_edition_id: kpi.product_edition_id ?? '',
       entry_frequency: kpi.entry_frequency ?? '',
       parent_kpi_id: kpi.parent_kpi_id ?? '',
+      department_id: kpi.department_id ?? '',
     })
     setError('')
     setEditingKpi(kpi)
@@ -515,6 +527,7 @@ export default function KpisPage() {
           ? kpiForm.entry_frequency
           : null,
       parent_kpi_id: kpiForm.parent_kpi_id || null,
+      department_id: kpiForm.department_id || null,
     }
 
     if (!payload.name) {
@@ -834,6 +847,22 @@ export default function KpisPage() {
                 ))}
               </datalist>
             </Field>
+            {departments.length > 0 && (
+              <Field label="Área" hint="Opcional — organiza esta meta junto com as tarefas e o orçamento da mesma área.">
+                <select
+                  className="input"
+                  value={kpiForm.department_id}
+                  onChange={(event) => setKpiForm((c) => ({ ...c, department_id: event.target.value }))}
+                >
+                  <option value="">Sem área</option>
+                  {departments.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field
               label="Frequência de medição"
               hint={

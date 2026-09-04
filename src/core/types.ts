@@ -191,6 +191,27 @@ export type Kpi = {
   // (entry_frequency). null = lança direto no período de frequency, como
   // sempre foi.
   entry_frequency: KpiFrequency | null
+  // Área/departamento da empresa (Comercial, Financeiro...) — opcional,
+  // coexiste com `category` (texto livre, só usado pra agrupar a Visão
+  // Geral de Metas). Ver `Department` mais abaixo.
+  department_id: string | null
+}
+
+// Área/departamento interno da empresa (Comercial, Financeiro,
+// Administrativo...) — cada empresa define as próprias, não é uma lista
+// fixa pro grupo inteiro (mesmo padrão de `Product`). Organiza indicador,
+// tarefa e orçamento ao redor da mesma frente de trabalho; não tem
+// subdivisão por baixo (diferente de Product → ProductEdition).
+export type Department = {
+  id: string
+  company_id: string
+  name: string
+  color: string | null
+  display_order: number
+  is_active: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
 }
 
 // Meta: alvo, prazo, responsável e andamento sobre UM indicador — várias
@@ -347,6 +368,7 @@ export type Task = {
   tags: string[]
   kpi_id: string | null
   product_id: string | null
+  department_id: string | null
   completed_at: string | null
   created_at: string
   updated_at: string
@@ -536,6 +558,7 @@ export type Budget = {
   owner_id: string | null
   product_id: string | null
   product_edition_id: string | null
+  department_id: string | null
   created_by: string | null
   created_at: string
   updated_at: string

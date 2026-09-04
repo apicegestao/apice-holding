@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   Bell,
+  Boxes,
   Building2,
   Cable,
   ChevronDown,
@@ -127,6 +128,7 @@ export default function AppLayout() {
       { to: `${base}/kpis`, label: 'Metas', icon: Target },
       { to: `${base}/tarefas`, label: 'Tarefas', icon: ClipboardList },
       { to: `${base}/produtos`, label: 'Produtos', icon: Layers },
+      { to: `${base}/areas`, label: 'Áreas', icon: Boxes },
       { to: `${base}/notas`, label: 'Notas', icon: StickyNote },
       { to: `${base}/orcamentos`, label: 'Orçamentos', icon: Wallet },
       { to: `${base}/equipe`, label: 'Equipe', icon: Users },

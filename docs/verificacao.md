@@ -2718,3 +2718,73 @@ Produtos (nome + valor, sem alvo/status/tarefas/orçamento).
 suíte completa 227 passando (3 testes novos + 2 rotas novas cobertas
 pelos audits gerais), 29 skipped, sem falhas (Desktop e Mobile 390). Sem
 migração nesta rodada — nenhum `get_advisors` necessário.
+
+## 44. Área/Departamento (Fase 2 do plano de "sistema de gestão completo")
+
+Segunda fase do plano discutido com o usuário — depois do painel por
+produto/turma (Fase 1, seção 43), esta fase dá nome e estrutura ao que
+antes só existia como `category` de texto livre nas metas: uma área
+(Comercial, Financeiro, Administrativo...) que organiza indicador, tarefa
+e orçamento ao redor da mesma frente interna da empresa.
+
+- **Migração `0038_departments.sql`:** tabela `departments` por empresa
+  (mesmo padrão de `products` — cada empresa define as próprias, sem
+  lista fixa pro grupo). Coluna opcional `department_id` em `kpis`,
+  `tasks` e `budgets`, cada uma com seu próprio trigger de guarda
+  (`app.assert_kpi_department()`/`..._task_...`/`..._budget_...`,
+  mesmo padrão de `app.assert_kpi_product()` já usado desde
+  `0024_products.sql`) confirmando que a área é da mesma empresa do
+  registro. RLS igual a todo módulo por empresa (`is_member`/`can_write`).
+  **Seed automático**: toda empresa que já tinha indicador com `category`
+  preenchida ganhou uma área com esse nome, e os indicadores foram
+  religados a ela — não é uma lista inventada, é o que a empresa já vinha
+  usando informalmente (confirmado: a Vibra ganhou "Financeiro" e
+  "Clientes" a partir do uso real). `category` continua existindo,
+  intocada — área complementa, não substitui (categoria segue livre por
+  indicador; área é o contêiner estruturado que também alcança tarefa e
+  orçamento, algo que categoria nunca alcançou).
+- **`DepartmentsPage.tsx` (novo, rota `/empresa/:id/areas`):** cadastro
+  simples — criar/editar/excluir área, com sugestões do mesmo catálogo já
+  usado como sugestão de categoria (`KPI_CATEGORIES`). Cada cartão mostra
+  quantos indicadores/tarefas/orçamentos já apontam pra ela e um atalho
+  "Ver painel".
+- **`DepartmentDashboard.tsx` (novo, rota `/empresa/:id/areas/:departmentId`):**
+  mesmo tipo de retrato do painel de produto/turma (Fase 1) — reaproveita
+  os mesmos `StatTile`/`IndicatorLine` — só que escopado por
+  `department_id` em vez de `product_id`. Diferente do painel de produto,
+  este MOSTRA tarefas: `tasks.department_id` é direto (não tem a
+  limitação de granularidade que só existe pra produto/turma, onde
+  `tasks` só tem `product_id`).
+- **Formulários que passam a oferecer "Área"** (select opcional, com
+  hint explicando que organiza junto com o resto da mesma área):
+  `KpisPage.tsx` (só no modo "Criar o meu" e ao editar — o modo "Usar
+  sugestões" segue outro fluxo de submissão que não passa por esse
+  formulário, mesma regra que já vale pra "Categoria" hoje: dá pra
+  definir depois, editando), `TaskFormModal.tsx`, `BudgetsPage.tsx`.
+  Todos seguem exatamente o padrão já usado por "Produto" nesses mesmos
+  formulários (mesmo `loadDepartments`/`loadProducts`, mesmo formato de
+  `Field`).
+- **Menu lateral:** item novo "Áreas" entre "Produtos" e "Notas"
+  (`AppLayout.tsx`). Reorganização do menu por área (agrupar Metas/
+  Tarefas/Orçamento dentro de cada área) fica pra uma rodada futura, se
+  o usuário confirmar que quer — não fazia parte do escopo mínimo desta
+  fase.
+- **e2e:** fixtures ganharam `DEPARTMENTS`/`DEPARTMENT_ID` (uma área
+  "Comercial" já cadastrada na Vibra) e as duas rotas novas entraram em
+  `ROUTES`. Cinco testes novos: lista com contagens certas + "Ver
+  painel", criar área nova a partir de sugestão (com um mock de estado
+  simples pra provar que só aparece DEPOIS de criar, não antes), painel
+  da área com indicador+alvo+tarefa+orçamento juntos, e os dois
+  formulários (Metas/Tarefas) oferecendo a área cadastrada — usando
+  `selectOption`/`toHaveValue` em vez de checar `<option>` direto
+  (visibilidade de `<option>` dentro de `<select>` fechado é
+  inconsistente entre engines de teste).
+
+**Verificação:** `npx tsc --noEmit`, `npm run build`, `npm run test`
+(48/48) e `npm run check:contrast` (24/24) limpos. `npm run test:e2e`:
+suíte completa 247 passando (5 testes novos + 2 rotas novas cobertas
+pelos audits gerais), 31 skipped, sem falhas (Desktop e Mobile 390).
+`mcp__Supabase__get_advisors`: nenhum item novo de segurança (os dois
+mostrados — `system_settings` sem policy e leaked-password-protection —
+já existiam antes desta migração); nenhum item novo de performance (as
+colunas `department_id` novas já nasceram com índice parcial).

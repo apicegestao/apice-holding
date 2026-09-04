@@ -6,6 +6,8 @@ import { expect, test } from '@playwright/test'
 import {
   COMPANY_ID,
   COMPANY_ID_2,
+  DEPARTMENT_ID,
+  DEPARTMENTS,
   EDITION_ID,
   EDITION_ID_2,
   HOLDING_ID,
@@ -785,6 +787,242 @@ test.describe('metas de produto e sub-produto', () => {
     await page.getByText('Entre Donos', { exact: true }).click()
     await page.getByRole('link', { name: 'Ver painel da turma' }).first().click()
     await expect(page).toHaveURL(new RegExp(`/turmas/${EDITION_ID}$`))
+  })
+})
+
+// Fase 2 do plano de virar um sistema de gestão completo: Área/
+// Departamento organiza indicador, tarefa e orçamento por frente interna
+// da empresa (Comercial, Financeiro...), cada empresa com as próprias.
+test.describe('Áreas', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+  })
+
+  test('lista mostra a área existente com as contagens certas e "Ver painel" navega', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/areas`)
+    await page.waitForLoadState('networkidle')
+
+    await expect(page.getByText('Comercial', { exact: true })).toBeVisible()
+    // Nenhum indicador/tarefa/orçamento aponta pra esta área nas fixtures
+    // compartilhadas — as contagens começam zeradas.
+    await expect(page.getByText('0 indicador(es)')).toBeVisible()
+    await expect(page.getByText('0 tarefa(s)')).toBeVisible()
+    await expect(page.getByText('0 orçamento(s)')).toBeVisible()
+
+    await page.getByRole('link', { name: 'Ver painel' }).click()
+    await expect(page).toHaveURL(new RegExp(`/areas/${DEPARTMENT_ID}$`))
+    await expect(page.getByRole('heading', { name: 'Comercial', level: 1 })).toBeVisible()
+  })
+
+  test('criar uma área nova a partir de uma sugestão', async ({ page }) => {
+    // Só a área "Comercial" já existe — "Financeiro" ainda está livre no
+    // catálogo de sugestões (KPI_CATEGORIES).
+    const departments = DEPARTMENTS.concat({
+      id: 'department-financeiro-teste',
+      company_id: COMPANY_ID_2,
+      name: 'Financeiro',
+      color: '#10B981',
+      display_order: 1,
+      is_active: true,
+      created_by: USER_ID,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    })
+    // Estado simples só pra este teste: antes de criar, o GET devolve só a
+    // área que já existia; depois do POST, o GET seguinte (disparado pelo
+    // load() após salvar) já devolve as duas.
+    let created = false
+    await page.route('**/rest/v1/departments*', async (route) => {
+      if (route.request().method() !== 'GET') {
+        created = true
+        await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(departments[1]) })
+        return
+      }
+      const rows = created ? departments : DEPARTMENTS
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/areas`)
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByText('Financeiro', { exact: true })).not.toBeVisible()
+
+    await page.getByRole('button', { name: 'Nova área' }).click()
+    await page.getByRole('button', { name: 'Financeiro' }).click()
+    await page.getByRole('button', { name: 'Criar área' }).click()
+
+    await expect(page.getByText('Área criada.')).toBeVisible()
+    await expect(page.getByText('Financeiro', { exact: true })).toBeVisible()
+  })
+
+  test('painel da área mostra indicador, alvo, tarefa e orçamento juntos', async ({ page }) => {
+    const kpis = KPIS.concat({
+      id: 'kpi-area-teste',
+      company_id: COMPANY_ID_2,
+      name: 'Novos contratos (teste)',
+      description: '',
+      category: 'Comercial',
+      unit: 'number',
+      direction: 'up',
+      frequency: 'monthly',
+      source: 'manual',
+      integration_id: null,
+      display_order: 6,
+      is_active: true,
+      created_by: USER_ID,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      product_id: null,
+      product_edition_id: null,
+      parent_kpi_id: null,
+      archived_at: null,
+      entry_frequency: null,
+      department_id: DEPARTMENT_ID,
+    })
+    const kpiLatest = [
+      {
+        kpi_id: 'kpi-area-teste',
+        company_id: COMPANY_ID_2,
+        period_start: '2026-08-01',
+        period_end: '2026-08-31',
+        value: 12,
+        name: 'Novos contratos (teste)',
+        unit: 'number',
+        direction: 'up',
+        frequency: 'monthly',
+        category: 'Comercial',
+        product_id: null,
+        product_edition_id: null,
+        parent_kpi_id: null,
+        archived_at: null,
+      },
+    ]
+    const metas = METAS.concat({
+      id: 'meta-area-teste',
+      company_id: COMPANY_ID_2,
+      kpi_id: 'kpi-area-teste',
+      target_value: 20,
+      due_date: '2026-12-31',
+      owner_id: null,
+      status: 'active',
+      archived_at: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    })
+    const tasks = TASKS.concat({
+      id: 'task-area-teste',
+      company_id: COMPANY_ID_2,
+      title: 'Fechar contrato do cliente X',
+      description: null,
+      assignee_id: null,
+      created_by: USER_ID,
+      due_date: '2026-09-25',
+      remind_at: null,
+      reminder_sent_at: null,
+      remind_days_before: null,
+      remind_time: '08:00',
+      due_reminder_sent_at: null,
+      priority: 'high',
+      status: 'todo',
+      visibility: 'company',
+      tags: [],
+      kpi_id: null,
+      product_id: null,
+      department_id: DEPARTMENT_ID,
+      completed_at: null,
+      created_at: '2026-09-01T00:00:00Z',
+      updated_at: '2026-09-01T00:00:00Z',
+    })
+    const budgets = [
+      {
+        id: 'budget-area-teste',
+        company_id: COMPANY_ID_2,
+        title: 'Orçamento Comercial 2026',
+        description: null,
+        event_date: null,
+        status: 'em_andamento',
+        owner_id: null,
+        product_id: null,
+        product_edition_id: null,
+        department_id: DEPARTMENT_ID,
+        created_by: USER_ID,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+    const budgetItems = [
+      {
+        id: 'bi-area-teste',
+        budget_id: 'budget-area-teste',
+        company_id: COMPANY_ID_2,
+        kind: 'despesa',
+        category: 'Geral',
+        title: 'Ferramenta de CRM',
+        vendor: null,
+        status: 'pago',
+        planned_amount: 5000,
+        actual_amount: 3000,
+        due_date: null,
+        notes: null,
+        created_by: USER_ID,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpis) })
+    })
+    await page.route('**/rest/v1/kpi_latest_values*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(kpiLatest) })
+    })
+    await page.route('**/rest/v1/metas*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(metas) })
+    })
+    await page.route('**/rest/v1/tasks*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tasks) })
+    })
+    await page.route('**/rest/v1/budgets*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(budgets) })
+    })
+    await page.route('**/rest/v1/budget_items*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(budgetItems) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/areas/${DEPARTMENT_ID}`)
+    await page.waitForLoadState('networkidle')
+
+    const indicatorsCard = page.locator('section', { has: page.getByRole('heading', { name: 'Indicadores' }) })
+    await expect(indicatorsCard.getByText('Novos contratos (teste)')).toBeVisible()
+    const targetsCard = page.locator('section', { has: page.getByRole('heading', { name: 'Alvos' }) })
+    await expect(targetsCard.getByText('12 de 20')).toBeVisible()
+    await expect(page.getByText('Fechar contrato do cliente X')).toBeVisible()
+    await expect(page.getByText('Orçamento Comercial 2026')).toBeVisible()
+    await expect(page.getByText('R$ 3.000,00 de R$ 5.000,00 previstos')).toBeVisible()
+  })
+
+  test('formulário de nova meta (modo "Criar o meu") oferece a área cadastrada', async ({ page }) => {
+    // "Área" só aparece no modo "Criar o meu" — o modo "Usar sugestões"
+    // (padrão) segue outro fluxo de submissão (addChosen), sem esse campo;
+    // dá pra definir a área depois, editando a meta, mesma regra que já
+    // vale pra "Categoria" hoje.
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Nova Meta' }).click()
+    await page.getByRole('button', { name: 'Criar o meu' }).click()
+    // selectOption em vez de checar o <option> direto — visibilidade de
+    // <option> dentro de <select> fechado é inconsistente entre engines;
+    // conseguir selecionar de verdade é o que importa.
+    await page.getByLabel('Área').selectOption({ label: 'Comercial' })
+    await expect(page.getByLabel('Área')).toHaveValue(DEPARTMENT_ID)
+  })
+
+  test('formulário de nova tarefa oferece a área cadastrada', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/tarefas`)
+    await page.waitForLoadState('networkidle')
+    // exact: true — "Nova tarefa em <coluna>" (um botão por coluna do
+    // kanban) também bate com o texto "Nova tarefa" em busca por substring.
+    await page.getByRole('button', { name: 'Nova tarefa', exact: true }).first().click()
+    await page.getByLabel('Área').selectOption({ label: 'Comercial' })
+    await expect(page.getByLabel('Área')).toHaveValue(DEPARTMENT_ID)
   })
 })
 

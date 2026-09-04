@@ -13,6 +13,7 @@ import {
   TASK_STATUS_LABEL,
   VISIBILITY_HINT,
   VISIBILITY_LABEL,
+  type Department,
   type Product,
   type Profile,
   type Task,
@@ -34,6 +35,7 @@ type FormState = {
   description: string
   assignee_id: string
   product_id: string
+  department_id: string
   due_date: string
   remind_days_before: string
   remind_time: string
@@ -49,6 +51,7 @@ const blank: FormState = {
   description: '',
   assignee_id: '',
   product_id: '',
+  department_id: '',
   due_date: '',
   remind_days_before: '1',
   remind_time: '09:00',
@@ -79,6 +82,7 @@ export default function TaskFormModal({
   const [form, setForm] = useState<FormState>(blank)
   const [people, setPeople] = useState<Profile[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [shareCompanies, setShareCompanies] = useState<string[]>([])
   const [sharePeople, setSharePeople] = useState<string[]>([])
   const [allPeople, setAllPeople] = useState<Profile[]>([])
@@ -118,6 +122,7 @@ export default function TaskFormModal({
         description: task.description ?? '',
         assignee_id: task.assignee_id ?? '',
         product_id: task.product_id ?? '',
+        department_id: task.department_id ?? '',
         due_date: task.due_date ?? '',
         remind_days_before: task.remind_days_before?.toString() ?? '',
         remind_time: task.remind_time?.slice(0, 5) || '09:00',
@@ -321,6 +326,26 @@ export default function TaskFormModal({
     if (open) void loadProducts(form.company_id)
   }, [open, form.company_id, loadProducts])
 
+  // Áreas possíveis: mesmo padrão de loadProducts — só faz sentido depois
+  // de escolher a empresa.
+  const loadDepartments = useCallback(async (companyId: string) => {
+    if (!companyId) {
+      setDepartments([])
+      return
+    }
+    const { data } = await supabase
+      .from('departments')
+      .select('*')
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+      .order('display_order')
+    setDepartments((data as Department[]) ?? [])
+  }, [])
+
+  useEffect(() => {
+    if (open) void loadDepartments(form.company_id)
+  }, [open, form.company_id, loadDepartments])
+
   // Para compartilhar com uma pessoa específica: todo mundo que eu enxergo.
   useEffect(() => {
     if (!open || form.visibility !== 'shared' || allPeople.length) return
@@ -362,6 +387,7 @@ export default function TaskFormModal({
       description: form.description.trim() || null,
       assignee_id: form.assignee_id || null,
       product_id: form.product_id || null,
+      department_id: form.department_id || null,
       due_date: form.due_date || null,
       // remind_at é recalculado pelo próprio banco (trigger app.sync_task_reminder)
       // a partir de due_date + remind_days_before + remind_time — nada aqui.
@@ -511,6 +537,23 @@ export default function TaskFormModal({
               {products.map((product) => (
                 <option key={product.id} value={product.id}>
                   {product.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+
+        {departments.length > 0 && (
+          <Field label="Área" hint="Opcional — organiza esta tarefa junto com os indicadores e o orçamento da mesma área.">
+            <select
+              className="input"
+              value={form.department_id}
+              onChange={(event) => setForm((c) => ({ ...c, department_id: event.target.value }))}
+            >
+              <option value="">Sem área</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
                 </option>
               ))}
             </select>

@@ -33,6 +33,7 @@ import {
   type BudgetItemStatus,
   type BudgetStatus,
   type Company,
+  type Department,
 } from '../../core/types'
 
 const BUDGET_STATUSES: BudgetStatus[] = ['planejamento', 'aprovado', 'em_andamento', 'encerrado']
@@ -53,8 +54,8 @@ const monthLabel = (yearMonth: string) => {
   return new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })
 }
 
-type BudgetForm = { title: string; description: string; event_date: string }
-const blankBudgetForm: BudgetForm = { title: '', description: '', event_date: '' }
+type BudgetForm = { title: string; description: string; event_date: string; department_id: string }
+const blankBudgetForm: BudgetForm = { title: '', description: '', event_date: '', department_id: '' }
 
 function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boolean }) {
   const { profile } = useAuth()
@@ -87,6 +88,17 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
     setLoading(false)
   }, [company.id])
 
+  const [departments, setDepartments] = useState<Department[]>([])
+  const loadDepartments = useCallback(async () => {
+    const { data } = await supabase
+      .from('departments')
+      .select('*')
+      .eq('company_id', company.id)
+      .eq('is_active', true)
+      .order('display_order')
+    setDepartments((data as Department[]) ?? [])
+  }, [company.id])
+
   const loadItemTotals = useCallback(async () => {
     const { data } = await supabase
       .from('budget_items')
@@ -99,7 +111,8 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
     setLoading(true)
     void loadBudgets()
     void loadItemTotals()
-  }, [loadBudgets, loadItemTotals])
+    void loadDepartments()
+  }, [loadBudgets, loadItemTotals, loadDepartments])
 
   // Só a execução de despesa interessa aqui — receita é outra história (não
   // tem "estourar"), e cancelado não conta, mesma regra dos totais do
@@ -147,6 +160,7 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
       title: budget.title,
       description: budget.description ?? '',
       event_date: budget.event_date ?? '',
+      department_id: budget.department_id ?? '',
     })
     setBudgetModal({ editing: budget })
   }
@@ -160,6 +174,7 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
       title: budgetForm.title.trim(),
       description: budgetForm.description.trim() || null,
       event_date: budgetForm.event_date || null,
+      department_id: budgetForm.department_id || null,
     }
 
     setBusy(true)
@@ -707,6 +722,22 @@ function BudgetsBoard({ company, canWrite }: { company: Company; canWrite: boole
               onChange={(event) => setBudgetForm((c) => ({ ...c, event_date: event.target.value }))}
             />
           </Field>
+          {departments.length > 0 && (
+            <Field label="Área" hint="Opcional — organiza este orçamento junto com os indicadores e as tarefas da mesma área.">
+              <select
+                className="input"
+                value={budgetForm.department_id}
+                onChange={(event) => setBudgetForm((c) => ({ ...c, department_id: event.target.value }))}
+              >
+                <option value="">Sem área</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
         </form>
       </Modal>
 
