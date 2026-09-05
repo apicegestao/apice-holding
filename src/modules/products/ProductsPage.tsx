@@ -17,6 +17,7 @@ import { Link } from 'react-router-dom'
 import { Archive, ArchiveRestore, CalendarRange, ClipboardList, LayoutDashboard, Pencil, Plus, Target, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { formatDate, formatValue } from '../../core/lib/format'
+import { subItemLabel } from '../../core/lib/labels'
 import { buildChildrenByParent, contributionRatio, effectiveKpiValue } from '../../core/lib/kpiRollup'
 import { useCompany } from '../../core/company/CompanyProvider'
 import {
@@ -54,8 +55,8 @@ const EDITION_STATUS_TONE: Record<ProductEditionStatus, 'slate' | 'blue' | 'gree
   encerrado: 'green',
 }
 
-type ProductForm = { name: string; description: string; is_active: boolean }
-const blankForm: ProductForm = { name: '', description: '', is_active: true }
+type ProductForm = { name: string; description: string; is_active: boolean; sub_item_label: string }
+const blankForm: ProductForm = { name: '', description: '', is_active: true, sub_item_label: '' }
 
 type EditionForm = { name: string; start_date: string; end_date: string }
 const blankEditionForm: EditionForm = { name: '', start_date: '', end_date: '' }
@@ -195,8 +196,8 @@ export default function ProductsPage() {
     return map
   }, [kpiRows])
 
-  // Produto e turma são medição pura — alvo só existe na meta de empresa
-  // inteira. O que o cartão do produto mostra é o valor das metas PRÓPRIAS
+  // Alvo já existe em todo nível (empresa/produto/turma), mas este cartão
+  // compacto do produto continua só medição — o valor das metas PRÓPRIAS
   // dele (sem edição — as de cada turma aparecem um nível abaixo, dentro
   // do modal), mais quantas tarefas PRÓPRIAS dele estão abertas — mesmo
   // critério "sem edição" dos indicadores, agora que tarefa também
@@ -296,7 +297,12 @@ export default function ProductsPage() {
     setModal({ editing: null })
   }
   const openEdit = (product: Product) => {
-    setForm({ name: product.name, description: product.description ?? '', is_active: product.is_active })
+    setForm({
+      name: product.name,
+      description: product.description ?? '',
+      is_active: product.is_active,
+      sub_item_label: product.sub_item_label ?? '',
+    })
     setError('')
     setModal({ editing: product })
   }
@@ -311,11 +317,20 @@ export default function ProductsPage() {
     setBusy(true)
     const editing = modal?.editing ?? null
     const result = editing
-      ? await supabase.from('products').update({ name: form.name.trim(), description: form.description.trim() || null, is_active: form.is_active }).eq('id', editing.id)
+      ? await supabase
+          .from('products')
+          .update({
+            name: form.name.trim(),
+            description: form.description.trim() || null,
+            is_active: form.is_active,
+            sub_item_label: form.sub_item_label.trim() || null,
+          })
+          .eq('id', editing.id)
       : await supabase.from('products').insert({
           company_id: company.id,
           name: form.name.trim(),
           description: form.description.trim() || null,
+          sub_item_label: form.sub_item_label.trim() || null,
           color: COMPANY_PALETTE[products.length % COMPANY_PALETTE.length],
           display_order: products.length,
         })
@@ -345,7 +360,7 @@ export default function ProductsPage() {
   // -------------------------------------------------------------- edições
   const addEdition = async () => {
     if (!activeId || !editionForm.name.trim()) {
-      notify('Dê um nome à edição (ex.: "Turma 12", "2027.1").', 'error')
+      notify(`Dê um nome à edição (ex.: "${subItemLabel(activeProduct)} 12", "2027.1").`, 'error')
       return
     }
     const { error: insertError } = await supabase.from('product_editions').insert({
@@ -379,7 +394,7 @@ export default function ProductsPage() {
 
   const updateEdition = async () => {
     if (!editingEdition || !editionForm.name.trim()) {
-      notify('Dê um nome à edição (ex.: "Turma 12", "2027.1").', 'error')
+      notify(`Dê um nome à edição (ex.: "${subItemLabel(activeProduct)} 12", "2027.1").`, 'error')
       return
     }
     const { error: updateError } = await supabase
@@ -421,7 +436,7 @@ export default function ProductsPage() {
       notify(error.message, 'error')
       return
     }
-    notify('Turma arquivada.')
+    notify(`${subItemLabel(products.find((p) => p.id === edition.product_id))} arquivada.`)
     await load()
   }
 
@@ -431,7 +446,7 @@ export default function ProductsPage() {
       notify(error.message, 'error')
       return
     }
-    notify('Turma reativada.')
+    notify(`${subItemLabel(products.find((p) => p.id === edition.product_id))} reativada.`)
     await load()
   }
 
@@ -549,7 +564,12 @@ export default function ProductsPage() {
         }}
         width="max-w-2xl"
       >
-        {activeProduct && (
+        {activeProduct && (() => {
+          // Rótulo customizado deste produto pras próprias unidades — "Turma"
+          // quando não personalizado. Ver core/lib/labels.ts.
+          const editionLabel = subItemLabel(activeProduct)
+          const editionLabelLower = subItemLabel(activeProduct, { lower: true })
+          return (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-content-soft">
@@ -609,7 +629,8 @@ export default function ProductsPage() {
 
             <div>
               <p className="label">
-                Edições — pra frentes que rodam em turma ou encontro (deixe vazio se a frente roda contínuo)
+                Edições — pra frentes que rodam em {editionLabelLower} ou encontro (deixe vazio se a frente roda
+                contínuo)
               </p>
               {activeEditions.length === 0 ? (
                 <p className="mt-1 text-sm text-content-soft">Nenhuma edição cadastrada ainda.</p>
@@ -639,7 +660,7 @@ export default function ProductsPage() {
                             <Link
                               to={`/empresa/${company.id}/produtos/${activeProduct.id}/turmas/${edition.id}`}
                               className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
-                              aria-label="Ver painel da turma"
+                              aria-label={`Ver painel — ${editionLabel}`}
                               title="Ver painel"
                             >
                               <LayoutDashboard className="h-3.5 w-3.5" />
@@ -679,7 +700,7 @@ export default function ProductsPage() {
                                 type="button"
                                 className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
                                 onClick={() => setAttachEditionFor(edition)}
-                                aria-label="Metas desta turma"
+                                aria-label={`Metas — ${editionLabel}`}
                                 title="Metas"
                               >
                                 <Target className="h-3.5 w-3.5" />
@@ -711,7 +732,7 @@ export default function ProductsPage() {
 
                         <div className="mt-2 border-t border-line pt-2">
                           {editionIndicators.length === 0 ? (
-                            <p className="text-xs text-content-faint">Nenhuma meta acompanha esta turma ainda.</p>
+                            <p className="text-xs text-content-faint">Nenhuma meta vinculada a "{editionLabel}" ainda.</p>
                           ) : (
                             <ul className="space-y-2">
                               {editionIndicators.map((row) => {
@@ -743,7 +764,8 @@ export default function ProductsPage() {
               {archivedEditions.length > 0 && (
                 <details className="mt-3">
                   <summary className="cursor-pointer text-xs font-medium text-content-faint">
-                    {archivedEditions.length} turma(s) arquivada(s)
+                    {archivedEditions.length}{' '}
+                    {subItemLabel(activeProduct, { plural: archivedEditions.length !== 1, lower: true })} arquivada(s)
                   </summary>
                   <ul className="mt-2 space-y-2">
                     {archivedEditions.map((edition) => (
@@ -776,7 +798,7 @@ export default function ProductsPage() {
                   )}
                   <input
                     className="input sm:col-span-2"
-                    placeholder="Nome da edição (ex.: Turma 12)"
+                    placeholder={`Nome da edição (ex.: ${editionLabel} 12)`}
                     value={editionForm.name}
                     onChange={(event) => setEditionForm((c) => ({ ...c, name: event.target.value }))}
                   />
@@ -811,7 +833,8 @@ export default function ProductsPage() {
               )}
             </div>
           </div>
-        )}
+          )
+        })()}
       </Modal>
 
       {/* ------------------------------------------------------- form de produto
@@ -849,6 +872,17 @@ export default function ProductsPage() {
               className="input min-h-16"
               value={form.description}
               onChange={(event) => setForm((c) => ({ ...c, description: event.target.value }))}
+            />
+          </Field>
+          <Field
+            label="Como você chama as unidades deste produto?"
+            hint='Opcional — "Turma" (padrão), "Projeto", "Plano", "Conta"... o sistema usa esse nome em vez de "turma" nas telas deste produto.'
+          >
+            <input
+              className="input"
+              placeholder="Turma"
+              value={form.sub_item_label}
+              onChange={(event) => setForm((c) => ({ ...c, sub_item_label: event.target.value }))}
             />
           </Field>
           {modal?.editing && (

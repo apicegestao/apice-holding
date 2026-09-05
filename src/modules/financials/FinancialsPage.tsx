@@ -9,6 +9,7 @@ import { useAuth } from '../../core/auth/AuthProvider'
 import { supabase } from '../../core/lib/supabase'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { formatDate, formatValue } from '../../core/lib/format'
+import { subItemLabel } from '../../core/lib/labels'
 import {
   Badge,
   Card,
@@ -119,6 +120,10 @@ function FinancialsBoard({
   const editionsForProduct = useMemo(
     () => editions.filter((edition) => edition.product_id === form.product_id),
     [editions, form.product_id],
+  )
+  const selectedProduct = useMemo(
+    () => products.find((product) => product.id === form.product_id) ?? null,
+    [products, form.product_id],
   )
   const departmentName = (id: string | null) => departments.find((d) => d.id === id)?.name ?? null
   const productName = (id: string | null) => products.find((p) => p.id === id)?.name ?? null
@@ -509,7 +514,7 @@ function FinancialsBoard({
           )}
 
           {form.product_id && editionsForProduct.length > 0 && (
-            <Field label="Turma" hint="Opcional — deixe em branco se for do produto inteiro.">
+            <Field label={subItemLabel(selectedProduct)} hint="Opcional — deixe em branco se for do produto inteiro.">
               <select
                 className="input"
                 value={form.product_edition_id}

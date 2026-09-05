@@ -69,6 +69,10 @@ export type Product = {
   color: string | null
   display_order: number
   is_active: boolean
+  // Como esta frente chama as próprias unidades — "Turma" faz sentido pra um
+  // produto educacional (MDD), mas não pra consultoria (Projeto) ou SaaS
+  // (Plano/Conta). null = usa o padrão "Turma" de sempre. Ver core/lib/labels.ts.
+  sub_item_label: string | null
   created_by: string | null
   created_at: string
   updated_at: string

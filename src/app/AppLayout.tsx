@@ -56,6 +56,12 @@ export default function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [bellOpen, setBellOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
+  // null enquanto não sabemos ainda (evita esconder o item e mostrar de
+  // novo um instante depois) — só vira false quando a busca confirma que
+  // não existe nenhum indicador de nível empresa. Agora que todo indicador
+  // de produto/turma nasce de dentro de Produtos, esta entrada de menu só
+  // faz sentido pra quem tem algo que não pertence a nenhum produto.
+  const [hasCompanyLevelKpis, setHasCompanyLevelKpis] = useState<boolean | null>(null)
   const bellRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -64,6 +70,26 @@ export default function AppLayout() {
 
   const onHolding = location.pathname.startsWith('/holding')
   const activeMembership = memberships.find((item) => item.company.id === companyId)
+
+  useEffect(() => {
+    if (!companyId) return
+    let active = true
+    setHasCompanyLevelKpis(null)
+    void supabase
+      .from('kpis')
+      .select('id')
+      .eq('company_id', companyId)
+      .is('product_id', null)
+      .eq('is_active', true)
+      .is('archived_at', null)
+      .limit(1)
+      .then(({ data }) => {
+        if (active) setHasCompanyLevelKpis((data?.length ?? 0) > 0)
+      })
+    return () => {
+      active = false
+    }
+  }, [companyId])
 
   useEffect(() => {
     let active = true
@@ -134,9 +160,16 @@ export default function AppLayout() {
     const base = `/empresa/${companyId}`
     const items: NavItem[] = [
       { to: base, label: 'Painel', icon: Gauge, end: true },
-      { to: `${base}/kpis`, label: 'Metas', icon: Target },
-      { to: `${base}/tarefas`, label: 'Tarefas', icon: ClipboardList },
       { to: `${base}/produtos`, label: 'Produtos', icon: Layers },
+      // Indicador de produto/turma nasce de dentro de Produtos — esta
+      // entrada só serve pra indicador que não é de nenhum produto (ex.
+      // NPS de time, margem consolidada), por isso só aparece quando existe
+      // pelo menos um (hasCompanyLevelKpis === null enquanto não sabemos
+      // ainda, e por padrão o item fica visível pra não sumir e voltar).
+      ...(hasCompanyLevelKpis !== false
+        ? [{ to: `${base}/kpis`, label: 'Indicadores da empresa', icon: Target }]
+        : []),
+      { to: `${base}/tarefas`, label: 'Tarefas', icon: ClipboardList },
       { to: `${base}/areas`, label: 'Áreas', icon: Boxes },
       { to: `${base}/contatos`, label: 'Contatos', icon: Contact2 },
       { to: `${base}/notas`, label: 'Notas', icon: StickyNote },
@@ -157,7 +190,7 @@ export default function AppLayout() {
       )
     }
     return items
-  }, [onHolding, companyId, activeMembership?.role, isSuperAdmin])
+  }, [onHolding, companyId, activeMembership?.role, isSuperAdmin, hasCompanyLevelKpis])
 
   const tabs = memberships.filter((item) => !item.company.is_holding)
   const holdingCompany = memberships.find((item) => item.company.is_holding)

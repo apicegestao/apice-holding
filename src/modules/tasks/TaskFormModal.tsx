@@ -7,6 +7,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { formatDateTime, initials } from '../../core/lib/format'
+import { subItemLabel } from '../../core/lib/labels'
 import { ConfirmDialog, ErrorText, Field, Modal, Spinner, useConfirmDelete, useToast } from '../../core/ui'
 import {
   TASK_PRIORITY_LABEL,
@@ -355,6 +356,10 @@ export default function TaskFormModal({
     () => editions.filter((edition) => edition.product_id === form.product_id),
     [editions, form.product_id],
   )
+  const selectedProduct = useMemo(
+    () => products.find((product) => product.id === form.product_id) ?? null,
+    [products, form.product_id],
+  )
 
   // Áreas possíveis: mesmo padrão de loadProducts — só faz sentido depois
   // de escolher a empresa.
@@ -585,7 +590,10 @@ export default function TaskFormModal({
         )}
 
         {form.product_id && editionsForProduct.length > 0 && (
-          <Field label="Turma" hint="Opcional — deixe em branco se for uma tarefa do produto inteiro.">
+          <Field
+            label={subItemLabel(selectedProduct)}
+            hint="Opcional — deixe em branco se for uma tarefa do produto inteiro."
+          >
             <select
               className="input"
               value={form.product_edition_id}

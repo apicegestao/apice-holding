@@ -25,9 +25,17 @@ import {
 import { Line, LineChart, ResponsiveContainer } from 'recharts'
 import { attainmentRatio, formatDate, formatValue, relativeDays, sumValuesInRange } from '../../core/lib/format'
 import { contributionRatio } from '../../core/lib/kpiRollup'
+import { subItemLabel } from '../../core/lib/labels'
 import { Badge, Card, EmptyState, Loading } from '../../core/ui'
 import { CHECKPOINT_FREQUENCY_LABEL, GOAL_STATUS_LABEL, type Kpi, type Meta } from '../../core/types'
 import { statusTone, type KpisCtx } from './KpisPage'
+
+// Uma meta com product_id é ela mesma o nó de produto — os filhos dela (se
+// houver) são as unidades desse produto (turma/projeto/plano, conforme o
+// rótulo que o produto escolheu, ver core/lib/labels.ts).
+function productOf(kpi: Kpi, ctx: KpisCtx) {
+  return kpi.product_id ? (ctx.products.find((p) => p.id === kpi.product_id) ?? null) : null
+}
 
 // Compartilhada entre o cabeçalho, o grid INTERNO do link de cada ChildRow
 // e a linha de total — só existe num lugar pra nunca desalinhar um do
@@ -239,7 +247,8 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
             </button>
             {ctx.canWrite && kpi.product_id && (
               <button type="button" className="btn-ghost py-1.5 text-xs" onClick={() => ctx.setEditingEntity(kpi)}>
-                <SquarePen className="h-3.5 w-3.5" /> {kpi.product_edition_id ? 'Editar turma' : 'Editar produto'}
+                <SquarePen className="h-3.5 w-3.5" />{' '}
+                {kpi.product_edition_id ? `Editar ${subItemLabel(productOf(kpi, ctx), { lower: true })}` : 'Editar produto'}
               </button>
             )}
             {/* Ativar/desativar: some dos painéis e para de contar na soma
@@ -359,12 +368,17 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
             <div>
               <p className="text-sm font-bold text-content">Como este número se divide</p>
               <p className="text-xs text-content-faint">
-                {children.length} {kpi.product_id ? 'turma(s)' : 'produto(s)'} contribuem pro {displayName}
+                {children.length}{' '}
+                {kpi.product_id
+                  ? subItemLabel(productOf(kpi, ctx), { plural: children.length !== 1, lower: true })
+                  : 'produto(s)'}{' '}
+                contribuem pro {displayName}
               </p>
             </div>
             {ctx.canWrite && canAttachChild && (
               <button type="button" className="btn-ghost py-1.5 text-xs" onClick={() => ctx.setAttachingTo(kpi)}>
-                <Plus className="h-3.5 w-3.5" /> {kpi.product_id ? 'Vincular turma' : 'Vincular produto'}
+                <Plus className="h-3.5 w-3.5" />{' '}
+                {kpi.product_id ? `Vincular ${subItemLabel(productOf(kpi, ctx), { lower: true })}` : 'Vincular produto'}
               </button>
             )}
           </div>
@@ -381,7 +395,7 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
                     className="grid flex-1 items-center gap-4 text-[11px] font-semibold uppercase tracking-wide text-content-faint"
                     style={{ gridTemplateColumns: CHILD_GRID_COLUMNS }}
                   >
-                    <div className="text-center">{kpi.product_id ? 'Turma' : 'Produto'}</div>
+                    <div className="text-center">{kpi.product_id ? subItemLabel(productOf(kpi, ctx)) : 'Produto'}</div>
                     <div className="text-center">Atual</div>
                     <div className="text-center">Contrib.</div>
                     <div className="text-center">Alvo</div>
@@ -445,7 +459,8 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
           (a seção acima só aparece quando já existe pelo menos um). */}
       {children.length === 0 && ctx.canWrite && canAttachChild && (
         <button type="button" className="btn-ghost" onClick={() => ctx.setAttachingTo(kpi)}>
-          <Plus className="h-3.5 w-3.5" /> {kpi.product_id ? 'Vincular turma' : 'Vincular produto'}
+          <Plus className="h-3.5 w-3.5" />{' '}
+          {kpi.product_id ? `Vincular ${subItemLabel(productOf(kpi, ctx), { lower: true })}` : 'Vincular produto'}
         </button>
       )}
     </div>
@@ -500,7 +515,7 @@ function ChildRow({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentVal
         <div className="min-w-0">
           <p className="truncate font-semibold text-content">{label}</p>
           {grandchildren.length > 0 && (
-            <p className="text-xs text-content-faint">{grandchildren.length} turma(s)</p>
+            <p className="text-xs text-content-faint">{grandchildren.length} {subItemLabel(productOf(kpi, ctx), { plural: grandchildren.length !== 1, lower: true })}</p>
           )}
         </div>
         <div className="text-right font-semibold text-content">
@@ -567,7 +582,7 @@ function ChildCard({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentVa
           <div className="min-w-0">
             <p className="truncate font-semibold text-content">{label}</p>
             {grandchildren.length > 0 && (
-              <p className="text-xs text-content-faint">{grandchildren.length} turma(s)</p>
+              <p className="text-xs text-content-faint">{grandchildren.length} {subItemLabel(productOf(kpi, ctx), { plural: grandchildren.length !== 1, lower: true })}</p>
             )}
           </div>
           <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-content-faint" />

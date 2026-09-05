@@ -175,8 +175,8 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
   return (
     <>
       <PageHeader
-        title={`Metas · ${ctx.companyName}`}
-        subtitle="Visão consolidada de todas as metas desta empresa — do número global até cada produto, sub-produto e setor que contribui pra ele."
+        title={`Indicadores da empresa · ${ctx.companyName}`}
+        subtitle="Indicadores que não pertencem a nenhum produto específico — visão consolidada, do número global até cada frente que contribui pra ele. Pra criar ou acompanhar um indicador de um produto específico, comece por Produtos."
         actions={
           <>
             {ctx.kpis.length > 0 && (

@@ -3320,3 +3320,93 @@ financeiro). `npx tsc --noEmit`, `npm run build`, `npx vitest run`
 suíte completa 315 passando (Desktop + Mobile), 35 skipped, sem falhas.
 Sem migração nesta rodada (nenhuma tabela nova, `financial_entries` já
 existia desde "Financeiro: livro de lançamentos").
+
+## 54. Repensando o sistema em volta do produto (Fase 1 + Fase 2)
+
+Discussão grande trazida pelo usuário: trocar a lógica do sistema de
+"tudo começa pela meta" pra "tudo começa pelo produto" — cada produto vira
+um "mundo" com seus próprios indicadores, financeiro, tarefas e (no
+futuro) CRM, e a holding atende empresas de naturezas bem diferentes
+(educação, consultoria, SaaS), então o vocabulário não pode ficar preso
+ao caso da MDD. Pedi pra estruturar a ideia antes de mexer — trouxe uma
+avaliação honesta (concordo com o núcleo, que já é a direção que o sistema
+vinha tomando sozinho; discordo de eliminar "Metas" 100% do menu, e separei
+CRM-por-produto/ASAAS como projetos futuros, não desta rodada) e um plano
+em fases. Aprovado: **Fase 1 + Fase 2** agora, CRM por produto e ASAAS
+ficam pra rodadas dedicadas futuras (usuário já tem acesso à API do ASAAS
+quando chegar a hora).
+
+**Fase 1 — Produto como porta de entrada de verdade**
+- Sidebar: "Metas" vira **"Indicadores da empresa"** — só o que não
+  pertence a nenhum produto. Produtos sobe pra logo depois do Painel
+  (antes de Indicadores). O item some do menu quando a empresa não tem
+  nenhum indicador de nível-empresa (`AppLayout.tsx`: nova busca leve —
+  `kpis` com `product_id is null`, `is_active`, `!archived_at`, `limit 1`
+  — `null` enquanto não sabe ainda pra não picar visível→sumido→visível).
+- `MetasOverview.tsx`: título/subtítulo reencontrados pra deixar claro o
+  escopo ("indicadores que não pertencem a nenhum produto específico...
+  pra um indicador de produto, comece por Produtos").
+- `ProductDashboard.tsx` ganha uma seção **Financeiro** (receita/despesa/
+  saldo por mês, últimos 6 meses, mesmo escopo "sem edição = produto,
+  com edição = só a turma" já usado por tarefa/orçamento) — o painel do
+  produto/turma passa a reunir indicador, alvo, turmas, tarefas,
+  orçamento e agora financeiro, tudo num lugar só.
+
+**Fase 2 — rótulo adaptável de sub-produto**
+Migração `0044_product_sub_item_label.sql`: `products.sub_item_label`
+(nullable; `null` = "Turma", comportamento de sempre). Cada produto agora
+escolhe como chama as próprias unidades — "Turma" pra MDD, "Projeto" pra
+Vibra, "Plano"/"Conta" pra Darius — num campo novo no form de
+criar/editar produto (`ProductsPage.tsx`). Novo helper
+`core/lib/labels.ts` (`subItemLabel()`, com pluralização PT-BR simples —
+"+s" no caso comum, "m→ns", "r/z→+es" — deliberadamente não é um
+pluralizador geral da língua) usado em `ProductsPage.tsx`,
+`ProductDashboard.tsx`, `MetaDetail.tsx` (via `productOf(kpi, ctx)` —
+acha o produto dono de um nó de produto/turma pelo `product_id`) e no
+seletor de turma de `TaskFormModal.tsx`/`FinancialsPage.tsx` (dinâmico
+conforme o produto escolhido no mesmo formulário). Onde o rótulo
+apareceria sem artigo com concordância de gênero certa pra qualquer nome
+(ex. "esta turma" fica errado como "esta projeto"), reescrevi pra uma
+forma neutra (ex. "Ver painel — {rótulo}" em vez de "Ver painel da
+turma") — trade-off assumido, documentado no comentário do helper: cobre
+o substantivo customizável, não a concordância gramatical completa.
+`KpisPage.tsx` (o arquivo mais denso do sistema — cartão recursivo,
+lote de criação) recebeu o mesmo tratamento nos textos simples
+(título/botões/mensagens do `AttachProductModal` e do modal de editar
+produto/turma) sem tocar na lógica de branching (`level === 'turma'`
+continua controlando o FLUXO; só o TEXTO exibido virou dinâmico).
+
+**Deliberadamente fora do escopo desta rodada** (fica pra rodadas
+dedicadas futuras, como conversamos): CRM por produto (contato ganhar
+`product_id`, funil de lead→comprador escopado), esteira de upsell entre
+produtos, avaliação pós-evento, e a integração ASAAS (cliente pagante/
+inadimplente/a vencer). Também não toquei no `ai-insights` (o campo
+`nivel: 'turma'` que ele já expõe pra IA é dado estruturado interno, não
+texto de usuário — dar a ele o rótulo customizado do produto é uma
+melhoria futura de baixo risco, não bloqueante).
+
+**Bug encontrado e corrigido durante a implementação**: dois lugares
+(`ProductsPage.tsx`'s contagem de turmas arquivadas e
+`ProductDashboard.tsx`'s aviso de turma programada) chamavam
+`subItemLabel(..., { plural: true })` incondicionalmente em vez de
+`{ plural: count !== 1 }` — pluralizava mesmo quando a contagem era 1
+("1 turmas" em vez de "1 turma"). Corrigido nos dois lugares.
+
+**Verificação**: `npx tsc --noEmit`, `npm run build`, `npx vitest run`
+(56/56, +7 novos em `labels.test.ts`) e `npm run check:contrast` (24/24)
+limpos. `npx playwright test`: suíte completa **321 passando** (Desktop +
+Mobile), 35 skipped, sem falhas — 4 novos testes (rótulo customizado
+troca "turma" em todas as telas do produto; menu lateral mostra Produtos
+antes de Indicadores e esconde Indicadores quando vazio; painel do
+produto mostra a seção Financeiro) + 6 testes existentes ajustados pro
+novo texto (`"Nenhuma meta acompanha esta turma ainda."` →
+`"Nenhuma meta vinculada a "Turma" ainda."`, `"Metas desta turma"` →
+`"Metas — Turma"`, `"Ver painel da turma"` → `"Ver painel — Turma"`, e
+os textos de plural corrigidos junto do bug acima). Um mock de teste
+precisou do mesmo cuidado já documentado no item 25 (fixtures não
+filtram por query string): a `.maybeSingle()` de `product_editions` com
+2 edições nas fixtures "quebra" (postgrest-js trata como erro de "mais
+de uma linha") a menos que a rota seja sobrescrita com filtro de verdade
+— padrão já usado alhures no arquivo, só precisei replicar no teste novo.
+`mcp__Supabase__apply_migration`: `0044_product_sub_item_label.sql`
+aplicada sem erros (coluna nullable, sem impacto em dado existente).

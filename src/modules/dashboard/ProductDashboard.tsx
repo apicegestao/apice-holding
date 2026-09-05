@@ -21,10 +21,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { CalendarRange, ChevronRight, ClipboardList, LayoutDashboard, Square, Target, Wallet } from 'lucide-react'
+import { Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
-import { attainmentRatio, formatDate, formatValue, isOnTarget, relativeDays } from '../../core/lib/format'
+import { attainmentRatio, formatCompact, formatDate, formatValue, isOnTarget, relativeDays } from '../../core/lib/format'
 import { buildChildrenByParent, effectiveKpiValue, type RollupRow } from '../../core/lib/kpiRollup'
+import { subItemLabel } from '../../core/lib/labels'
 import { useCompany } from '../../core/company/CompanyProvider'
+import { useChartTheme } from '../../core/theme/ThemeProvider'
 import { Badge, Card, EmptyState, Loading, PageHeader, ProgressBar, useToast } from '../../core/ui'
 import { StatTile, IndicatorLine } from './CompanyDashboard'
 import {
@@ -33,6 +36,7 @@ import {
   TASK_PRIORITY_LABEL,
   type Budget,
   type BudgetItem,
+  type FinancialEntry,
   type GoalStatus,
   type Kpi,
   type KpiDirection,
@@ -93,6 +97,7 @@ export default function ProductDashboard() {
   const { company } = useCompany()
   const { productId, editionId } = useParams<{ productId: string; editionId?: string }>()
   const { notify } = useToast()
+  const chart = useChartTheme()
 
   const [product, setProduct] = useState<Product | null>(null)
   const [edition, setEdition] = useState<ProductEdition | null>(null)
@@ -104,6 +109,7 @@ export default function ProductDashboard() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [budgetItems, setBudgetItems] = useState<BudgetItemTotals[]>([])
+  const [financialEntries, setFinancialEntries] = useState<FinancialEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
@@ -119,6 +125,7 @@ export default function ProductDashboard() {
       memberResult,
       taskResult,
       budgetResult,
+      financialEntryResult,
     ] = await Promise.all([
       supabase.from('products').select('*').eq('id', productId).eq('company_id', company.id).maybeSingle(),
       editionId
@@ -138,6 +145,9 @@ export default function ProductDashboard() {
       // Granularidade de produto só — ver comentário no topo do arquivo.
       supabase.from('tasks').select('*').eq('company_id', company.id).eq('product_id', productId),
       supabase.from('budgets').select('*').eq('company_id', company.id).eq('product_id', productId),
+      // Item aprovado pelo usuário: painel do produto/turma vira o "mundo"
+      // dele — o dado de caixa (Financeiro) entra junto do resto.
+      supabase.from('financial_entries').select('*').eq('company_id', company.id).eq('product_id', productId),
     ])
 
     const memberIds = (memberResult.data ?? []).map((row) => row.user_id)
@@ -166,6 +176,7 @@ export default function ProductDashboard() {
     setTasks((taskResult.data as Task[]) ?? [])
     setBudgets((budgetResult.data as Budget[]) ?? [])
     setBudgetItems((itemRows as BudgetItemTotals[]) ?? [])
+    setFinancialEntries((financialEntryResult.data as FinancialEntry[]) ?? [])
     // "Não encontrado" cobre tanto id inexistente quanto edição de outro
     // produto (URL adulterada/desatualizada) — nos dois casos não tem o
     // que mostrar.
@@ -321,13 +332,53 @@ export default function ProductDashboard() {
     return map
   }, [budgetItems])
 
+  // Financeiro: no painel do produto, só os lançamentos do PRÓPRIO produto
+  // (sem edição) — os de cada turma aparecem no painel dela. Mesmo critério
+  // "sem edição" já usado por tarefa (`tasksInScope`) e orçamento
+  // (`budgetsInScope`) acima — a query já trouxe só os deste produto
+  // (`product_id`), aqui só falta separar produto de turma.
+  const financialEntriesInScope = useMemo(
+    () =>
+      financialEntries.filter((entry) =>
+        edition ? entry.product_edition_id === edition.id : entry.product_edition_id === null,
+      ),
+    [financialEntries, edition],
+  )
+  const cashflow = useMemo(() => {
+    const byMonth = new Map<string, { revenue: number; expense: number }>()
+    for (const entry of financialEntriesInScope) {
+      const month = entry.occurred_at.slice(0, 7)
+      const bucket = byMonth.get(month) ?? { revenue: 0, expense: 0 }
+      if (entry.kind === 'receita') bucket.revenue += Number(entry.amount)
+      else bucket.expense += Number(entry.amount)
+      byMonth.set(month, bucket)
+    }
+    const months = [...byMonth.keys()].sort().slice(-6)
+    return months.map((month) => {
+      const bucket = byMonth.get(month)!
+      return {
+        period: new Date(`${month}-01T12:00:00`).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
+        receita: Math.round(bucket.revenue * 100) / 100,
+        despesa: Math.round(bucket.expense * 100) / 100,
+        saldo: Math.round((bucket.revenue - bucket.expense) * 100) / 100,
+      }
+    })
+  }, [financialEntriesInScope])
+  const cashflowTotals = useMemo(
+    () => ({
+      revenue: cashflow.reduce((sum, row) => sum + row.receita, 0),
+      expense: cashflow.reduce((sum, row) => sum + row.despesa, 0),
+    }),
+    [cashflow],
+  )
+
   if (loading) return <Loading />
 
   if (notFound || !product) {
     return (
       <div className="mx-auto max-w-3xl">
         <EmptyState
-          title={editionId ? 'Turma não encontrada' : 'Produto não encontrado'}
+          title={editionId ? `${subItemLabel(product)} não encontrada` : 'Produto não encontrado'}
           description="Pode ter sido excluído, ou o link está desatualizado."
           action={
             <Link to={`/empresa/${company.id}/produtos`} className="btn-primary">
@@ -368,8 +419,8 @@ export default function ProductDashboard() {
         title={edition ? edition.name : product.name}
         subtitle={
           edition
-            ? `Turma de ${product.name}${edition.start_date ? ` · ${formatDate(edition.start_date)} a ${formatDate(edition.end_date)}` : ''}`
-            : product.description || 'Indicadores, alvos, tarefas e orçamento desta frente, juntos.'
+            ? `${subItemLabel(product)} de ${product.name}${edition.start_date ? ` · ${formatDate(edition.start_date)} a ${formatDate(edition.end_date)}` : ''}`
+            : product.description || 'Indicadores, alvos, tarefas, financeiro e orçamento desta frente, juntos.'
         }
         actions={
           <Link to={`/empresa/${company.id}/orcamentos`} className="btn-ghost py-1.5 text-xs">
@@ -465,7 +516,7 @@ export default function ProductDashboard() {
 
       {!edition && editions.length > 0 && (
         <Card
-          title="Turmas"
+          title={subItemLabel(product, { plural: true })}
           description="Cada edição desta frente — clique pra abrir o painel completo dela."
         >
           {visibleEditions.length > 0 && (
@@ -493,8 +544,9 @@ export default function ProductDashboard() {
           )}
           {upcomingEditionsCount > 0 && (
             <p className={`text-xs text-content-faint ${visibleEditions.length > 0 ? 'mt-3' : ''}`}>
-              {upcomingEditionsCount} turma(s) programada(s) ainda não aparece(m) aqui — some(m) quando o mês dela(s)
-              chegar.
+              {upcomingEditionsCount}{' '}
+              {subItemLabel(product, { plural: upcomingEditionsCount !== 1, lower: true })} programada(s) ainda não
+              aparece(m) aqui — some(m) quando o mês dela(s) chegar.
             </p>
           )}
         </Card>
@@ -502,7 +554,7 @@ export default function ProductDashboard() {
 
       <Card
         title="Próximos prazos"
-        description={edition ? 'Tarefas abertas desta turma.' : 'Tarefas abertas deste produto.'}
+        description={edition ? `Tarefas abertas — ${subItemLabel(product)}.` : 'Tarefas abertas deste produto.'}
         actions={
             <Link to={`/empresa/${company.id}/tarefas`} className="btn-ghost py-1.5 text-xs">
               Ver Tarefas
@@ -539,6 +591,63 @@ export default function ProductDashboard() {
             </ul>
           )}
         </Card>
+
+      {cashflow.length > 0 && (
+        <Card
+          title="Financeiro"
+          description="Receita, despesa e saldo por mês, direto dos lançamentos ligados a este escopo."
+          actions={
+            <Link to={`/empresa/${company.id}/financeiro`} className="btn-ghost py-1.5 text-xs">
+              Ver Financeiro
+            </Link>
+          }
+        >
+          <div className="mb-3 flex flex-wrap gap-4 text-sm">
+            <span className="text-content-soft">
+              Receita: <span className="font-medium text-content">{formatValue(cashflowTotals.revenue, 'currency')}</span>
+            </span>
+            <span className="text-content-soft">
+              Despesa: <span className="font-medium text-content">{formatValue(cashflowTotals.expense, 'currency')}</span>
+            </span>
+          </div>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={cashflow} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <XAxis
+                  dataKey="period"
+                  tick={{ fontSize: 11, fill: chart.tick }}
+                  axisLine={{ stroke: chart.axis }}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: chart.tick }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={54}
+                  tickFormatter={(value: number) => formatCompact(value, 'currency')}
+                />
+                <Tooltip
+                  cursor={{ stroke: chart.axis, strokeDasharray: '4 4' }}
+                  contentStyle={{
+                    fontSize: 12,
+                    borderRadius: 8,
+                    background: chart.tooltipBg,
+                    borderColor: chart.tooltipBorder,
+                    color: chart.tooltipText,
+                  }}
+                  itemStyle={{ color: chart.tooltipText }}
+                  labelStyle={{ color: chart.tooltipText }}
+                  formatter={(value: number, name: string) => [formatValue(value, 'currency'), name]}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="receita" name="Receita" stroke="#10B981" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="despesa" name="Despesa" stroke="#F43F5E" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="saldo" name="Saldo" stroke={chart.axis} strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
 
       {budgetsInScope.length > 0 && (
         <Card title="Orçamento" description="Execução de despesa de cada orçamento deste escopo.">

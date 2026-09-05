@@ -41,6 +41,7 @@ import {
   splitTargetIntoPeriods,
   sumValuesInRange,
 } from '../../core/lib/format'
+import { subItemLabel } from '../../core/lib/labels'
 import { buildChildrenByParent, effectiveKpiValue, type RollupRow } from '../../core/lib/kpiRollup'
 import { buildBulkEditions } from '../../core/lib/bulkEditions'
 import { useAuth } from '../../core/auth/AuthProvider'
@@ -1249,7 +1250,12 @@ function AttachProductModal({
             edition.product_id === parentKpi.product_id && !edition.archived_at && !alreadyLinked.has(edition.id),
         )
       : products.filter((product) => !alreadyLinked.has(product.id))
-  const parentProductName = products.find((item) => item.id === parentKpi.product_id)?.name ?? ''
+  const parentProduct = products.find((item) => item.id === parentKpi.product_id) ?? null
+  const parentProductName = parentProduct?.name ?? ''
+  // Rótulo customizado do produto pra própria unidade ("Turma" quando não
+  // personalizado) — usado em todo texto abaixo que hoje diz "turma".
+  const editionLabel = subItemLabel(parentProduct)
+  const editionLabelLower = subItemLabel(parentProduct, { lower: true })
 
   const [mode, setMode] = useState<AttachMode>(candidates.length > 0 ? 'existing' : 'new')
   const [candidateId, setCandidateId] = useState('')
@@ -1311,7 +1317,7 @@ function AttachProductModal({
   const submitExisting = async (event: FormEvent) => {
     event.preventDefault()
     if (!candidateId) {
-      setError(level === 'turma' ? 'Escolha uma turma.' : 'Escolha um produto.')
+      setError(level === 'turma' ? `Escolha uma ${editionLabelLower}.` : 'Escolha um produto.')
       return
     }
     setError('')
@@ -1337,7 +1343,7 @@ function AttachProductModal({
   const submitNew = async (event: FormEvent) => {
     event.preventDefault()
     if (!newName.trim()) {
-      setError(level === 'turma' ? 'Dê um nome à turma.' : 'Dê um nome ao produto.')
+      setError(level === 'turma' ? `Dê um nome à ${editionLabelLower}.` : 'Dê um nome ao produto.')
       return
     }
     setError('')
@@ -1358,8 +1364,8 @@ function AttachProductModal({
         setBusy(false)
         setError(
           insertError?.code === '23505'
-            ? 'Já existe uma turma com esse nome neste produto.'
-            : insertError?.message ?? 'Erro ao criar turma.',
+            ? `Já existe uma ${editionLabelLower} com esse nome neste produto.`
+            : (insertError?.message ?? `Erro ao criar ${editionLabelLower}.`),
         )
         return
       }
@@ -1369,7 +1375,7 @@ function AttachProductModal({
         setError(linkError.message)
         return
       }
-      notify('Turma criada e vinculada.')
+      notify(`${editionLabel} criada e vinculada.`)
     } else {
       const { data: product, error: insertError } = await supabase
         .from('products')
@@ -1405,7 +1411,7 @@ function AttachProductModal({
   const submitBulk = async (event: FormEvent) => {
     event.preventDefault()
     if (!bulkStartMonth) {
-      setError('Escolha o mês/ano da primeira turma.')
+      setError(`Escolha o mês/ano da primeira ${editionLabelLower}.`)
       return
     }
     if (bulkPreview.length === 0) return
@@ -1419,8 +1425,8 @@ function AttachProductModal({
       setBusy(false)
       setError(
         insertError?.code === '23505'
-          ? 'Já existe uma turma com um desses nomes neste produto.'
-          : insertError?.message ?? 'Erro ao criar as turmas.',
+          ? `Já existe uma ${editionLabelLower} com um desses nomes neste produto.`
+          : (insertError?.message ?? `Erro ao criar as ${subItemLabel(parentProduct, { plural: true, lower: true })}.`),
       )
       return
     }
@@ -1443,7 +1449,9 @@ function AttachProductModal({
       setError(kpiError.message)
       return
     }
-    notify(`${newEditions.length} turma(s) criada(s) e vinculada(s).`)
+    notify(
+      `${newEditions.length} ${subItemLabel(parentProduct, { plural: newEditions.length !== 1, lower: true })} criada(s) e vinculada(s).`,
+    )
     await onSaved()
     onClose()
   }
@@ -1456,7 +1464,7 @@ function AttachProductModal({
   return (
     <Modal
       open
-      title={level === 'turma' ? `Vincular turma · ${parentKpi.name}` : `Vincular produto · ${parentKpi.name}`}
+      title={level === 'turma' ? `Vincular ${editionLabelLower} · ${parentKpi.name}` : `Vincular produto · ${parentKpi.name}`}
       onClose={onClose}
       width="max-w-md"
       footer={
@@ -1474,7 +1482,8 @@ function AttachProductModal({
               {busy && <Spinner />}
               {mode === 'existing' && 'Vincular'}
               {mode === 'new' && 'Criar e vincular'}
-              {mode === 'bulk' && `Criar ${bulkPreview.length || ''} turma(s)`}
+              {mode === 'bulk' &&
+                `Criar ${bulkPreview.length || ''} ${subItemLabel(parentProduct, { plural: bulkPreview.length !== 1, lower: true })}`}
             </button>
           )}
         </>
@@ -1490,7 +1499,7 @@ function AttachProductModal({
           </button>
         )}
         <button type="button" onClick={() => setMode('new')} className={tabClass(mode === 'new')}>
-          Criar {level === 'turma' ? 'turma' : 'produto'}
+          Criar {level === 'turma' ? editionLabelLower : 'produto'}
         </button>
         {level === 'turma' && (
           <button type="button" onClick={() => setMode('bulk')} className={tabClass(mode === 'bulk')}>
@@ -1503,12 +1512,12 @@ function AttachProductModal({
         (candidates.length === 0 ? (
           <p className="text-sm text-content-soft">
             {level === 'turma'
-              ? 'Todas as turmas deste produto já estão vinculadas aqui, ou o produto ainda não tem turma cadastrada.'
+              ? `Todas as ${subItemLabel(parentProduct, { plural: true, lower: true })} deste produto já estão vinculadas aqui, ou o produto ainda não tem ${editionLabelLower} cadastrada.`
               : 'Todos os produtos cadastrados já estão vinculados a esta meta, ou nenhum produto foi cadastrado ainda.'}
           </p>
         ) : (
           <form id="attach-form" onSubmit={submitExisting} className="space-y-4">
-            <Field label={level === 'turma' ? 'Turma' : 'Produto'}>
+            <Field label={level === 'turma' ? editionLabel : 'Produto'}>
               <select className="input" value={candidateId} onChange={(event) => setCandidateId(event.target.value)}>
                 <option value="">Selecione…</option>
                 {candidates.map((item) => (
@@ -1524,7 +1533,7 @@ function AttachProductModal({
 
       {mode === 'new' && (
         <form id="attach-form" onSubmit={submitNew} className="space-y-4">
-          <Field label={level === 'turma' ? 'Nome da turma' : 'Nome do produto'}>
+          <Field label={level === 'turma' ? `Nome da ${editionLabelLower}` : 'Nome do produto'}>
             <input
               className="input"
               required
@@ -1566,7 +1575,7 @@ function AttachProductModal({
             <input className="input" value={bulkPrefix} onChange={(event) => setBulkPrefix(event.target.value)} />
           </Field>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Quantidade de turmas">
+            <Field label={`Quantidade de ${subItemLabel(parentProduct, { plural: true, lower: true })}`}>
               <input
                 className="input"
                 type="number"
@@ -1586,7 +1595,7 @@ function AttachProductModal({
               />
             </Field>
           </div>
-          <Field label="Intervalo entre turmas">
+          <Field label={`Intervalo entre ${subItemLabel(parentProduct, { plural: true, lower: true })}`}>
             <select
               className="input"
               value={bulkInterval}
@@ -1598,7 +1607,7 @@ function AttachProductModal({
               <option value={6}>A cada 6 meses (semestral)</option>
             </select>
           </Field>
-          <Field label="Duração de cada turma">
+          <Field label={`Duração de cada ${editionLabelLower}`}>
             <select
               className="input"
               value={bulkDurationMode}
@@ -1634,7 +1643,9 @@ function AttachProductModal({
           )}
           {bulkPreview.length > 0 && (
             <div className="rounded-lg bg-hover px-3 py-2 text-xs text-content-soft">
-              <p className="font-medium text-content">Prévia: {bulkPreview.length} turma(s)</p>
+              <p className="font-medium text-content">
+                Prévia: {bulkPreview.length} {subItemLabel(parentProduct, { plural: bulkPreview.length !== 1, lower: true })}
+              </p>
               <p className="mt-1">
                 {bulkPreview[0].name} ({formatDate(bulkPreview[0].start_date)}–{formatDate(bulkPreview[0].end_date)})
                 {bulkPreview.length > 1 && <> … {bulkPreview[bulkPreview.length - 1].name}</>}
@@ -1700,7 +1711,7 @@ function EditEntityModal({
       setError(result.error.message)
       return
     }
-    notify(edition ? 'Turma atualizada.' : 'Produto atualizado.')
+    notify(edition ? `${subItemLabel(product)} atualizada.` : 'Produto atualizado.')
     await onSaved()
     onClose()
   }
@@ -1708,7 +1719,7 @@ function EditEntityModal({
   return (
     <Modal
       open
-      title={edition ? `Editar turma · ${edition.name}` : `Editar produto · ${product.name}`}
+      title={edition ? `Editar ${subItemLabel(product, { lower: true })} · ${edition.name}` : `Editar produto · ${product.name}`}
       onClose={onClose}
       width="max-w-md"
       footer={

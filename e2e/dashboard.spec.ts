@@ -128,6 +128,39 @@ test.describe('painel', () => {
     await expect(page.getByText('Despesa', { exact: true })).toBeVisible()
   })
 
+  // Repensando o sistema em volta do produto: "Metas" no menu vira
+  // "Indicadores da empresa" (só o que não pertence a nenhum produto) e
+  // Produtos passa a ser a porta de entrada — logo depois do Painel.
+  test('menu lateral: Produtos vem antes de "Indicadores da empresa"', async ({ page }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}`)
+    await page.waitForLoadState('networkidle')
+    const sidebar = page.locator('aside nav')
+    await expect(sidebar.getByRole('link', { name: 'Metas', exact: true })).toHaveCount(0)
+    await expect(sidebar.getByRole('link', { name: 'Indicadores da empresa' })).toBeVisible()
+    await expect(sidebar.getByRole('link', { name: 'Produtos' })).toBeVisible()
+    // Ordem no DOM (não posição visual — o menu vira linha horizontal no
+    // celular) — Produtos é a porta de entrada agora, vem antes.
+    const labels = await sidebar.getByRole('link').allTextContents()
+    expect(labels.indexOf('Produtos')).toBeLessThan(labels.indexOf('Indicadores da empresa'))
+  })
+
+  // Some do menu quando a empresa não tem nenhum indicador que não seja de
+  // produto/turma — tudo que existe já é gerenciado a partir de Produtos.
+  test('menu lateral esconde "Indicadores da empresa" quando não há nenhum indicador de nível empresa', async ({
+    page,
+  }) => {
+    // Mock simples pra este teste: nenhum indicador nenhum, de nenhum
+    // nível — o que importa aqui é só a barra lateral, não o painel.
+    await page.route('**/rest/v1/kpis*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}`)
+    await page.waitForLoadState('networkidle')
+    const sidebar = page.locator('aside nav')
+    await expect(sidebar.getByRole('link', { name: 'Indicadores da empresa' })).toHaveCount(0)
+  })
+
   test('gráfico comparativo entre empresas aparece no painel da holding', async ({ page }) => {
     await page.goto('/holding')
     await page.waitForLoadState('networkidle')
@@ -320,6 +353,7 @@ test.describe('comparação de produtos no painel da empresa', () => {
       color: '#10B981',
       display_order: 1,
       is_active: true,
+      sub_item_label: null as string | null,
       created_by: USER_ID,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
@@ -1168,7 +1202,7 @@ test.describe('metas de produto e sub-produto', () => {
     // tem link nenhum de criar/editar por aqui (isso agora só acontece
     // pelo atalho de vincular).
     await expect(modal.getByText('Imersão Outubro 2026')).toBeVisible()
-    await expect(modal.getByText('Nenhuma meta acompanha esta turma ainda.')).toBeVisible()
+    await expect(modal.getByText('Nenhuma meta vinculada a "Turma" ainda.')).toBeVisible()
     await expect(page.getByRole('link', { name: 'Editar meta' })).toHaveCount(0)
   })
 
@@ -1209,7 +1243,7 @@ test.describe('metas de produto e sub-produto', () => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()
-    await page.getByRole('button', { name: 'Metas desta turma' }).first().click()
+    await page.getByRole('button', { name: 'Metas — Turma' }).first().click()
 
     await expect(page.getByRole('heading', { name: /^Metas de /, exact: false })).toBeVisible()
     await page.getByRole('checkbox', { name: 'Churn' }).check()
@@ -1241,7 +1275,7 @@ test.describe('metas de produto e sub-produto', () => {
     await expect(page.getByText('Turma arquivada.')).toBeVisible()
     await expect(page.getByText('Imersão Setembro 2026')).not.toBeVisible()
 
-    await page.getByText('1 turma(s) arquivada(s)').click()
+    await page.getByText('1 turma arquivada(s)').click()
     await expect(page.getByRole('button', { name: 'Reativar' })).toBeVisible()
     await page.getByRole('button', { name: 'Reativar' }).click()
     await expect(page.getByText('Turma reativada.')).toBeVisible()
@@ -1257,6 +1291,45 @@ test.describe('metas de produto e sub-produto', () => {
     await expect(page).toHaveURL(new RegExp(`/empresa/${COMPANY_ID_2}/kpis/${KPI_PRODUCT}`))
     // O Detalhe mostra o valor somado (soma das turmas) em destaque.
     await expect(page.getByText(/R\$\s?32\.000,00/).first()).toBeVisible()
+  })
+
+  // Sistema atende empresas de naturezas bem diferentes (educação,
+  // consultoria, SaaS) — "turma" não serve pra todo mundo. Cada produto
+  // pode customizar o próprio rótulo (core/lib/labels.ts).
+  test('produto com rótulo customizado troca "turma" por ele nas telas dele', async ({ page }) => {
+    const products = PRODUCTS.map((product) => ({ ...product, sub_item_label: 'Projeto' }))
+    await page.route('**/rest/v1/products*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(products) })
+    })
+    // Ver comentário equivalente no teste "painel da turma..." acima: com 2
+    // edições nas fixtures, o mock genérico devolve as 2 pra um
+    // `.maybeSingle()` (usado pelo painel da turma) e o postgrest-js trata
+    // isso como erro — só esta rota precisa de filtro de verdade.
+    await page.route('**/rest/v1/product_editions*', async (route) => {
+      const idFilter = new URL(route.request().url()).searchParams.get('id')
+      const rows = idFilter?.startsWith('eq.')
+        ? PRODUCT_EDITIONS.filter((edition) => edition.id === idFilter.slice(3))
+        : PRODUCT_EDITIONS
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
+    await page.waitForLoadState('networkidle')
+    await page.getByText('Entre Donos', { exact: true }).click()
+
+    await expect(page.getByText(/Edições — pra frentes que rodam em projeto ou encontro/)).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Ver painel — Projeto' }).first()).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Metas — Projeto' }).first()).toBeVisible()
+
+    // O painel do produto/turma e o Detalhe da meta (Metas) também usam o
+    // mesmo rótulo — não é só a tela de Produtos.
+    await page.getByRole('link', { name: 'Ver painel — Projeto' }).first().click()
+    await expect(page).toHaveURL(new RegExp(`/produtos/${PRODUCT_ID}/turmas/${EDITION_ID}$`))
+    await expect(page.getByText('Projeto de Entre Donos')).toBeVisible()
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_PRODUCT}`)
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByRole('button', { name: 'Vincular projeto' })).toBeVisible()
   })
 
   // Pedido explícito do usuário: acompanhar indicador + alvo + tarefas +
@@ -1324,6 +1397,25 @@ test.describe('metas de produto e sub-produto', () => {
         updated_at: '2026-01-01T00:00:00Z',
       },
     ]
+    const financialEntries = [
+      {
+        id: 'financial-entry-produto-teste',
+        company_id: COMPANY_ID_2,
+        department_id: null,
+        product_id: PRODUCT_ID,
+        product_edition_id: null,
+        budget_item_id: null,
+        kind: 'receita',
+        category: 'Vendas',
+        description: 'Venda avulsa de mentoria',
+        amount: 8000,
+        occurred_at: new Date().toISOString().slice(0, 10),
+        notes: null,
+        created_by: USER_ID,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]
     await page.route('**/rest/v1/tasks*', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tasks) })
     })
@@ -1332,6 +1424,9 @@ test.describe('metas de produto e sub-produto', () => {
     })
     await page.route('**/rest/v1/budget_items*', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(budgetItems) })
+    })
+    await page.route('**/rest/v1/financial_entries*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(financialEntries) })
     })
 
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos/${PRODUCT_ID}`)
@@ -1355,6 +1450,12 @@ test.describe('metas de produto e sub-produto', () => {
     await expect(page.getByText('Confirmar local do evento')).toBeVisible()
     await expect(page.getByText('Orçamento Entre Donos 2026')).toBeVisible()
     await expect(page.getByText('R$ 6.000,00 de R$ 10.000,00 previstos')).toBeVisible()
+
+    // Item aprovado pelo usuário: o painel do produto também vira o "mundo"
+    // financeiro dele — sem precisar ir em Financeiro pra ver isso.
+    const financialCard = page.locator('section', { has: page.getByRole('heading', { name: 'Financeiro' }) })
+    await expect(financialCard.getByText('Receita:')).toBeVisible()
+    await expect(financialCard).toContainText('R$ 8.000,00')
   })
 
   // Pedido explícito: turma com início num mês ainda não chegado fica fora
@@ -1401,7 +1502,7 @@ test.describe('metas de produto e sub-produto', () => {
 
     await expect(page.getByRole('link', { name: /Turma Já Chegou/ })).toBeVisible()
     await expect(page.getByRole('link', { name: /Turma Ainda Não Chegou/ })).toHaveCount(0)
-    await expect(page.getByText('1 turma(s) programada(s) ainda não aparece(m) aqui')).toBeVisible()
+    await expect(page.getByText('1 turma programada(s) ainda não aparece(m) aqui')).toBeVisible()
   })
 
   // Turma: mesmo painel, e agora TAMBÉM com seção de tarefas — desde
@@ -1516,7 +1617,7 @@ test.describe('metas de produto e sub-produto', () => {
 
     await page.goBack()
     await page.getByText('Entre Donos', { exact: true }).click()
-    await page.getByRole('link', { name: 'Ver painel da turma' }).first().click()
+    await page.getByRole('link', { name: 'Ver painel — Turma' }).first().click()
     await expect(page).toHaveURL(new RegExp(`/turmas/${EDITION_ID}$`))
   })
 })
@@ -2020,7 +2121,7 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await dialog.getByLabel('Mês/ano da primeira').fill('2027-01')
     await dialog.getByRole('button', { name: /Criar 3 turma/ }).click()
 
-    await expect(page.getByText('3 turma(s) criada(s) e vinculada(s).')).toBeVisible()
+    await expect(page.getByText('3 turmas criada(s) e vinculada(s).')).toBeVisible()
   })
 
   // Bug relatado: no fluxo padrão ("Usar sugestões"), não havia como definir
