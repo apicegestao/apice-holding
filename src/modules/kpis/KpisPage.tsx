@@ -1317,7 +1317,7 @@ function AttachProductModal({
   const submitExisting = async (event: FormEvent) => {
     event.preventDefault()
     if (!candidateId) {
-      setError(level === 'turma' ? `Escolha uma ${editionLabelLower}.` : 'Escolha um produto.')
+      setError(level === 'turma' ? `Escolha uma opção de ${editionLabelLower}.` : 'Escolha um produto.')
       return
     }
     setError('')
@@ -1343,7 +1343,7 @@ function AttachProductModal({
   const submitNew = async (event: FormEvent) => {
     event.preventDefault()
     if (!newName.trim()) {
-      setError(level === 'turma' ? `Dê um nome à ${editionLabelLower}.` : 'Dê um nome ao produto.')
+      setError(level === 'turma' ? 'O nome não pode ficar em branco.' : 'Dê um nome ao produto.')
       return
     }
     setError('')
@@ -1364,7 +1364,7 @@ function AttachProductModal({
         setBusy(false)
         setError(
           insertError?.code === '23505'
-            ? `Já existe uma ${editionLabelLower} com esse nome neste produto.`
+            ? 'Esse nome já existe neste produto.'
             : (insertError?.message ?? `Erro ao criar ${editionLabelLower}.`),
         )
         return
@@ -1375,7 +1375,10 @@ function AttachProductModal({
         setError(linkError.message)
         return
       }
-      notify(`${editionLabel} criada e vinculada.`)
+      // Verbo primeiro ("Criamos e vinculamos X") em vez de "X criada e
+      // vinculada" — evita depender do gênero do rótulo (ver comentário
+      // equivalente em ProductsPage.tsx).
+      notify(`Criamos e vinculamos "${edition.name}".`)
     } else {
       const { data: product, error: insertError } = await supabase
         .from('products')
@@ -1411,7 +1414,7 @@ function AttachProductModal({
   const submitBulk = async (event: FormEvent) => {
     event.preventDefault()
     if (!bulkStartMonth) {
-      setError(`Escolha o mês/ano da primeira ${editionLabelLower}.`)
+      setError('Escolha o mês/ano de início.')
       return
     }
     if (bulkPreview.length === 0) return
@@ -1425,8 +1428,8 @@ function AttachProductModal({
       setBusy(false)
       setError(
         insertError?.code === '23505'
-          ? `Já existe uma ${editionLabelLower} com um desses nomes neste produto.`
-          : (insertError?.message ?? `Erro ao criar as ${subItemLabel(parentProduct, { plural: true, lower: true })}.`),
+          ? 'Um desses nomes já existe neste produto.'
+          : (insertError?.message ?? `Erro ao criar ${subItemLabel(parentProduct, { plural: true, lower: true })}.`),
       )
       return
     }
@@ -1450,7 +1453,7 @@ function AttachProductModal({
       return
     }
     notify(
-      `${newEditions.length} ${subItemLabel(parentProduct, { plural: newEditions.length !== 1, lower: true })} criada(s) e vinculada(s).`,
+      `Criamos e vinculamos ${newEditions.length} ${subItemLabel(parentProduct, { plural: newEditions.length !== 1, lower: true })}.`,
     )
     await onSaved()
     onClose()
@@ -1511,8 +1514,11 @@ function AttachProductModal({
       {mode === 'existing' &&
         (candidates.length === 0 ? (
           <p className="text-sm text-content-soft">
+            {/* "nenhum registro de X" em vez de "todas as X"/"X cadastrada" —
+                ancora o gênero num substantivo fixo ("registro", sempre
+                masc.) em vez do rótulo variável, que pode ser fem. ou masc. */}
             {level === 'turma'
-              ? `Todas as ${subItemLabel(parentProduct, { plural: true, lower: true })} deste produto já estão vinculadas aqui, ou o produto ainda não tem ${editionLabelLower} cadastrada.`
+              ? `Não há nenhum registro de ${editionLabelLower} disponível pra vincular aqui — ou já estão todos vinculados, ou o produto ainda não tem nenhum cadastrado.`
               : 'Todos os produtos cadastrados já estão vinculados a esta meta, ou nenhum produto foi cadastrado ainda.'}
           </p>
         ) : (
@@ -1533,7 +1539,7 @@ function AttachProductModal({
 
       {mode === 'new' && (
         <form id="attach-form" onSubmit={submitNew} className="space-y-4">
-          <Field label={level === 'turma' ? `Nome da ${editionLabelLower}` : 'Nome do produto'}>
+          <Field label={level === 'turma' ? 'Nome' : 'Nome do produto'}>
             <input
               className="input"
               required
@@ -1711,7 +1717,7 @@ function EditEntityModal({
       setError(result.error.message)
       return
     }
-    notify(edition ? `${subItemLabel(product)} atualizada.` : 'Produto atualizado.')
+    notify(edition ? `Alterações salvas em "${form.name.trim()}".` : 'Produto atualizado.')
     await onSaved()
     onClose()
   }

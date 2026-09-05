@@ -2,10 +2,14 @@
 // da MDD (produto → "turma") mas atende empresas bem diferentes (consultoria,
 // SaaS) — uma "Turma" não faz sentido pra um "Projeto" da Vibra ou uma
 // "Conta" da Darius. Em vez de fixar "turma" no código, cada produto escolhe
-// o próprio rótulo (`Product.sub_item_label`); null cai no padrão de sempre.
+// o próprio rótulo (`Product.sub_item_label`); null cai no padrão genérico
+// abaixo — o PADRÃO em si não pode assumir um tipo de negócio (educação),
+// só um produto que pediu explicitamente "Turma" tem "Turma". Os produtos já
+// existentes da MDD tiveram o rótulo gravado explicitamente numa migração de
+// dados, pra manter o texto que já usavam sem depender deste padrão.
 import type { Product } from '../types'
 
-const DEFAULT_SUB_ITEM_LABEL = 'Turma'
+const DEFAULT_SUB_ITEM_LABEL = 'Sub produto'
 
 // Pluralização simples PT-BR — cobre os casos comuns esperados aqui (Turma,
 // Projeto, Plano, Conta, Unidade, Contrato, Cliente...): terminado em vogal
@@ -21,10 +25,10 @@ function pluralize(word: string): string {
   return `${word}s`
 }
 
-/** Como este produto chama as próprias unidades — "Turma" quando o produto
- *  não personalizou (ou quando `product` é null/undefined, ex.: contexto
- *  ainda não carregado). `plural: true` pluraliza; `lower: true` deixa
- *  minúsculo (pra encaixar no meio de uma frase, ex. "3 turma(s)"). */
+/** Como este produto chama as próprias unidades — "Sub produto" quando o
+ *  produto não personalizou (ou quando `product` é null/undefined, ex.:
+ *  contexto ainda não carregado). `plural: true` pluraliza; `lower: true`
+ *  deixa minúsculo (pra encaixar no meio de uma frase, ex. "3 turma(s)"). */
 export function subItemLabel(
   product: Pick<Product, 'sub_item_label'> | null | undefined,
   options?: { plural?: boolean; lower?: boolean },

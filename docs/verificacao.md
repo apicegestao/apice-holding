@@ -3478,3 +3478,88 @@ botão "Metas" sem rótulo dinâmico no nome acessível, já que o texto
 visível já é suficiente; "Arquivar {nome}" → botão "Arquivar" escopado
 por `li` com `hasText`, já que agora várias turmas têm o mesmo texto de
 botão). Sem migração — mudança só de UI.
+
+## 56. Cartões de meta no mesmo padrão da turma, turmas em accordion, e "Turma" deixa de ser o padrão do sistema
+
+Novo print + feedback do usuário sobre o modal de produto: (1) o cartão de
+cada meta em "Metas que acompanham este produto" ficava visivelmente menor
+e mais raso que o cartão de turma ao lado; (2) pensando em escala ("daqui a
+2 anos", dezenas de turmas cadastradas), a lista de turmas precisa vir
+organizada em algo recolhível, não uma parede de cartões abertos; (3)
+"Turma" nem sempre faz sentido (consultoria, SaaS) e o usuário não gosta de
+ver esse termo aparecer por padrão.
+
+**Cartão de meta no mesmo padrão da turma**: `IndicatorLine` ganhou uma
+variante `size="lg"` — nome em `font-semibold`, valor grande em destaque
+(ou "Sem lançamento ainda" por extenso em vez do "sem lançamento ainda"
+minúsculo/pequeno), badge de contribuição do mesmo tamanho da badge de
+status da turma. Usada só na lista de topo do modal ("Metas que acompanham
+este produto"); a lista aninhada dentro de cada turma continua com
+`size="xs"`, compacta de propósito (já está um nível dentro de um cartão
+que já tem seu próprio padrão visual).
+
+**Turmas em accordion**: cada turma agora começa **recolhida** — o
+cabeçalho (nome, datas, badge de status) sempre visível, e um ícone de
+seta (`ChevronRight`/`ChevronDown`, estado `expandedEditionIds: Set<string>`)
+abre o resto (seletor de status editável, tarefas abertas, ações
+Editar/Metas/Arquivar/Excluir, lista de metas vinculadas). Quando só existe
+**uma** turma, o accordion nem aparece — não faz sentido esconder o único
+conteúdo que existe atrás de um clique, então ela sempre vem aberta
+(`singleEdition` ignora o estado de expansão nesse caso). Resolve
+diretamente a preocupação de escala: um produto com 30 turmas cadastradas
+ao longo dos anos vira uma lista de 30 linhas compactas, não 30 cartões
+abertos.
+
+**"Turma" deixa de ser o padrão do sistema**: `DEFAULT_SUB_ITEM_LABEL` em
+`core/lib/labels.ts` muda de `'Turma'` pra `'Sub produto'` — o PADRÃO
+(quando ninguém personalizou) não pode mais assumir educação, já que a
+holding atende consultoria e SaaS também. Pra não mudar o comportamento
+dos produtos que já existem (todos da MDD, genuinamente baseados em
+turma), rodei uma migração de dados (`update products set sub_item_label =
+'Turma' where sub_item_label is null`) gravando "Turma" explicitamente nos
+4 produtos atuais (Entre Donos, Imersões, Mesa Dos Donos, Club) — o texto
+que o usuário vê não muda em nada pra eles; só o comportamento de um
+produto **novo**, sem rótulo definido, muda (de "Turma" pra "Sub produto").
+As fixtures de e2e ganharam o mesmo tratamento (produto de teste com
+`sub_item_label: 'Turma'` explícito), evitando reescrever dezenas de
+testes que já assumiam esse texto.
+
+**Bug de concordância de gênero encontrado e corrigido**: trocar o padrão
+pra uma palavra masculina ("Sub produto") expôs várias mensagens que só
+funcionavam por coincidência com "Turma" (feminino) — "Dê um nome **à**
+turma", "Já existe **uma** turma", "Turma **atualizada**/**arquivada**/
+**reativada**/**criada e vinculada**", "**Todas as** turmas...
+**vinculadas**", "**Nome da** turma" — todas quebrariam gramaticalmente
+pra um rótulo masculino tipo "Projeto"/"Plano"/"Sub produto" (ex.: "Nome da
+projeto", "uma projeto"). Eram bugs de verdade, não só do "Sub produto"
+novo — qualquer produto que já tivesse personalizado pra um rótulo
+masculino (o teste com "Projeto" já existente, por exemplo) já esbarrava
+nisso. Corrigido com três técnicas, sempre evitando prender um artigo/
+adjetivo à palavra variável: (1) reescrever a frase pra não precisar de
+artigo nem de particípio concordando (ex.: "Dê um nome à turma" → "O nome
+não pode ficar em branco"; "Turma atualizada" → "Alterações salvas em
+"Nome da Turma"" — "alterações"/"salvas" concordam com uma palavra fixa,
+não com o rótulo); (2) verbo em vez de particípio-adjetivo ("Turma
+arquivada." → "Arquivamos "Turma X"." — verbo não concorda em gênero);
+(3) ancorar a concordância num substantivo fixo quando precisa mesmo de um
+artigo/quantificador ("Todas as turmas... cadastrada" → "Não há **nenhum
+registro** de {rótulo} disponível... — nenhum/registro sempre masculino,
+`{rótulo}` só complementa sem precisar concordar). Corrigido em
+`ProductsPage.tsx`, `ProductDashboard.tsx` (título "não encontrada" e aviso
+de turma programada) e `KpisPage.tsx` (formulário de vincular/criar
+produto/turma, lote de criação). Não é uma varredura 100% exaustiva do
+sistema inteiro — focei nos textos que o rótulo novo (ou um rótulo
+personalizado qualquer) realmente atravessa; uma auditoria de concordância
+mais ampla fica como melhoria futura se aparecer mais algum caso.
+
+**Verificação**: `npx tsc --noEmit`, `npm run build`, `npx vitest run`
+(57/57, +1 novo em `labels.test.ts` cobrindo o padrão novo) e `npm run
+check:contrast` (24/24) limpos. `npx playwright test` completo (Desktop +
+Mobile): **259 passando**, 35 skipped, sem falhas — ajustei 8 testes pro
+texto novo (mensagens de arquivar/reativar/atualizar/criar-e-vincular
+viraram verbo-primeiro; "1 turma programada(s)" → "1 turma com início em
+mês futuro"; "Nome da turma" → "Nome") e pro accordion (vários testes
+precisaram clicar em "Expandir" antes de interagir com conteúdo que agora
+vem recolhido por padrão quando há mais de uma turma). `mcp__Supabase__execute_sql`:
+backfill dos 4 produtos existentes confirmado (`sub_item_label: 'Turma'`
+em todos, sem erro, sem impacto em dado além da coluna nova).

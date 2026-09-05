@@ -1191,12 +1191,17 @@ test.describe('metas de produto e sub-produto', () => {
     const productLink = page.getByRole('link', { name: /Faturamento Entre Donos/ })
     await expect(productLink).toContainText('R$ 32.000,00')
 
+    const modal = page.getByRole('dialog')
+    await expect(modal.getByText('Imersão Setembro 2026')).toBeVisible()
+
+    // Com mais de uma turma, cada uma vem recolhida por padrão — precisa
+    // expandir pra ver o conteúdo de dentro (metas vinculadas, etc.).
+    await modal.locator('li', { hasText: 'Imersão Setembro 2026' }).getByRole('button', { name: 'Expandir' }).click()
+    await modal.locator('li', { hasText: 'Imersão Outubro 2026' }).getByRole('button', { name: 'Expandir' }).click()
+
     // Turma de setembro já tem meta própria (32.000).
     const editionLink = page.getByRole('link', { name: /Faturamento Imersão Set\/2026/ })
     await expect(editionLink).toContainText('R$ 32.000,00')
-
-    const modal = page.getByRole('dialog')
-    await expect(modal.getByText('Imersão Setembro 2026')).toBeVisible()
 
     // Turma de outubro não tem meta ainda — mostra o estado vazio, e não
     // tem link nenhum de criar/editar por aqui (isso agora só acontece
@@ -1243,6 +1248,11 @@ test.describe('metas de produto e sub-produto', () => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()
+    // Com mais de uma turma, o cartão vem recolhido — expande a primeira.
+    await page
+      .locator('li', { hasText: 'Imersão Setembro 2026' })
+      .getByRole('button', { name: 'Expandir' })
+      .click()
     await page.getByRole('button', { name: 'Metas' }).first().click()
 
     await expect(page.getByRole('heading', { name: /^Metas de /, exact: false })).toBeVisible()
@@ -1272,15 +1282,18 @@ test.describe('metas de produto e sub-produto', () => {
 
     await expect(page.getByText('Imersão Setembro 2026')).toBeVisible()
     const editionCard = page.locator('li', { hasText: 'Imersão Setembro 2026' })
+    // Com mais de uma turma, o cartão vem recolhido — expande antes de
+    // conseguir clicar em "Arquivar".
+    await editionCard.getByRole('button', { name: 'Expandir' }).click()
     await editionCard.getByRole('button', { name: 'Arquivar' }).click()
-    await expect(page.getByText('Turma arquivada.')).toBeVisible()
-    await expect(page.getByText('Imersão Setembro 2026')).not.toBeVisible()
+    await expect(page.getByText('Arquivamos "Imersão Setembro 2026".')).toBeVisible()
+    await expect(page.getByText('Imersão Setembro 2026', { exact: true })).not.toBeVisible()
 
     await page.getByText('1 turma arquivada(s)').click()
     await expect(page.getByRole('button', { name: 'Reativar' })).toBeVisible()
     await page.getByRole('button', { name: 'Reativar' }).click()
-    await expect(page.getByText('Turma reativada.')).toBeVisible()
-    await expect(page.getByText('Imersão Setembro 2026')).toBeVisible()
+    await expect(page.getByText('Reativamos "Imersão Setembro 2026".')).toBeVisible()
+    await expect(page.getByRole('link', { name: /Imersão Setembro 2026/ })).toBeVisible()
   })
 
   test('clicar numa meta do produto abre o Detalhe dela em Metas', async ({ page }) => {
@@ -1321,6 +1334,13 @@ test.describe('metas de produto e sub-produto', () => {
     await expect(page.getByText('Projetos', { exact: true })).toBeVisible()
     await expect(page.getByText(/Pra frentes que rodam em projeto ou encontro/)).toBeVisible()
     await expect(page.getByRole('link', { name: 'Imersão Setembro 2026' })).toBeVisible()
+
+    // Com mais de um projeto, o cartão vem recolhido — expande antes de
+    // conferir as ações de dentro.
+    await page
+      .locator('li', { hasText: 'Imersão Setembro 2026' })
+      .getByRole('button', { name: 'Expandir' })
+      .click()
     await expect(page.getByRole('button', { name: 'Metas' }).first()).toBeVisible()
 
     // O painel do produto/turma e o Detalhe da meta (Metas) também usam o
@@ -1504,7 +1524,7 @@ test.describe('metas de produto e sub-produto', () => {
 
     await expect(page.getByRole('link', { name: /Turma Já Chegou/ })).toBeVisible()
     await expect(page.getByRole('link', { name: /Turma Ainda Não Chegou/ })).toHaveCount(0)
-    await expect(page.getByText('1 turma programada(s) ainda não aparece(m) aqui')).toBeVisible()
+    await expect(page.getByText('1 turma com início em mês futuro ainda não aparece(m) aqui')).toBeVisible()
   })
 
   // Turma: mesmo painel, e agora TAMBÉM com seção de tarefas — desde
@@ -1978,7 +1998,7 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await dialog.getByLabel('Nome').fill('Imersão Setembro 2026 — Turma B')
     await dialog.getByRole('button', { name: 'Salvar' }).click()
 
-    await expect(page.getByText('Turma atualizada.')).toBeVisible()
+    await expect(page.getByText('Alterações salvas em "Imersão Setembro 2026 — Turma B".')).toBeVisible()
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' }).getByText('Imersão Setembro 2026 — Turma B')).toBeVisible()
   })
 
@@ -2080,10 +2100,10 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
 
     const dialog = page.getByRole('dialog')
     await dialog.getByRole('button', { name: 'Criar turma' }).click()
-    await dialog.getByLabel('Nome da turma').fill('Imersão Novembro 2026')
+    await dialog.getByLabel('Nome').fill('Imersão Novembro 2026')
     await dialog.getByRole('button', { name: 'Criar e vincular' }).click()
 
-    await expect(page.getByText('Turma criada e vinculada.')).toBeVisible()
+    await expect(page.getByText('Criamos e vinculamos "Imersão Novembro 2026".')).toBeVisible()
   })
 
   // Pedido explícito: planejar um ano inteiro de turmas (ex. 12 mensais)
@@ -2123,7 +2143,7 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await dialog.getByLabel('Mês/ano da primeira').fill('2027-01')
     await dialog.getByRole('button', { name: /Criar 3 turma/ }).click()
 
-    await expect(page.getByText('3 turmas criada(s) e vinculada(s).')).toBeVisible()
+    await expect(page.getByText('Criamos e vinculamos 3 turmas.')).toBeVisible()
   })
 
   // Bug relatado: no fluxo padrão ("Usar sugestões"), não havia como definir

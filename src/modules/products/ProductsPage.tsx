@@ -14,7 +14,19 @@
 // pra vincular vários indicadores de uma vez.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { Archive, ArchiveRestore, CalendarRange, ClipboardList, LayoutDashboard, Pencil, Plus, Target, Trash2 } from 'lucide-react'
+import {
+  Archive,
+  ArchiveRestore,
+  CalendarRange,
+  ChevronDown,
+  ChevronRight,
+  ClipboardList,
+  LayoutDashboard,
+  Pencil,
+  Plus,
+  Target,
+  Trash2,
+} from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
 import { formatDate, formatValue } from '../../core/lib/format'
 import { subItemLabel } from '../../core/lib/labels'
@@ -115,6 +127,19 @@ export default function ProductsPage() {
   // (pedido explícito do usuário). Editar uma que já tem data mostra as
   // datas de cara — ver `startEditEdition`.
   const [showEditionDates, setShowEditionDates] = useState(false)
+  // Cada turma começa recolhida — pedido explícito do usuário pensando em
+  // escala (um produto com dezenas de turmas cadastradas ao longo dos anos
+  // não pode virar uma parede de cartões abertos). Quando só existe uma
+  // turma, não faz sentido esconder o conteúdo dela atrás de um clique —
+  // ver `singleEdition` mais abaixo, que ignora este estado nesse caso.
+  const [expandedEditionIds, setExpandedEditionIds] = useState<Set<string>>(new Set())
+  const toggleEditionExpanded = (id: string) =>
+    setExpandedEditionIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -367,7 +392,7 @@ export default function ProductsPage() {
   const addEdition = async () => {
     if (!activeId || !editionForm.name.trim()) {
       notify(
-        `Dê um nome à ${subItemLabel(activeProduct, { lower: true })} (ex.: "${subItemLabel(activeProduct)} 12", "2027.1").`,
+        `O nome não pode ficar em branco (ex.: "${subItemLabel(activeProduct)} 12", "2027.1").`,
         'error',
       )
       return
@@ -408,7 +433,7 @@ export default function ProductsPage() {
   const updateEdition = async () => {
     if (!editingEdition || !editionForm.name.trim()) {
       notify(
-        `Dê um nome à ${subItemLabel(activeProduct, { lower: true })} (ex.: "${subItemLabel(activeProduct)} 12", "2027.1").`,
+        `O nome não pode ficar em branco (ex.: "${subItemLabel(activeProduct)} 12", "2027.1").`,
         'error',
       )
       return
@@ -422,15 +447,14 @@ export default function ProductsPage() {
       })
       .eq('id', editingEdition.id)
     if (updateError) {
-      notify(
-        updateError.code === '23505'
-          ? `Já existe uma ${subItemLabel(activeProduct, { lower: true })} com esse nome.`
-          : updateError.message,
-        'error',
-      )
+      notify(updateError.code === '23505' ? 'Esse nome já está em uso.' : updateError.message, 'error')
       return
     }
-    notify(`${subItemLabel(activeProduct)} atualizada.`)
+    // "Alterações salvas em X" em vez de "X atualizada" — evita depender do
+    // gênero gramatical do rótulo (Turma=fem, Projeto=masc, Plano=masc...),
+    // que "atualizada" só acertaria por coincidência. Mesmo motivo por trás
+    // de "Arquivamos"/"Reativamos" abaixo, no lugar de "arquivada"/"reativada".
+    notify(`Alterações salvas em "${editionForm.name.trim()}".`)
     cancelEditEdition()
     await load()
   }
@@ -454,7 +478,7 @@ export default function ProductsPage() {
       notify(error.message, 'error')
       return
     }
-    notify(`${subItemLabel(products.find((p) => p.id === edition.product_id))} arquivada.`)
+    notify(`Arquivamos "${edition.name}".`)
     await load()
   }
 
@@ -464,7 +488,7 @@ export default function ProductsPage() {
       notify(error.message, 'error')
       return
     }
-    notify(`${subItemLabel(products.find((p) => p.id === edition.product_id))} reativada.`)
+    notify(`Reativamos "${edition.name}".`)
     await load()
   }
 
@@ -619,15 +643,21 @@ export default function ProductsPage() {
               <p className="text-sm font-bold text-content">Metas que acompanham este produto</p>
               {/* Só leitura — nome + valor atual. Vincular uma meta nova
                   acontece pelo atalho no form de editar produto, ou de
-                  dentro do cartão dela na tela de Metas. */}
+                  dentro do cartão dela na tela de Metas. Cartão no mesmo
+                  padrão visual (tamanho, borda, sombra) do cartão de turma
+                  logo abaixo — antes ficava visivelmente menor/mais fino,
+                  como se fosse informação secundária. */}
               {(statsByProduct.get(activeProduct.id)?.indicators ?? []).length === 0 ? (
                 <p className="mt-1 text-sm text-content-soft">Nenhuma meta acompanha este produto ainda.</p>
               ) : (
-                <ul className="mt-2.5 space-y-2.5">
+                <ul className="mt-2.5 space-y-3">
                   {(statsByProduct.get(activeProduct.id)?.indicators ?? []).map((row) => {
                     const rowValue = effectiveValue(row.kpi_id)
                     return (
-                      <li key={row.kpi_id} className="rounded-xl border border-line-strong bg-surface p-3 shadow-card">
+                      <li
+                        key={row.kpi_id}
+                        className="rounded-xl border border-line-strong bg-surface p-3.5 shadow-card"
+                      >
                         {/* aria-label explícito: sem isso, o nome acessível do
                             link vira nome+valor+contribuição concatenados —
                             e "X% de {nome de outra meta}" na contribuição pode
@@ -637,7 +667,7 @@ export default function ProductsPage() {
                           className="block"
                           aria-label={`${row.name}, ${rowValue !== null ? formatValue(rowValue, row.unit) : 'sem lançamento ainda'}`}
                         >
-                          <IndicatorLine row={row} value={rowValue} contribution={contributionFor(row)} />
+                          <IndicatorLine row={row} value={rowValue} contribution={contributionFor(row)} size="lg" />
                         </Link>
                       </li>
                     )
@@ -657,112 +687,147 @@ export default function ProductsPage() {
                 </p>
               ) : (
                 <ul className="mt-2.5 space-y-3">
-                  {activeEditions.map((edition) => {
-                    const editionIndicators = indicatorsByEdition.get(edition.id) ?? []
-                    return (
-                      <li key={edition.id} className="rounded-xl border border-line-strong bg-surface p-3.5 shadow-card">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <Link
-                            to={`/empresa/${company.id}/produtos/${activeProduct.id}/turmas/${edition.id}`}
-                            className="min-w-0 hover:underline"
-                          >
-                            <p className="truncate text-sm font-semibold text-content">{edition.name}</p>
-                            {(edition.start_date || edition.end_date) && (
-                              <p className="text-xs text-content-faint">
-                                {edition.start_date ? formatDate(edition.start_date) : '—'} a{' '}
-                                {edition.end_date ? formatDate(edition.end_date) : '—'}
-                              </p>
-                            )}
-                          </Link>
-                          {canWrite ? (
-                            <select
-                              className="shrink-0 rounded border border-line bg-surface px-1.5 py-1 text-base sm:text-xs"
-                              value={edition.status}
-                              onChange={(event) =>
-                                void setEditionStatus(edition, event.target.value as ProductEditionStatus)
-                              }
-                            >
-                              {EDITION_STATUSES.map((status) => (
-                                <option key={status} value={status}>
-                                  {PRODUCT_EDITION_STATUS_LABEL[status]}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
+                  {/* Recolhida por padrão (ver `expandedEditionIds`) — com uma
+                      só, esconder o conteúdo atrás de um clique não ajuda
+                      ninguém, então ela fica sempre aberta e sem seta. */}
+                  {(() => {
+                    const singleEdition = activeEditions.length === 1
+                    return activeEditions.map((edition) => {
+                      const editionIndicators = indicatorsByEdition.get(edition.id) ?? []
+                      const isOpen = singleEdition || expandedEditionIds.has(edition.id)
+                      return (
+                        <li
+                          key={edition.id}
+                          className="rounded-xl border border-line-strong bg-surface shadow-card"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2 p-3.5">
+                            <div className="flex min-w-0 items-start gap-2">
+                              {!singleEdition && (
+                                <button
+                                  type="button"
+                                  className="mt-0.5 shrink-0 rounded p-0.5 text-content-faint hover:bg-hover hover:text-content"
+                                  onClick={() => toggleEditionExpanded(edition.id)}
+                                  aria-expanded={isOpen}
+                                  aria-label={isOpen ? 'Recolher' : 'Expandir'}
+                                >
+                                  {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                </button>
+                              )}
+                              <Link
+                                to={`/empresa/${company.id}/produtos/${activeProduct.id}/turmas/${edition.id}`}
+                                className="min-w-0 hover:underline"
+                              >
+                                <p className="truncate text-sm font-semibold text-content">{edition.name}</p>
+                                {(edition.start_date || edition.end_date) && (
+                                  <p className="text-xs text-content-faint">
+                                    {edition.start_date ? formatDate(edition.start_date) : '—'} a{' '}
+                                    {edition.end_date ? formatDate(edition.end_date) : '—'}
+                                  </p>
+                                )}
+                              </Link>
+                            </div>
                             <Badge tone={EDITION_STATUS_TONE[edition.status]}>
                               {PRODUCT_EDITION_STATUS_LABEL[edition.status]}
                             </Badge>
-                          )}
-                        </div>
-
-                        {(openTasksByEdition.get(edition.id) ?? 0) > 0 && (
-                          <p className="mt-1.5 flex items-center gap-1 text-xs text-content-faint">
-                            <ClipboardList className="h-3.5 w-3.5" />
-                            {openTasksByEdition.get(edition.id)} tarefa(s) aberta(s)
-                          </p>
-                        )}
-
-                        {canWrite && (
-                          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line pt-2 text-xs">
-                            <button
-                              type="button"
-                              className="flex items-center gap-1 text-content-soft hover:text-content"
-                              onClick={() => startEditEdition(edition)}
-                            >
-                              <Pencil className="h-3.5 w-3.5" /> Editar
-                            </button>
-                            <button
-                              type="button"
-                              className="flex items-center gap-1 text-content-soft hover:text-content"
-                              onClick={() => setAttachEditionFor(edition)}
-                            >
-                              <Target className="h-3.5 w-3.5" /> Metas
-                            </button>
-                            <button
-                              type="button"
-                              className="flex items-center gap-1 text-content-soft hover:text-content"
-                              onClick={() => void archiveEdition(edition)}
-                            >
-                              <Archive className="h-3.5 w-3.5" /> Arquivar
-                            </button>
-                            <button
-                              type="button"
-                              className="flex items-center gap-1 text-content-soft hover:text-rose-600 dark:hover:text-rose-400"
-                              onClick={() => editionDelete.ask(edition)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" /> Excluir
-                            </button>
                           </div>
-                        )}
 
-                        <div className="mt-2.5 border-t border-line pt-2.5">
-                          {editionIndicators.length === 0 ? (
-                            <p className="text-xs text-content-faint">Nenhuma meta vinculada ainda.</p>
-                          ) : (
-                            <ul className="space-y-2">
-                              {editionIndicators.map((row) => {
-                                const rowValue = effectiveValue(row.kpi_id)
-                                return (
-                                  <li key={row.kpi_id}>
-                                    {/* Ver comentário equivalente acima — aria-label
-                                        evita que a contribuição ("X% de {outro
-                                        nome}") vaze pro nome acessível do link. */}
-                                    <Link
-                                      to={`/empresa/${company.id}/kpis/${row.kpi_id}`}
-                                      className="block rounded-md py-0.5 transition hover:bg-hover"
-                                      aria-label={`${row.name}, ${rowValue !== null ? formatValue(rowValue, row.unit) : 'sem lançamento ainda'}`}
-                                    >
-                                      <IndicatorLine row={row} value={rowValue} contribution={contributionFor(row)} size="xs" />
-                                    </Link>
-                                  </li>
-                                )
-                              })}
-                            </ul>
+                          {isOpen && (
+                            <div className="border-t border-line p-3.5 pt-3">
+                              {canWrite && (
+                                <label className="flex items-center gap-2 text-xs text-content-soft">
+                                  Status
+                                  <select
+                                    className="rounded border border-line bg-surface px-1.5 py-1 text-base sm:text-xs"
+                                    value={edition.status}
+                                    onChange={(event) =>
+                                      void setEditionStatus(edition, event.target.value as ProductEditionStatus)
+                                    }
+                                  >
+                                    {EDITION_STATUSES.map((status) => (
+                                      <option key={status} value={status}>
+                                        {PRODUCT_EDITION_STATUS_LABEL[status]}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              )}
+
+                              {(openTasksByEdition.get(edition.id) ?? 0) > 0 && (
+                                <p className="mt-1.5 flex items-center gap-1 text-xs text-content-faint">
+                                  <ClipboardList className="h-3.5 w-3.5" />
+                                  {openTasksByEdition.get(edition.id)} tarefa(s) aberta(s)
+                                </p>
+                              )}
+
+                              {canWrite && (
+                                <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line pt-2 text-xs">
+                                  <button
+                                    type="button"
+                                    className="flex items-center gap-1 text-content-soft hover:text-content"
+                                    onClick={() => startEditEdition(edition)}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" /> Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="flex items-center gap-1 text-content-soft hover:text-content"
+                                    onClick={() => setAttachEditionFor(edition)}
+                                  >
+                                    <Target className="h-3.5 w-3.5" /> Metas
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="flex items-center gap-1 text-content-soft hover:text-content"
+                                    onClick={() => void archiveEdition(edition)}
+                                  >
+                                    <Archive className="h-3.5 w-3.5" /> Arquivar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="flex items-center gap-1 text-content-soft hover:text-rose-600 dark:hover:text-rose-400"
+                                    onClick={() => editionDelete.ask(edition)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" /> Excluir
+                                  </button>
+                                </div>
+                              )}
+
+                              <div className="mt-2.5 border-t border-line pt-2.5">
+                                {editionIndicators.length === 0 ? (
+                                  <p className="text-xs text-content-faint">Nenhuma meta vinculada ainda.</p>
+                                ) : (
+                                  <ul className="space-y-2">
+                                    {editionIndicators.map((row) => {
+                                      const rowValue = effectiveValue(row.kpi_id)
+                                      return (
+                                        <li key={row.kpi_id}>
+                                          {/* Ver comentário equivalente acima — aria-label
+                                              evita que a contribuição ("X% de {outro
+                                              nome}") vaze pro nome acessível do link. */}
+                                          <Link
+                                            to={`/empresa/${company.id}/kpis/${row.kpi_id}`}
+                                            className="block rounded-md py-0.5 transition hover:bg-hover"
+                                            aria-label={`${row.name}, ${rowValue !== null ? formatValue(rowValue, row.unit) : 'sem lançamento ainda'}`}
+                                          >
+                                            <IndicatorLine
+                                              row={row}
+                                              value={rowValue}
+                                              contribution={contributionFor(row)}
+                                              size="xs"
+                                            />
+                                          </Link>
+                                        </li>
+                                      )
+                                    })}
+                                  </ul>
+                                )}
+                              </div>
+                            </div>
                           )}
-                        </div>
-                      </li>
-                    )
-                  })}
+                        </li>
+                      )
+                    })
+                  })()}
                 </ul>
               )}
 
@@ -801,7 +866,7 @@ export default function ProductsPage() {
                   )}
                   <input
                     className="input"
-                    placeholder={`Nome da ${editionLabelLower} (ex.: ${editionLabel} 12)`}
+                    placeholder={`Nome (ex.: "${editionLabel} 12")`}
                     value={editionForm.name}
                     onChange={(event) => setEditionForm((c) => ({ ...c, name: event.target.value }))}
                   />
@@ -960,9 +1025,12 @@ export default function ProductsPage() {
         confirmLabel="Excluir"
         message={
           <>
-            Excluir <strong>{productDelete.target?.name}</strong> apaga também as{' '}
-            {subItemLabel(productDelete.target, { plural: true, lower: true })} dele. Metas, tarefas e orçamentos
-            ligados a ele continuam existindo, só perdem o vínculo com o produto. Não dá pra desfazer.
+            {/* "também exclui X" em vez de "apaga também as X dele" — evita o
+                artigo "as"/"os", que depende do gênero do rótulo (ver
+                comentário em updateEdition). */}
+            Excluir <strong>{productDelete.target?.name}</strong> também exclui{' '}
+            {subItemLabel(productDelete.target, { plural: true, lower: true })}. Metas, tarefas e orçamentos ligados a
+            ele continuam existindo, só perdem o vínculo com o produto. Não dá pra desfazer.
           </>
         }
         onConfirm={() => void productDelete.confirm()}
@@ -998,10 +1066,35 @@ function IndicatorLine({
   value: number | null
   /** Quanto esta meta representa da meta-mãe dela — omitido quando não há pai. */
   contribution?: { ratio: number | null; parentName: string | null }
-  size?: 'sm' | 'xs'
+  size?: 'lg' | 'sm' | 'xs'
 }) {
-  const textSize = size === 'xs' ? 'text-[11px]' : 'text-xs'
   const pct = contribution?.ratio != null ? Math.round(contribution.ratio * 100) : null
+  // "lg" — usado na lista de topo do modal (metas que acompanham o produto
+  // inteiro), pra ficar no mesmo peso visual do cartão de turma ao lado
+  // dela, em vez de parecer um resumo menor. "sm"/"xs" continuam servindo
+  // pra listas mais compactas (aninhadas dentro de cada turma).
+  if (size === 'lg') {
+    return (
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-content">{row.name}</p>
+          <p className="mt-1 text-base font-semibold text-content">
+            {value === null ? (
+              <span className="text-sm font-normal text-content-faint">Sem lançamento ainda</span>
+            ) : (
+              formatValue(value, row.unit)
+            )}
+          </p>
+        </div>
+        {pct !== null && (
+          <span className="shrink-0 rounded-full bg-hover px-2 py-1 text-xs font-medium text-content-soft">
+            {pct}%{contribution?.parentName ? ` de ${contribution.parentName}` : ''}
+          </span>
+        )}
+      </div>
+    )
+  }
+  const textSize = size === 'xs' ? 'text-[11px]' : 'text-xs'
   return (
     <div>
       <p className={`truncate font-medium text-content-soft ${textSize}`}>{row.name}</p>

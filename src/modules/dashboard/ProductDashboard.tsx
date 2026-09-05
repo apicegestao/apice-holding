@@ -378,7 +378,7 @@ export default function ProductDashboard() {
     return (
       <div className="mx-auto max-w-3xl">
         <EmptyState
-          title={editionId ? `${subItemLabel(product)} não encontrada` : 'Produto não encontrado'}
+          title={editionId ? 'Não encontramos essa página' : 'Produto não encontrado'}
           description="Pode ter sido excluído, ou o link está desatualizado."
           action={
             <Link to={`/empresa/${company.id}/produtos`} className="btn-primary">
@@ -544,9 +544,12 @@ export default function ProductDashboard() {
           )}
           {upcomingEditionsCount > 0 && (
             <p className={`text-xs text-content-faint ${visibleEditions.length > 0 ? 'mt-3' : ''}`}>
+              {/* "com início em mês futuro" em vez de "programada(s)" — e "o
+                  mês" em vez de "dela(s)" — evita adjetivo/possessivo que
+                  dependeria do gênero do rótulo (Turma=fem, Projeto=masc). */}
               {upcomingEditionsCount}{' '}
-              {subItemLabel(product, { plural: upcomingEditionsCount !== 1, lower: true })} programada(s) ainda não
-              aparece(m) aqui — some(m) quando o mês dela(s) chegar.
+              {subItemLabel(product, { plural: upcomingEditionsCount !== 1, lower: true })} com início em mês futuro
+              ainda não aparece(m) aqui — some(m) quando o mês chegar.
             </p>
           )}
         </Card>

@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { subItemLabel } from '../labels'
 
 describe('subItemLabel', () => {
-  it('sem personalização (null), sem produto, ou string vazia, cai no padrão "Turma"', () => {
-    expect(subItemLabel({ sub_item_label: null })).toBe('Turma')
-    expect(subItemLabel(null)).toBe('Turma')
-    expect(subItemLabel(undefined)).toBe('Turma')
-    expect(subItemLabel({ sub_item_label: '   ' })).toBe('Turma')
+  it('sem personalização (null), sem produto, ou string vazia, cai no padrão genérico "Sub produto"', () => {
+    expect(subItemLabel({ sub_item_label: null })).toBe('Sub produto')
+    expect(subItemLabel(null)).toBe('Sub produto')
+    expect(subItemLabel(undefined)).toBe('Sub produto')
+    expect(subItemLabel({ sub_item_label: '   ' })).toBe('Sub produto')
   })
 
   it('usa o rótulo personalizado do produto', () => {
@@ -35,5 +35,10 @@ describe('subItemLabel', () => {
   it('lower deixa minúsculo', () => {
     expect(subItemLabel({ sub_item_label: 'Turma' }, { lower: true })).toBe('turma')
     expect(subItemLabel({ sub_item_label: 'Turma' }, { plural: true, lower: true })).toBe('turmas')
+  })
+
+  it('padrão "Sub produto" pluraliza como "Sub produtos"', () => {
+    expect(subItemLabel(null, { plural: true })).toBe('Sub produtos')
+    expect(subItemLabel(undefined, { plural: true, lower: true })).toBe('sub produtos')
   })
 })
