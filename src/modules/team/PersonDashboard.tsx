@@ -9,7 +9,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Square, Target } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
-import { attainmentRatio, formatDate, formatValue, initials, isOnTarget, relativeDays } from '../../core/lib/format'
+import {
+  attainmentLabel,
+  attainmentRatio,
+  formatAttainmentLabel,
+  formatDate,
+  formatValue,
+  initials,
+  isOnTarget,
+  relativeDays,
+} from '../../core/lib/format'
 import { buildChildrenByParent, effectiveKpiValue, type RollupRow } from '../../core/lib/kpiRollup'
 import { useAuth } from '../../core/auth/AuthProvider'
 import { Badge, Card, EmptyState, Loading, PageHeader, ProgressBar, useToast } from '../../core/ui'
@@ -214,6 +223,8 @@ export default function PersonDashboard() {
           <ul className="space-y-3">
             {metasEffective.map((meta) => {
               const ratio = attainmentRatio(meta.value, meta.target_value, meta.direction)
+              const pctText =
+                formatAttainmentLabel(attainmentLabel(meta.value, meta.target_value, meta.direction)) ?? undefined
               const caption =
                 meta.value !== null && meta.target_value !== null
                   ? `${formatValue(meta.value, meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
@@ -246,7 +257,7 @@ export default function PersonDashboard() {
                     </p>
                     {ratio !== null && (
                       <div className="mt-1.5 pl-4">
-                        <ProgressBar ratio={ratio} caption={caption} />
+                        <ProgressBar ratio={ratio} caption={caption} pctText={pctText} />
                       </div>
                     )}
                   </Link>

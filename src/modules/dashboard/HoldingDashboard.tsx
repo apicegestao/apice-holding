@@ -34,7 +34,9 @@ import {
 } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
 import {
+  attainmentLabel,
   attainmentRatio,
+  formatAttainmentLabel,
   formatCompact,
   formatDate,
   formatValue,
@@ -951,6 +953,11 @@ export default function HoldingDashboard() {
                           meta.value !== null ? isOnTarget(meta.value, meta.target_value, meta.direction) : null
                         const ratio =
                           meta.value !== null ? attainmentRatio(meta.value, meta.target_value, meta.direction) : null
+                        const pctText =
+                          meta.value !== null
+                            ? (formatAttainmentLabel(attainmentLabel(meta.value, meta.target_value, meta.direction)) ??
+                              undefined)
+                            : undefined
                         const caption =
                           meta.target_value !== null
                             ? `${formatValue(meta.value, meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
@@ -980,7 +987,7 @@ export default function HoldingDashboard() {
                               </div>
                               {ratio !== null && (
                                 <div className="mt-1">
-                                  <ProgressBar ratio={ratio} caption={caption} />
+                                  <ProgressBar ratio={ratio} caption={caption} pctText={pctText} />
                                 </div>
                               )}
                             </Link>

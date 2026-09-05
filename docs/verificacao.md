@@ -3563,3 +3563,73 @@ precisaram clicar em "Expandir" antes de interagir com conteúdo que agora
 vem recolhido por padrão quando há mais de uma turma). `mcp__Supabase__execute_sql`:
 backfill dos 4 produtos existentes confirmado (`sub_item_label: 'Turma'`
 em todos, sem erro, sem impacto em dado além da coluna nova).
+
+## 57. "X% abaixo/acima do limite" pra indicador "quanto menor, melhor" + bug real do checkpoint
+
+Usuário relatou (com print): indicador "Churn 2026" (alvo 5, lançado 1)
+mostrava "300%" na barra de progresso. Pedi pra avaliar antes de mexer —
+relatório completo entregue ao usuário (não repetido aqui): o número em si
+não era um bug novo (já tinha teto de 300% desde o item 52, testado),
+mas continuava sem leitura intuitiva nenhuma pra um indicador "quanto
+menor, melhor" — 300% lê como "estourei", não "estou ótimo". A auditoria
+completa (todo lugar do sistema que calcula esse tipo de %) achou também
+um bug de verdade, esse sim novo: o "Acompanhamento por período"
+(parcelas do alvo repartido) fazia a conta crua (`lançado ÷ alvo-da-
+parcela`) **sem olhar a direção do indicador** — pra um "down" repartido,
+um mês bom (abaixo da cota) aparecia com % baixo e badge vermelho, e um
+mês ruim aparecia verde: cor invertida, não só número estranho.
+
+**Decisão do usuário**: trocar o número por uma frase direta — "X% abaixo
+do limite" (dentro do alvo) ou "X% acima do limite" (fora dele), calculada
+de `1 - valor/alvo`, sem precisar de teto nenhum (a fração já nasce numa
+escala que faz sentido sozinha).
+
+**`core/lib/format.ts`**: duas funções novas, ao lado de `attainmentRatio`
+(que continua existindo e sendo usada — decide cor e largura da barra,
+função inalterada). `attainmentLabel(value, target, direction)` devolve
+`{ pct, suffix }` — num "up" só `{ pct: valor/alvo, suffix: '' }` (nada
+muda pro caso "maior é melhor"); num "down", `1 - valor/alvo` quando
+dentro do alvo (`suffix: 'abaixo do limite'`) ou `valor/alvo - 1` quando
+fora (`suffix: 'acima do limite'`). `formatAttainmentLabel()` empacota os
+dois numa string só ("X% abaixo do limite") pra exibição em linha única.
+Separado em `{pct, suffix}` (não só a string) porque o anel de destaque do
+Detalhe (número grande + legenda pequena embaixo) precisa dos dois pedaços
+soltos, não cabe a frase inteira nos 112px do anel.
+
+**`core/ui/index.tsx`**: `ProgressBar` ganha prop opcional `pctText` — só
+troca o texto exibido (`"X%"` → o que for passado); `ratio` continua
+decidindo cor/largura da barra normalmente, sem mudança nenhuma aí.
+
+**Onde o texto mudou** (todo call site de `attainmentRatio` que mostra o %
+pra gente, um a um): `MetasOverview.tsx` (linha e cartão da lista de
+Metas), `MetaDetail.tsx` (anel de destaque do topo, lista de "Alvos" da
+própria meta, linha e cartão de cada filho na quebra), e os 5 widgets
+"Alvos"/"Metas sob responsabilidade" dos painéis (`CompanyDashboard.tsx`,
+`ProductDashboard.tsx`, `DepartmentDashboard.tsx`, `HoldingDashboard.tsx`,
+`PersonDashboard.tsx`) — todos passam a usar `ProgressBar`'s novo
+`pctText`. Os widgets de "Saúde geral" (média de vários indicadores
+misturados, `up` e `down` juntos) e as barras de execução de orçamento
+(`variant="spend"`, não é meta) ficam como estavam — não fazem sentido
+como "abaixo/acima do limite" (não são um indicador único com direção
+definida).
+
+**Bug do checkpoint corrigido**: `PeriodTracker` (`MetaDetail.tsx`) e a
+lista de parcelas do modal "Editar alvo" (`KpisPage.tsx`) trocam a conta
+crua por `attainmentRatio` (cor/largura, com direção) +
+`attainmentLabel`/`formatAttainmentLabel` (texto) — mesmo padrão do resto
+do sistema. Cor e número agora corretos pra alvo repartido de um indicador
+"down".
+
+**Verificação**: `npx tsc --noEmit`, `npm run build`, `npx vitest run`
+(63/63, +6 novos em `attainmentLabel`/`formatAttainmentLabel` cobrindo
+"up", dentro do alvo, exatamente no alvo, valor 0, fora do alvo, e os
+nulos) e `npm run check:contrast` (24/24) limpos. `npx playwright test`
+completo (Desktop + Mobile): **261 passando**, 35 skipped, sem falhas — 1
+teste novo replicando o relato exato do usuário (Churn, alvo 5, lançado
+4,2 → "16% abaixo do limite" na lista E no anel do Detalhe, nunca mais
+"119%" cru). O bug do checkpoint não ganhou um teste e2e dedicado — a
+matemática já está coberta pelos testes unitários novos e a mudança no
+componente é só trocar a chamada por funções já testadas (mesmo padrão já
+provado funcionando no teste novo de `MetasOverview`); fica como nota pra
+uma cobertura futura se algum caso específico de checkpoint "down"
+aparecer.

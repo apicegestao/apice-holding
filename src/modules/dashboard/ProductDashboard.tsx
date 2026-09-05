@@ -23,7 +23,16 @@ import { Link, useParams } from 'react-router-dom'
 import { CalendarRange, ChevronRight, ClipboardList, LayoutDashboard, Square, Target, Wallet } from 'lucide-react'
 import { Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
-import { attainmentRatio, formatCompact, formatDate, formatValue, isOnTarget, relativeDays } from '../../core/lib/format'
+import {
+  attainmentLabel,
+  attainmentRatio,
+  formatAttainmentLabel,
+  formatCompact,
+  formatDate,
+  formatValue,
+  isOnTarget,
+  relativeDays,
+} from '../../core/lib/format'
 import { buildChildrenByParent, effectiveKpiValue, type RollupRow } from '../../core/lib/kpiRollup'
 import { subItemLabel } from '../../core/lib/labels'
 import { useCompany } from '../../core/company/CompanyProvider'
@@ -480,6 +489,8 @@ export default function ProductDashboard() {
             <ul className="space-y-3">
               {openMetas.map((meta) => {
                 const ratio = attainmentRatio(meta.value, meta.target_value, meta.direction)
+                const pctText =
+                  formatAttainmentLabel(attainmentLabel(meta.value, meta.target_value, meta.direction)) ?? undefined
                 const caption =
                   meta.value !== null && meta.target_value !== null
                     ? `${formatValue(meta.value, meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
@@ -502,7 +513,7 @@ export default function ProductDashboard() {
                       </p>
                       {ratio !== null && (
                         <div className="mt-1.5">
-                          <ProgressBar ratio={ratio} caption={caption} />
+                          <ProgressBar ratio={ratio} caption={caption} pctText={pctText} />
                         </div>
                       )}
                     </Link>

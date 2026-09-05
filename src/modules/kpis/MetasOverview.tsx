@@ -6,7 +6,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronRight, Plus, Search, ToggleLeft, ToggleRight } from 'lucide-react'
-import { attainmentRatio, formatDate, formatValue, relativeDays } from '../../core/lib/format'
+import { attainmentLabel, attainmentRatio, formatAttainmentLabel, formatDate, formatValue, relativeDays } from '../../core/lib/format'
 import { Badge, EmptyState, Loading, PageHeader } from '../../core/ui'
 import { GOAL_STATUS_LABEL, type Kpi } from '../../core/types'
 import { statusTone, type KpisCtx } from './KpisPage'
@@ -407,7 +407,9 @@ function getMetaRowStats(kpi: Kpi, ctx: KpisCtx) {
   const alvo = (ctx.metasByKpi.get(kpi.id) ?? [])[0] ?? null
   const ratio = alvo && value !== null ? attainmentRatio(value, alvo.target_value, kpi.direction) : null
   const pct = ratio !== null ? Math.round(ratio * 100) : null
-  return { value, levelSummary, alvo, pct }
+  const pctLabel =
+    alvo && value !== null ? formatAttainmentLabel(attainmentLabel(value, alvo.target_value, kpi.direction)) : null
+  return { value, levelSummary, alvo, pct, pctLabel }
 }
 
 function pctTone(pct: number | null) {
@@ -418,7 +420,7 @@ function pctTone(pct: number | null) {
 }
 
 function MetaRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
-  const { value, levelSummary, alvo, pct } = getMetaRowStats(kpi, ctx)
+  const { value, levelSummary, alvo, pct, pctLabel } = getMetaRowStats(kpi, ctx)
   const { bar: barColor, text: pctColor } = pctTone(pct)
 
   // Sem isso, o nome acessível do link vira o texto da linha inteira
@@ -461,7 +463,7 @@ function MetaRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
               <div className="h-1.5 overflow-hidden rounded-full bg-hover">
                 <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
               </div>
-              <p className={`mt-1 text-xs font-semibold ${pctColor}`}>{pct}%</p>
+              <p className={`mt-1 text-xs font-semibold ${pctColor}`}>{pctLabel}</p>
             </>
           ) : (
             <span className="text-xs text-content-faint">—</span>
@@ -506,7 +508,7 @@ function MetaRow({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
 
 /** Mesma informação de MetaRow, empilhada em cartão — usada abaixo de sm:. */
 function MetaCard({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
-  const { value, levelSummary, alvo, pct } = getMetaRowStats(kpi, ctx)
+  const { value, levelSummary, alvo, pct, pctLabel } = getMetaRowStats(kpi, ctx)
   const { bar: barColor, text: pctColor } = pctTone(pct)
   const ariaLabel = `${kpi.name}, atual ${value !== null ? formatValue(value, kpi.unit) : 'sem lançamento'}${
     alvo ? `, alvo ${formatValue(alvo.target_value, kpi.unit)}, ${GOAL_STATUS_LABEL[alvo.status]}` : ', sem alvo'
@@ -554,7 +556,7 @@ function MetaCard({ kpi, ctx }: { kpi: Kpi; ctx: KpisCtx }) {
               </div>
             </div>
           )}
-          {pct !== null && <span className={`shrink-0 text-xs font-semibold ${pctColor}`}>{pct}%</span>}
+          {pct !== null && <span className={`shrink-0 text-xs font-semibold ${pctColor}`}>{pctLabel}</span>}
         </div>
       </Link>
       {ctx.canWrite && (

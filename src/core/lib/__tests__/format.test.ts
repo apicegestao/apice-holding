@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  attainmentLabel,
   attainmentRatio,
+  formatAttainmentLabel,
   formatNumberInput,
   formatValue,
   labelPeriod,
@@ -104,6 +106,42 @@ describe('attainmentRatio', () => {
     expect(attainmentRatio(null, 100, 'up')).toBeNull()
     expect(attainmentRatio(50, null, 'up')).toBeNull()
     expect(attainmentRatio(50, 0, 'up')).toBeNull()
+  })
+})
+
+describe('attainmentLabel / formatAttainmentLabel', () => {
+  it('num KPI "up", é só o percentual de sempre, sem rótulo', () => {
+    expect(attainmentLabel(50, 100, 'up')).toEqual({ pct: 50, suffix: '' })
+    expect(attainmentLabel(120, 100, 'up')).toEqual({ pct: 120, suffix: '' })
+    expect(formatAttainmentLabel(attainmentLabel(50, 100, 'up'))).toBe('50%')
+  })
+
+  // Caso relatado pelo usuário: churn, alvo 5, lançado 1 — "300%" (mesmo
+  // com teto) continuava sem leitura intuitiva. "80% abaixo do limite" nasce
+  // direto de 1 - valor/alvo, sem precisar de teto nenhum.
+  it('num KPI "down" dentro do alvo, mostra quanto está abaixo do limite', () => {
+    expect(attainmentLabel(1, 5, 'down')).toEqual({ pct: 80, suffix: 'abaixo do limite' })
+    expect(formatAttainmentLabel(attainmentLabel(1, 5, 'down'))).toBe('80% abaixo do limite')
+  })
+
+  it('num KPI "down" no valor exato do alvo, mostra 0% abaixo do limite', () => {
+    expect(attainmentLabel(5, 5, 'down')).toEqual({ pct: 0, suffix: 'abaixo do limite' })
+  })
+
+  it('num KPI "down" com o melhor resultado possível (zero), mostra 100% abaixo do limite', () => {
+    expect(attainmentLabel(0, 5, 'down')).toEqual({ pct: 100, suffix: 'abaixo do limite' })
+  })
+
+  it('num KPI "down" fora do alvo, mostra quanto está acima do limite', () => {
+    expect(attainmentLabel(10, 5, 'down')).toEqual({ pct: 100, suffix: 'acima do limite' })
+    expect(formatAttainmentLabel(attainmentLabel(10, 5, 'down'))).toBe('100% acima do limite')
+  })
+
+  it('devolve nulo quando falta valor, meta, ou a meta é zero', () => {
+    expect(attainmentLabel(null, 100, 'up')).toBeNull()
+    expect(attainmentLabel(50, null, 'down')).toBeNull()
+    expect(attainmentLabel(50, 0, 'down')).toBeNull()
+    expect(formatAttainmentLabel(null)).toBeNull()
   })
 })
 

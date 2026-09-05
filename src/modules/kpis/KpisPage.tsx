@@ -34,6 +34,9 @@ import {
 } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
 import {
+  attainmentLabel,
+  attainmentRatio,
+  formatAttainmentLabel,
   formatDate,
   formatValue,
   labelPeriod,
@@ -2080,8 +2083,16 @@ export function MetaFormModal({
             <ul className="mt-3 space-y-1.5">
               {checkpoints.map((checkpoint) => {
                 const actual = sumValuesInRange(series, checkpoint.period_start, checkpoint.period_end)
-                const pct =
-                  actual !== null && checkpoint.target_value ? Math.round((actual / checkpoint.target_value) * 100) : null
+                // Bug real corrigido aqui: a conta cru (`atual / alvo-da-
+                // parcela`) ignorava a direção do indicador — mesmo problema
+                // e mesma correção do PeriodTracker em MetaDetail.tsx (ver
+                // comentário lá).
+                const ratio = actual !== null ? attainmentRatio(actual, checkpoint.target_value, kpi.direction) : null
+                const pct = ratio !== null ? Math.round(ratio * 100) : null
+                const label =
+                  actual !== null
+                    ? formatAttainmentLabel(attainmentLabel(actual, checkpoint.target_value, kpi.direction))
+                    : null
                 return (
                   <li key={checkpoint.id} className="flex items-center justify-between gap-2 text-sm">
                     <span className="text-content-soft">
@@ -2095,7 +2106,7 @@ export function MetaFormModal({
                         onChange={(value) => void updateCheckpoint(checkpoint.id, value)}
                       />
                       <Badge tone={pct === null ? 'slate' : pct >= 100 ? 'green' : pct >= 70 ? 'amber' : 'red'}>
-                        {pct === null ? 'sem lanç.' : `${pct}%`}
+                        {label ?? 'sem lanç.'}
                       </Badge>
                     </span>
                   </li>

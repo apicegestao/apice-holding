@@ -12,7 +12,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ClipboardList, Square, Target, Wallet } from 'lucide-react'
 import { supabase } from '../../core/lib/supabase'
-import { attainmentRatio, formatDate, formatValue, isOnTarget, relativeDays } from '../../core/lib/format'
+import {
+  attainmentLabel,
+  attainmentRatio,
+  formatAttainmentLabel,
+  formatDate,
+  formatValue,
+  isOnTarget,
+  relativeDays,
+} from '../../core/lib/format'
 import { buildChildrenByParent, effectiveKpiValue, type RollupRow } from '../../core/lib/kpiRollup'
 import { useCompany } from '../../core/company/CompanyProvider'
 import { Badge, Card, EmptyState, Loading, PageHeader, ProgressBar, useToast } from '../../core/ui'
@@ -309,6 +317,8 @@ export default function DepartmentDashboard() {
             <ul className="space-y-3">
               {openMetas.map((meta) => {
                 const ratio = attainmentRatio(meta.value, meta.target_value, meta.direction)
+                const pctText =
+                  formatAttainmentLabel(attainmentLabel(meta.value, meta.target_value, meta.direction)) ?? undefined
                 const caption =
                   meta.value !== null && meta.target_value !== null
                     ? `${formatValue(meta.value, meta.unit)} de ${formatValue(meta.target_value, meta.unit)}`
@@ -331,7 +341,7 @@ export default function DepartmentDashboard() {
                       </p>
                       {ratio !== null && (
                         <div className="mt-1.5">
-                          <ProgressBar ratio={ratio} caption={caption} />
+                          <ProgressBar ratio={ratio} caption={caption} pctText={pctText} />
                         </div>
                       )}
                     </Link>

@@ -1936,6 +1936,30 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await expect(row).toContainText('Em andamento')
   })
 
+  // Bug relatado pelo usuário: indicador "quanto menor, melhor" (ex.
+  // churn, alvo 5, lançado 4.2 — dentro do alvo) mostrava um percentual
+  // cru ("119%") sem leitura intuitiva nenhuma pra quem quer o número
+  // baixo. Agora mostra quanto está abaixo (ou acima) do limite, direto —
+  // ver `attainmentLabel` em core/lib/format.ts.
+  test('indicador "quanto menor, melhor" mostra atingimento como "X% abaixo/acima do limite", não um percentual cru', async ({
+    page,
+  }) => {
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
+    await page.waitForLoadState('networkidle')
+
+    const row = page.getByRole('link', { name: /^Churn/ })
+    await expect(row).toContainText('16% abaixo do limite')
+    await expect(row).not.toContainText('119%')
+
+    await row.click()
+    // O anel de destaque no topo (número grande + legenda pequena) é o
+    // primeiro a aparecer; a lista de "Alvos" mais abaixo repete a mesma
+    // informação numa frase só ("· 16% abaixo do limite") — daí o
+    // `.first()`, senão os dois batem no mesmo texto.
+    await expect(page.getByText('16%', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('abaixo do limite', { exact: true }).first()).toBeVisible()
+  })
+
   test('clicar numa linha abre o Detalhe com breadcrumb e a quebra por produto', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
     await page.waitForLoadState('networkidle')

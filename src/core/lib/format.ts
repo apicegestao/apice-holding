@@ -286,6 +286,42 @@ export function attainmentRatio(
 }
 
 /**
+ * Texto de atingimento pronto pra exibir, separado em número + rótulo pra
+ * quem precisa montar o texto de formas diferentes (linha única vs. número
+ * grande + legenda pequena embaixo, como o anel do topo do Detalhe).
+ *
+ * Num KPI "up" (maior é melhor) é só o percentual de sempre (`valor/alvo`,
+ * sem rótulo). Num "down" (menor é melhor, ex. churn) o número "X% da
+ * meta" não tem leitura intuitiva nenhuma quando o resultado já é melhor
+ * que o alvo — "300%" parece estourado, não "ótimo". Aqui o texto vira
+ * "X% abaixo do limite" (dentro do alvo) ou "X% acima do limite" (fora
+ * dele), direto de `1 - valor/alvo`, sem o teto de 300% do
+ * `attainmentRatio` (que existe só pra colorir/dimensionar barra — aqui
+ * o número já nasce numa escala que faz sentido sozinha, não precisa de
+ * teto). Pedido explícito do usuário depois do relato do indicador de
+ * churn (alvo 5, lançado 1 → "300%" continuava confuso mesmo com o teto).
+ */
+export function attainmentLabel(
+  value: number | null,
+  target: number | null,
+  direction: 'up' | 'down',
+): { pct: number; suffix: string } | null {
+  if (value === null || target === null || target === 0) return null
+  if (direction === 'up') return { pct: Math.round((value / target) * 100), suffix: '' }
+  const loadRatio = value / target
+  return loadRatio <= 1
+    ? { pct: Math.round((1 - loadRatio) * 100), suffix: 'abaixo do limite' }
+    : { pct: Math.round((loadRatio - 1) * 100), suffix: 'acima do limite' }
+}
+
+/** `attainmentLabel` como uma única string, pra exibição em linha (ex.
+ *  "80% abaixo do limite" ou, num "up", só "120%"). */
+export function formatAttainmentLabel(label: { pct: number; suffix: string } | null): string | null {
+  if (!label) return null
+  return label.suffix ? `${label.pct}% ${label.suffix}` : `${label.pct}%`
+}
+
+/**
  * Lê um número digitado por gente. Aceita "1.000.000,00", "1000000",
  * "R$ 1.234,56", "12,5%" e também o formato americano "1,234.56".
  *

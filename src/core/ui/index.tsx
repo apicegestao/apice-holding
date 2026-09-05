@@ -157,6 +157,7 @@ export function ProgressBar({
   label,
   caption,
   variant = 'goal',
+  pctText,
 }: {
   ratio: number | null
   label?: string
@@ -170,6 +171,12 @@ export function ProgressBar({
    * estourou ou não, então a cor fica neutra até lá e só vira vermelho depois.
    */
   variant?: 'goal' | 'spend'
+  /** Texto no lugar do "X%" padrão — usado por indicador "quanto menor,
+   *  melhor" (ex. "80% abaixo do limite" em vez de "300%", ver
+   *  `attainmentLabel` em core/lib/format.ts). `ratio` continua vindo de
+   *  `attainmentRatio` e decide cor/largura da barra normalmente; isto só
+   *  troca o texto exibido. */
+  pctText?: string
 }) {
   if (ratio === null) return null
   const pct = Math.round(ratio * 100)
@@ -196,7 +203,9 @@ export function ProgressBar({
             {label}
           </span>
         )}
-        <span className={`shrink-0 text-sm font-semibold leading-none tabular-nums ${tone.text}`}>{pct}%</span>
+        <span className={`shrink-0 text-sm font-semibold leading-none tabular-nums ${tone.text}`}>
+          {pctText ?? `${pct}%`}
+        </span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-hover shadow-inner">
         <div

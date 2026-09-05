@@ -23,7 +23,15 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { Line, LineChart, ResponsiveContainer } from 'recharts'
-import { attainmentRatio, formatDate, formatValue, relativeDays, sumValuesInRange } from '../../core/lib/format'
+import {
+  attainmentLabel,
+  attainmentRatio,
+  formatAttainmentLabel,
+  formatDate,
+  formatValue,
+  relativeDays,
+  sumValuesInRange,
+} from '../../core/lib/format'
 import { contributionRatio } from '../../core/lib/kpiRollup'
 import { subItemLabel } from '../../core/lib/labels'
 import { Badge, Card, EmptyState, Loading } from '../../core/ui'
@@ -124,6 +132,11 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
   const ratio = primaryAlvo && value !== null ? attainmentRatio(value, primaryAlvo.target_value, kpi.direction) : null
   const pct = ratio !== null ? Math.round(ratio * 100) : null
   const ringColor = pct === null ? '#BDC4CF' : pct >= 100 ? '#059669' : pct >= 70 ? '#D97706' : '#E11D48'
+  // Número grande do anel + legenda pequena embaixo, separados (em vez de
+  // uma frase só tipo "X% abaixo do limite") porque não cabem juntos no
+  // espaço de 112px do anel — mesmo princípio de `attainmentLabel`, só que
+  // a legenda troca "do alvo" por "abaixo/acima do limite" num "down".
+  const donutLabel = primaryAlvo && value !== null ? attainmentLabel(value, primaryAlvo.target_value, kpi.direction) : null
 
   const series = ctx.seriesByKpi.get(kpi.id) ?? []
   const chartData = series.slice(-12).map((item) => ({ value: Number(item.value) }))
@@ -178,8 +191,10 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-xl font-bold text-content">{pct}%</span>
-                <span className="text-[10px] uppercase tracking-wide text-content-faint">do alvo</span>
+                <span className="text-xl font-bold text-content">{donutLabel?.pct ?? pct}%</span>
+                <span className="text-[10px] uppercase tracking-wide text-content-faint">
+                  {donutLabel?.suffix || 'do alvo'}
+                </span>
               </div>
             </div>
           )}
@@ -315,7 +330,8 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
           ) : (
             <ul className="mt-2 space-y-3">
               {alvos.map((meta) => {
-                const metaRatio = value !== null ? attainmentRatio(value, meta.target_value, kpi.direction) : null
+                const metaLabel =
+                  value !== null ? formatAttainmentLabel(attainmentLabel(value, meta.target_value, kpi.direction)) : null
                 return (
                   <li key={meta.id} className="flex flex-wrap items-start justify-between gap-2">
                     <button
@@ -329,7 +345,7 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
                       <span className="block truncate text-xs text-content-soft">
                         {ctx.ownerName(meta.owner_id) ?? 'Sem responsável'}
                         {meta.due_date && <> · prazo {formatDate(meta.due_date)} ({relativeDays(meta.due_date)})</>}
-                        {metaRatio !== null && ` · ${Math.round(metaRatio * 100)}%`}
+                        {metaLabel && ` · ${metaLabel}`}
                       </span>
                     </button>
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -475,10 +491,12 @@ function useChildStats(kpi: Kpi, ctx: KpisCtx, parentValue: number | null) {
   const alvo = (ctx.metasByKpi.get(kpi.id) ?? [])[0] ?? null
   const ratio = alvo && value !== null ? attainmentRatio(value, alvo.target_value, kpi.direction) : null
   const pct = ratio !== null ? Math.round(ratio * 100) : null
+  const pctLabel =
+    alvo && value !== null ? formatAttainmentLabel(attainmentLabel(value, alvo.target_value, kpi.direction)) : null
   const contribution = contributionRatio(value, parentValue)
   const contributionPct = contribution !== null ? Math.round(contribution * 100) : null
   const label = ctx.nestedLabel(kpi)
-  return { value, grandchildren, alvo, pct, contributionPct, label }
+  return { value, grandchildren, alvo, pct, pctLabel, contributionPct, label }
 }
 
 function pctTone(pct: number | null) {
@@ -489,7 +507,7 @@ function pctTone(pct: number | null) {
 }
 
 function ChildRow({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentValue: number | null }) {
-  const { value, grandchildren, alvo, pct, contributionPct, label } = useChildStats(kpi, ctx, parentValue)
+  const { value, grandchildren, alvo, pct, pctLabel, contributionPct, label } = useChildStats(kpi, ctx, parentValue)
   const { bar: barColor, text: pctColor } = pctTone(pct)
 
   // Ver comentário equivalente em MetasOverview.tsx: sem isso, o nome
@@ -531,7 +549,7 @@ function ChildRow({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentVal
               <div className="h-1.5 overflow-hidden rounded-full bg-hover">
                 <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, Math.max(3, pct))}%` }} />
               </div>
-              <p className={`mt-1 text-xs font-semibold ${pctColor}`}>{pct}%</p>
+              <p className={`mt-1 text-xs font-semibold ${pctColor}`}>{pctLabel}</p>
             </>
           ) : (
             <span className="text-xs text-content-faint">—</span>
@@ -565,7 +583,7 @@ function ChildRow({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentVal
 /** Mesma informação de ChildRow, empilhada em cartão — usada abaixo de sm:
  *  pra nunca precisar espremer 8 colunas num celular. */
 function ChildCard({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentValue: number | null }) {
-  const { value, grandchildren, alvo, pct, contributionPct, label } = useChildStats(kpi, ctx, parentValue)
+  const { value, grandchildren, alvo, pct, pctLabel, contributionPct, label } = useChildStats(kpi, ctx, parentValue)
   const { bar: barColor, text: pctColor } = pctTone(pct)
   const ariaLabel = `${label}, atual ${value !== null ? formatValue(value, kpi.unit) : 'sem lançamento'}${
     alvo ? `, alvo ${formatValue(alvo.target_value, kpi.unit)}, ${GOAL_STATUS_LABEL[alvo.status]}` : ', sem alvo'
@@ -614,7 +632,7 @@ function ChildCard({ kpi, ctx, parentValue }: { kpi: Kpi; ctx: KpisCtx; parentVa
               </div>
             </div>
           )}
-          {pct !== null && <span className={`shrink-0 text-xs font-semibold ${pctColor}`}>{pct}%</span>}
+          {pct !== null && <span className={`shrink-0 text-xs font-semibold ${pctColor}`}>{pctLabel}</span>}
         </div>
       </Link>
       {ctx.canWrite && (
@@ -656,8 +674,18 @@ function PeriodTracker({ meta, kpi, ctx }: { meta: Meta; kpi: Kpi; ctx: KpisCtx 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {checkpoints.map((checkpoint) => {
           const actual = sumValuesInRange(series, checkpoint.period_start, checkpoint.period_end)
-          const pct =
-            actual !== null && checkpoint.target_value ? Math.round((actual / checkpoint.target_value) * 100) : null
+          // Bug real corrigido aqui: a conta cru (`atual / alvo-da-parcela`)
+          // ignorava a direção do indicador — numa parcela de churn (menor é
+          // melhor), um mês bom (abaixo da cota) aparecia com % baixo e
+          // badge vermelho, e um mês ruim (acima) aparecia verde. Ratio pro
+          // cartão (cor/largura da barra) vem de `attainmentRatio` (com
+          // direção e teto, igual todo o resto do sistema); o texto vem de
+          // `attainmentLabel` (ver comentário lá — "X% abaixo/acima do
+          // limite" num "down", sem precisar de teto).
+          const ratio = actual !== null ? attainmentRatio(actual, checkpoint.target_value, kpi.direction) : null
+          const pct = ratio !== null ? Math.round(ratio * 100) : null
+          const label =
+            actual !== null ? formatAttainmentLabel(attainmentLabel(actual, checkpoint.target_value, kpi.direction)) : null
           const { bar, text } = pctTone(pct)
           return (
             <div key={checkpoint.id} className="card p-3.5">
@@ -678,7 +706,7 @@ function PeriodTracker({ meta, kpi, ctx }: { meta: Meta; kpi: Kpi; ctx: KpisCtx 
                 />
               </div>
               <p className={`mt-1 text-xs font-semibold ${text || 'text-content-faint'}`}>
-                {pct !== null ? `${pct}%` : 'sem lançamento'}
+                {label ?? 'sem lançamento'}
               </p>
             </div>
           )
