@@ -3410,3 +3410,71 @@ de uma linha") a menos que a rota seja sobrescrita com filtro de verdade
 — padrão já usado alhures no arquivo, só precisei replicar no teste novo.
 `mcp__Supabase__apply_migration`: `0044_product_sub_item_label.sql`
 aplicada sem erros (coluna nullable, sem impacto em dado existente).
+
+## 55. ProductsPage.tsx: consistência visual do modal de produto + "sub produto" no lugar de "edição"
+
+Usuário mandou print do modal de detalhe do produto no celular ("Entre
+Donos", com várias turmas) reportando bagunça visual — cartões mal
+divididos, cinco ícones espremidos numa linha só por turma, e o form de
+"adicionar edição" parecendo três caixas de texto soltas em vez de um
+fluxo claro. Pediu pra alinhar com o padrão visual já usado em outros
+pontos do sistema e trocar "edição" por termo genérico onde fizer
+sentido, já que nem todo produto roda em "turma".
+
+**Cartões consistentes**: as listas internas do modal (turmas, metas que
+acompanham o produto, edições arquivadas) usavam o estilo antigo e mais
+fino `rounded-lg border border-line p-2.5` — trocado pelo padrão já
+estabelecido em `MetaDetail.tsx`/`MetasOverview.tsx`
+(`rounded-xl border border-line-strong bg-surface p-3.5 shadow-card`).
+Os títulos de seção ("Edições", "Metas que acompanham este produto")
+saíram do `.label` (caixa alta miúda) pro mesmo padrão de cabeçalho de
+`MetaDetail.tsx` — `text-sm font-bold` pro título, `text-xs
+text-content-faint` pra descrição de apoio.
+
+**Menos ícone, mais clareza na linha da turma**: a linha de cada turma
+tinha 5 ícones sem rótulo espremidos (ver painel, status, editar, metas,
+arquivar, excluir) — removido o ícone redundante de "ver painel" (agora
+é o próprio nome da turma que é o link, como já era o padrão no card
+raiz de produto) e as ações que sobraram (Editar/Metas/Arquivar/Excluir)
+viraram uma segunda linha com ícone+texto visível, que quebra sozinha em
+telas estreitas em vez de forçar tudo numa fileira só.
+
+**Formulário de turma sem "três caixas de texto"**: o form de
+criar/editar turma sempre mostrava nome + início + fim ao mesmo tempo —
+os dois campos de data ficavam visualmente indistintos do campo de nome
+no celular. Agora as datas ficam escondidas atrás de um link "+ Definir
+datas (opcional)" por padrão (a maioria das turmas não precisa disso pra
+começar); editar uma turma que já tem data mostra as datas de cara
+(estado `showEditionDates`, `useState(false)`, virado `true` automático
+em `startEditEdition` quando a turma já tem `start_date`/`end_date`).
+
+**"Sub produto" no lugar de "edição"/"turma" onde o termo é genérico**:
+textos que hoje diziam "edição" goela abaixo (mensagens de erro/sucesso
+de criar/editar, placeholder, texto do botão, aria-labels, título dos
+dois `ConfirmDialog` de exclusão) passaram a usar `subItemLabel()`
+dinâmico — já existia desde a Fase 2 (item 54), só não tinha sido
+aplicado em todo canto do arquivo ainda. "Nenhuma meta vinculada a
+"Turma" ainda." (com aspas em volta do rótulo, estranho) virou
+simplesmente "Nenhuma meta vinculada ainda." — o contexto (dentro do
+card da própria turma) já deixa claro do que se trata, sem precisar
+repetir o rótulo.
+
+**Escopo**: o pedido também dizia "repense esse layout e de todo o
+sistema" de forma mais ampla — mantive o foco nesta rodada no modal de
+Produtos, que é onde o print e as reclamações concretas apontavam; o
+padrão de cartão (`rounded-xl border-line-strong shadow-card`) já é o
+mesmo usado em Metas, então não há uma inconsistência nova a resolver
+alhures — outras telas podem entrar numa rodada de auditoria futura se
+o usuário achar que ainda há bagunça em algum lugar específico.
+
+**Verificação**: `npx tsc --noEmit`, `npm run build` e `npx vitest run`
+(56/56) limpos. `npm run check:contrast` (24/24) limpo — nenhuma cor
+nova. `npx playwright test` (Desktop + Mobile): **259 passando**, 35
+skipped, sem falhas — 5 testes ajustados pro novo texto/estrutura
+("Nenhuma meta vinculada a "Turma" ainda." → "Nenhuma meta vinculada
+ainda."; "Ver painel — Projeto"/"Ver painel — Turma" → clicar no próprio
+nome da turma, que agora é o link; "Metas — Projeto"/"Metas — Turma" →
+botão "Metas" sem rótulo dinâmico no nome acessível, já que o texto
+visível já é suficiente; "Arquivar {nome}" → botão "Arquivar" escopado
+por `li` com `hasText`, já que agora várias turmas têm o mesmo texto de
+botão). Sem migração — mudança só de UI.

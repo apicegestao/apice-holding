@@ -109,6 +109,12 @@ export default function ProductsPage() {
   const [editionForm, setEditionForm] = useState<EditionForm>(blankEditionForm)
   const [editingEdition, setEditingEdition] = useState<ProductEdition | null>(null)
   const [attachEditionFor, setAttachEditionFor] = useState<ProductEdition | null>(null)
+  // Datas ficam escondidas por padrão no formulário de criar — a maioria só
+  // precisa do nome, e mostrar 3 campos de cara (nome + início + fim) de
+  // uma vez deixava o formulário parecendo "três caixas de texto soltas"
+  // (pedido explícito do usuário). Editar uma que já tem data mostra as
+  // datas de cara — ver `startEditEdition`.
+  const [showEditionDates, setShowEditionDates] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -360,7 +366,10 @@ export default function ProductsPage() {
   // -------------------------------------------------------------- edições
   const addEdition = async () => {
     if (!activeId || !editionForm.name.trim()) {
-      notify(`Dê um nome à edição (ex.: "${subItemLabel(activeProduct)} 12", "2027.1").`, 'error')
+      notify(
+        `Dê um nome à ${subItemLabel(activeProduct, { lower: true })} (ex.: "${subItemLabel(activeProduct)} 12", "2027.1").`,
+        'error',
+      )
       return
     }
     const { error: insertError } = await supabase.from('product_editions').insert({
@@ -375,6 +384,7 @@ export default function ProductsPage() {
       return
     }
     setEditionForm(blankEditionForm)
+    setShowEditionDates(false)
     await load()
   }
 
@@ -385,16 +395,22 @@ export default function ProductsPage() {
       start_date: edition.start_date ?? '',
       end_date: edition.end_date ?? '',
     })
+    // Já tinha data definida — mostra de cara pra dar pra editar/remover.
+    setShowEditionDates(Boolean(edition.start_date || edition.end_date))
   }
 
   const cancelEditEdition = () => {
     setEditingEdition(null)
     setEditionForm(blankEditionForm)
+    setShowEditionDates(false)
   }
 
   const updateEdition = async () => {
     if (!editingEdition || !editionForm.name.trim()) {
-      notify(`Dê um nome à edição (ex.: "${subItemLabel(activeProduct)} 12", "2027.1").`, 'error')
+      notify(
+        `Dê um nome à ${subItemLabel(activeProduct, { lower: true })} (ex.: "${subItemLabel(activeProduct)} 12", "2027.1").`,
+        'error',
+      )
       return
     }
     const { error: updateError } = await supabase
@@ -407,12 +423,14 @@ export default function ProductsPage() {
       .eq('id', editingEdition.id)
     if (updateError) {
       notify(
-        updateError.code === '23505' ? 'Já existe uma edição com esse nome.' : updateError.message,
+        updateError.code === '23505'
+          ? `Já existe uma ${subItemLabel(activeProduct, { lower: true })} com esse nome.`
+          : updateError.message,
         'error',
       )
       return
     }
-    notify('Edição atualizada.')
+    notify(`${subItemLabel(activeProduct)} atualizada.`)
     cancelEditEdition()
     await load()
   }
@@ -466,7 +484,7 @@ export default function ProductsPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title={`Produtos · ${company.name}`}
-        subtitle="As frentes de produto ou serviço desta empresa, o valor de cada uma e, pra quem roda em turmas, o valor de cada edição."
+        subtitle="As frentes de produto ou serviço desta empresa, o valor de cada uma e, pra quem tem sub-produtos, o valor de cada um."
         actions={
           canWrite && (
             <button type="button" className="btn-primary" onClick={openCreate}>
@@ -518,7 +536,8 @@ export default function ProductsPage() {
                 <div className="mt-2 flex items-center gap-3 text-xs text-content-faint">
                   {productEditions.length > 0 && (
                     <span className="flex items-center gap-1">
-                      <CalendarRange className="h-3.5 w-3.5" /> {productEditions.length} edição(ões)
+                      <CalendarRange className="h-3.5 w-3.5" /> {productEditions.length}{' '}
+                      {subItemLabel(product, { plural: productEditions.length !== 1, lower: true })}
                     </span>
                   )}
                   <span className="flex items-center gap-1">
@@ -597,18 +616,18 @@ export default function ProductsPage() {
             </div>
 
             <div>
-              <p className="label">Metas que acompanham este produto</p>
+              <p className="text-sm font-bold text-content">Metas que acompanham este produto</p>
               {/* Só leitura — nome + valor atual. Vincular uma meta nova
                   acontece pelo atalho no form de editar produto, ou de
                   dentro do cartão dela na tela de Metas. */}
               {(statsByProduct.get(activeProduct.id)?.indicators ?? []).length === 0 ? (
                 <p className="mt-1 text-sm text-content-soft">Nenhuma meta acompanha este produto ainda.</p>
               ) : (
-                <ul className="mt-2 space-y-2">
+                <ul className="mt-2.5 space-y-2.5">
                   {(statsByProduct.get(activeProduct.id)?.indicators ?? []).map((row) => {
                     const rowValue = effectiveValue(row.kpi_id)
                     return (
-                      <li key={row.kpi_id} className="rounded-lg border border-line p-2.5">
+                      <li key={row.kpi_id} className="rounded-xl border border-line-strong bg-surface p-3 shadow-card">
                         {/* aria-label explícito: sem isso, o nome acessível do
                             link vira nome+valor+contribuição concatenados —
                             e "X% de {nome de outra meta}" na contribuição pode
@@ -628,111 +647,97 @@ export default function ProductsPage() {
             </div>
 
             <div>
-              <p className="label">
-                Edições — pra frentes que rodam em {editionLabelLower} ou encontro (deixe vazio se a frente roda
-                contínuo)
+              <p className="text-sm font-bold text-content">{subItemLabel(activeProduct, { plural: true })}</p>
+              <p className="mt-0.5 text-xs text-content-faint">
+                Pra frentes que rodam em {editionLabelLower} ou encontro — deixe vazio se a frente for contínua.
               </p>
               {activeEditions.length === 0 ? (
-                <p className="mt-1 text-sm text-content-soft">Nenhuma edição cadastrada ainda.</p>
+                <p className="mt-2 text-sm text-content-soft">
+                  Nenhuma {editionLabelLower} cadastrada ainda.
+                </p>
               ) : (
-                <ul className="mt-2 space-y-2">
+                <ul className="mt-2.5 space-y-3">
                   {activeEditions.map((edition) => {
                     const editionIndicators = indicatorsByEdition.get(edition.id) ?? []
                     return (
-                      <li key={edition.id} className="rounded-lg border border-line p-2.5">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-content">{edition.name}</p>
+                      <li key={edition.id} className="rounded-xl border border-line-strong bg-surface p-3.5 shadow-card">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <Link
+                            to={`/empresa/${company.id}/produtos/${activeProduct.id}/turmas/${edition.id}`}
+                            className="min-w-0 hover:underline"
+                          >
+                            <p className="truncate text-sm font-semibold text-content">{edition.name}</p>
                             {(edition.start_date || edition.end_date) && (
                               <p className="text-xs text-content-faint">
                                 {edition.start_date ? formatDate(edition.start_date) : '—'} a{' '}
                                 {edition.end_date ? formatDate(edition.end_date) : '—'}
                               </p>
                             )}
-                            {(openTasksByEdition.get(edition.id) ?? 0) > 0 && (
-                              <p className="mt-0.5 flex items-center gap-1 text-xs text-content-faint">
-                                <ClipboardList className="h-3.5 w-3.5" />
-                                {openTasksByEdition.get(edition.id)} tarefa(s) aberta(s)
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            <Link
-                              to={`/empresa/${company.id}/produtos/${activeProduct.id}/turmas/${edition.id}`}
-                              className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
-                              aria-label={`Ver painel — ${editionLabel}`}
-                              title="Ver painel"
+                          </Link>
+                          {canWrite ? (
+                            <select
+                              className="shrink-0 rounded border border-line bg-surface px-1.5 py-1 text-base sm:text-xs"
+                              value={edition.status}
+                              onChange={(event) =>
+                                void setEditionStatus(edition, event.target.value as ProductEditionStatus)
+                              }
                             >
-                              <LayoutDashboard className="h-3.5 w-3.5" />
-                            </Link>
-                            {canWrite ? (
-                              <select
-                                className="rounded border border-line bg-surface px-1.5 py-1 text-base sm:text-xs"
-                                value={edition.status}
-                                onChange={(event) =>
-                                  void setEditionStatus(edition, event.target.value as ProductEditionStatus)
-                                }
-                              >
-                                {EDITION_STATUSES.map((status) => (
-                                  <option key={status} value={status}>
-                                    {PRODUCT_EDITION_STATUS_LABEL[status]}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <Badge tone={EDITION_STATUS_TONE[edition.status]}>
-                                {PRODUCT_EDITION_STATUS_LABEL[edition.status]}
-                              </Badge>
-                            )}
-                            {canWrite && (
-                              <button
-                                type="button"
-                                className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
-                                onClick={() => startEditEdition(edition)}
-                                aria-label="Editar edição"
-                                title="Editar"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                            {canWrite && (
-                              <button
-                                type="button"
-                                className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
-                                onClick={() => setAttachEditionFor(edition)}
-                                aria-label={`Metas — ${editionLabel}`}
-                                title="Metas"
-                              >
-                                <Target className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                            {canWrite && (
-                              <button
-                                type="button"
-                                className="rounded p-1 text-content-faint hover:bg-hover hover:text-content"
-                                onClick={() => void archiveEdition(edition)}
-                                aria-label={`Arquivar ${edition.name}`}
-                                title="Arquivar"
-                              >
-                                <Archive className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                            {canWrite && (
-                              <button
-                                type="button"
-                                className="rounded p-1 text-content-faint hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400"
-                                onClick={() => editionDelete.ask(edition)}
-                                aria-label="Remover edição"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
+                              {EDITION_STATUSES.map((status) => (
+                                <option key={status} value={status}>
+                                  {PRODUCT_EDITION_STATUS_LABEL[status]}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <Badge tone={EDITION_STATUS_TONE[edition.status]}>
+                              {PRODUCT_EDITION_STATUS_LABEL[edition.status]}
+                            </Badge>
+                          )}
                         </div>
 
-                        <div className="mt-2 border-t border-line pt-2">
+                        {(openTasksByEdition.get(edition.id) ?? 0) > 0 && (
+                          <p className="mt-1.5 flex items-center gap-1 text-xs text-content-faint">
+                            <ClipboardList className="h-3.5 w-3.5" />
+                            {openTasksByEdition.get(edition.id)} tarefa(s) aberta(s)
+                          </p>
+                        )}
+
+                        {canWrite && (
+                          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line pt-2 text-xs">
+                            <button
+                              type="button"
+                              className="flex items-center gap-1 text-content-soft hover:text-content"
+                              onClick={() => startEditEdition(edition)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" /> Editar
+                            </button>
+                            <button
+                              type="button"
+                              className="flex items-center gap-1 text-content-soft hover:text-content"
+                              onClick={() => setAttachEditionFor(edition)}
+                            >
+                              <Target className="h-3.5 w-3.5" /> Metas
+                            </button>
+                            <button
+                              type="button"
+                              className="flex items-center gap-1 text-content-soft hover:text-content"
+                              onClick={() => void archiveEdition(edition)}
+                            >
+                              <Archive className="h-3.5 w-3.5" /> Arquivar
+                            </button>
+                            <button
+                              type="button"
+                              className="flex items-center gap-1 text-content-soft hover:text-rose-600 dark:hover:text-rose-400"
+                              onClick={() => editionDelete.ask(edition)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Excluir
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="mt-2.5 border-t border-line pt-2.5">
                           {editionIndicators.length === 0 ? (
-                            <p className="text-xs text-content-faint">Nenhuma meta vinculada a "{editionLabel}" ainda.</p>
+                            <p className="text-xs text-content-faint">Nenhuma meta vinculada ainda.</p>
                           ) : (
                             <ul className="space-y-2">
                               {editionIndicators.map((row) => {
@@ -767,11 +772,11 @@ export default function ProductsPage() {
                     {archivedEditions.length}{' '}
                     {subItemLabel(activeProduct, { plural: archivedEditions.length !== 1, lower: true })} arquivada(s)
                   </summary>
-                  <ul className="mt-2 space-y-2">
+                  <ul className="mt-2.5 space-y-2">
                     {archivedEditions.map((edition) => (
                       <li
                         key={edition.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line p-2.5 opacity-60"
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line p-3 opacity-60"
                       >
                         <p className="min-w-0 truncate text-sm text-content">{edition.name}</p>
                         {canWrite && (
@@ -790,38 +795,52 @@ export default function ProductsPage() {
               )}
 
               {canWrite && (
-                <div className="mt-4 grid grid-cols-1 gap-2 rounded-lg border border-dashed border-line-strong p-3 sm:grid-cols-4">
+                <div className="mt-4 space-y-2.5 rounded-xl border border-dashed border-line-strong p-3">
                   {editingEdition && (
-                    <p className="text-xs font-medium text-content-faint sm:col-span-4">
-                      Editando "{editingEdition.name}"
-                    </p>
+                    <p className="text-xs font-medium text-content-faint">Editando "{editingEdition.name}"</p>
                   )}
                   <input
-                    className="input sm:col-span-2"
-                    placeholder={`Nome da edição (ex.: ${editionLabel} 12)`}
+                    className="input"
+                    placeholder={`Nome da ${editionLabelLower} (ex.: ${editionLabel} 12)`}
                     value={editionForm.name}
                     onChange={(event) => setEditionForm((c) => ({ ...c, name: event.target.value }))}
                   />
-                  <input
-                    className="input"
-                    type="date"
-                    value={editionForm.start_date}
-                    onChange={(event) => setEditionForm((c) => ({ ...c, start_date: event.target.value }))}
-                  />
-                  <input
-                    className="input"
-                    type="date"
-                    value={editionForm.end_date}
-                    onChange={(event) => setEditionForm((c) => ({ ...c, end_date: event.target.value }))}
-                  />
-                  <div className="flex gap-2 sm:col-span-4">
+                  {showEditionDates ? (
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <Field label="Início">
+                        <input
+                          className="input"
+                          type="date"
+                          value={editionForm.start_date}
+                          onChange={(event) => setEditionForm((c) => ({ ...c, start_date: event.target.value }))}
+                        />
+                      </Field>
+                      <Field label="Fim">
+                        <input
+                          className="input"
+                          type="date"
+                          value={editionForm.end_date}
+                          onChange={(event) => setEditionForm((c) => ({ ...c, end_date: event.target.value }))}
+                        />
+                      </Field>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-brand-text hover:underline"
+                      onClick={() => setShowEditionDates(true)}
+                    >
+                      + Definir datas (opcional)
+                    </button>
+                  )}
+                  <div className="flex gap-2">
                     <button
                       type="button"
                       className="btn-primary flex-1"
                       onClick={() => void (editingEdition ? updateEdition() : addEdition())}
                     >
                       {editingEdition ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                      {editingEdition ? 'Salvar edição' : 'Adicionar edição'}
+                      {editingEdition ? `Salvar ${editionLabelLower}` : `Adicionar ${editionLabelLower}`}
                     </button>
                     {editingEdition && (
                       <button type="button" className="btn-ghost" onClick={cancelEditEdition}>
@@ -941,8 +960,9 @@ export default function ProductsPage() {
         confirmLabel="Excluir"
         message={
           <>
-            Excluir <strong>{productDelete.target?.name}</strong> apaga também as edições dele. Metas, tarefas e
-            orçamentos ligados a ele continuam existindo, só perdem o vínculo com o produto. Não dá pra desfazer.
+            Excluir <strong>{productDelete.target?.name}</strong> apaga também as{' '}
+            {subItemLabel(productDelete.target, { plural: true, lower: true })} dele. Metas, tarefas e orçamentos
+            ligados a ele continuam existindo, só perdem o vínculo com o produto. Não dá pra desfazer.
           </>
         }
         onConfirm={() => void productDelete.confirm()}
@@ -951,7 +971,7 @@ export default function ProductsPage() {
 
       <ConfirmDialog
         open={editionDelete.target !== null}
-        title="Excluir edição?"
+        title={`Excluir ${subItemLabel(activeProduct, { lower: true })}?`}
         danger
         busy={editionDelete.busy}
         confirmLabel="Excluir"

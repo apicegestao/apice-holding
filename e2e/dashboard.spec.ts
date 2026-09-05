@@ -1202,7 +1202,7 @@ test.describe('metas de produto e sub-produto', () => {
     // tem link nenhum de criar/editar por aqui (isso agora só acontece
     // pelo atalho de vincular).
     await expect(modal.getByText('Imersão Outubro 2026')).toBeVisible()
-    await expect(modal.getByText('Nenhuma meta vinculada a "Turma" ainda.')).toBeVisible()
+    await expect(modal.getByText('Nenhuma meta vinculada ainda.')).toBeVisible()
     await expect(page.getByRole('link', { name: 'Editar meta' })).toHaveCount(0)
   })
 
@@ -1243,7 +1243,7 @@ test.describe('metas de produto e sub-produto', () => {
     await page.goto(`/empresa/${COMPANY_ID_2}/produtos`)
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()
-    await page.getByRole('button', { name: 'Metas — Turma' }).first().click()
+    await page.getByRole('button', { name: 'Metas' }).first().click()
 
     await expect(page.getByRole('heading', { name: /^Metas de /, exact: false })).toBeVisible()
     await page.getByRole('checkbox', { name: 'Churn' }).check()
@@ -1271,7 +1271,8 @@ test.describe('metas de produto e sub-produto', () => {
     await page.getByText('Entre Donos', { exact: true }).click()
 
     await expect(page.getByText('Imersão Setembro 2026')).toBeVisible()
-    await page.getByRole('button', { name: 'Arquivar Imersão Setembro 2026' }).click()
+    const editionCard = page.locator('li', { hasText: 'Imersão Setembro 2026' })
+    await editionCard.getByRole('button', { name: 'Arquivar' }).click()
     await expect(page.getByText('Turma arquivada.')).toBeVisible()
     await expect(page.getByText('Imersão Setembro 2026')).not.toBeVisible()
 
@@ -1317,13 +1318,14 @@ test.describe('metas de produto e sub-produto', () => {
     await page.waitForLoadState('networkidle')
     await page.getByText('Entre Donos', { exact: true }).click()
 
-    await expect(page.getByText(/Edições — pra frentes que rodam em projeto ou encontro/)).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Ver painel — Projeto' }).first()).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Metas — Projeto' }).first()).toBeVisible()
+    await expect(page.getByText('Projetos', { exact: true })).toBeVisible()
+    await expect(page.getByText(/Pra frentes que rodam em projeto ou encontro/)).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Imersão Setembro 2026' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Metas' }).first()).toBeVisible()
 
     // O painel do produto/turma e o Detalhe da meta (Metas) também usam o
     // mesmo rótulo — não é só a tela de Produtos.
-    await page.getByRole('link', { name: 'Ver painel — Projeto' }).first().click()
+    await page.getByRole('link', { name: 'Imersão Setembro 2026' }).click()
     await expect(page).toHaveURL(new RegExp(`/produtos/${PRODUCT_ID}/turmas/${EDITION_ID}$`))
     await expect(page.getByText('Projeto de Entre Donos')).toBeVisible()
 
@@ -1617,7 +1619,7 @@ test.describe('metas de produto e sub-produto', () => {
 
     await page.goBack()
     await page.getByText('Entre Donos', { exact: true }).click()
-    await page.getByRole('link', { name: 'Ver painel — Turma' }).first().click()
+    await page.getByRole('link', { name: 'Imersão Setembro 2026' }).click()
     await expect(page).toHaveURL(new RegExp(`/turmas/${EDITION_ID}$`))
   })
 })
