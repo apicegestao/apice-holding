@@ -4,7 +4,7 @@
 // era repetitivo demais. Isso gera só os dados (nome + datas); quem chama
 // decide como inserir (product_editions em lote, depois um kpi vinculado
 // por edição criada).
-export const MONTH_NAMES_PT = [
+const MONTH_NAMES_PT = [
   'Janeiro',
   'Fevereiro',
   'Março',

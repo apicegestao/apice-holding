@@ -1818,7 +1818,7 @@ function EditEntityModal({
 }
 
 // ------------------------------------------------------------------ meta
-export function MetaFormModal({
+function MetaFormModal({
   kpi,
   meta,
   people,
@@ -2187,7 +2187,7 @@ export function MetaFormModal({
 }
 
 // ------------------------------------------------------------- lançamento
-export function ValueEntryModal({
+function ValueEntryModal({
   kpi,
   companyId,
   existing,
@@ -2422,7 +2422,7 @@ export function ValueEntryModal({
 }
 
 // ---------------------------------------------------------------- histórico
-export function HistoryModal({
+function HistoryModal({
   kpi,
   series,
   entries,

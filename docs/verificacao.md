@@ -3699,3 +3699,109 @@ Teste novo: arquivar/reativar a turma pelo Detalhe (fixture `KPI_EDITION`/
 `EDITION_ID`), confirmando que a notificação e o texto do botão trocam
 ("Arquivar turma" ↔ "Reativar turma") e que a ação bate no
 `product_editions` certo, não no `kpis`.
+
+## 59. Varredura geral de limpeza: código morto no frontend + performance de RLS no banco
+
+Usuário pediu uma verificação completa do sistema depois de muitas rodadas
+acumuladas: "garanta que está tudo limpo e que não tenha código inútil...
+tudo otimizado, limpo e atualizado".
+
+**Frontend — `npx knip`** (achador de arquivo/export/tipo morto, primeira
+vez rodado neste projeto): apontou 7 "arquivos não usados" (todos as 4
+Edge Functions + `_shared/providers.ts` — falso positivo, knip não sabe
+que são publicadas separadamente pro Supabase e chamadas via
+`callFunction()`/`supabase.functions.invoke` em runtime; conferido cada
+uma tem chamador real no frontend: `admin-users`, `admin-settings`,
+`ai-insights`, `integrations-sync`), 9 exports não usados fora do próprio
+arquivo e 3 tipos não usados. Todo achado real foi limpo:
+- `MetaFormModal`/`ValueEntryModal`/`HistoryModal` (`KpisPage.tsx`) e
+  `MONTH_NAMES_PT` (`bulkEditions.ts`) só precisavam do `export`
+  removido — usados só dentro do próprio arquivo.
+- `export { Logo } from './Logo'` em `core/ui/index.tsx` (o "kit
+  compartilhado") nunca foi consumido por ninguém — todo lugar que usa
+  `Logo` importa direto de `./Logo`, não do barrel (diferente de
+  `NumberInput`, que é consumido pelo barrel de verdade em 4 módulos,
+  confirmando que o padrão do barrel é real, só o re-export do Logo que
+  ficou morto). Removida a linha.
+- `CompanyMember`/`TaskShare` (`types.ts`) — tipos de linha completa que
+  nenhum módulo importa; todo lugar que lê `company_members`/`task_shares`
+  já usa uma projeção parcial própria (ex. `MemberRow` em `UsersPage.tsx`),
+  então o tipo completo nunca tinha consumidor real. Removidos.
+- `JWT`/`SNAPSHOTS`/`BUDGET_ID`/`INSIGHTS` (`e2e/fixtures.ts`) — mesma
+  história do primeiro grupo, só `export` desnecessário.
+- `IntegrationStatus` (`types.ts`) ficou como está — é usado de verdade
+  (tipa `last_status`/`status` no próprio arquivo), só não é importado por
+  nome em outro lugar porque quem precisa acessa via
+  `Integration['last_status']`. Não é código morto, é indireção normal de
+  TypeScript.
+
+Rodado `node scripts/sync-edge-shared.mjs` (a fonte da verdade das Edge
+Functions compartilhadas) — sem diff, as cópias publicadas já estavam em
+dia. Conferido também: nenhuma dependência do `package.json` sem uso
+(`react-dom` parecia sem match no grep por importar de `react-dom/client`,
+confirmado em `main.tsx`), nenhum `console.log`/`debugger`/`@ts-ignore`
+esquecido, nenhum `TODO`/`FIXME` real (só ocorrências da palavra "TODO"
+em português, ex. "TODO nível").
+
+**Banco — `mcp__Supabase__get_advisors` (performance)**: achado real, não
+cosmético. 32 avisos WARN — dois problemas conhecidos de RLS no Postgres:
+
+1. `auth_rls_initplan` (16 políticas): toda política que chama
+   `auth.uid()` direto no próprio corpo é reavaliada linha a linha em vez
+   de uma vez por statement. Afeta `profiles`, `audit_logs`,
+   `notifications`, `task_comments`, `tasks`, `task_shares`, `notes`.
+2. `multiple_permissive_policies` (16 tabelas): todo par
+   `<tabela>_select` (FOR SELECT) + `<tabela>_write` (FOR ALL) faz o
+   Postgres avaliar as duas políticas permissivas em todo SELECT.
+   Conferido nas próprias funções (`is_member(c) = company_role(c) is not
+   null`, `can_write(c) = company_role(c) in ('admin','collaborator')`,
+   `is_company_admin(c) = company_role(c) = 'admin'`) que `can_write` e
+   `is_company_admin` sempre implicam `is_member` — ou seja, a política
+   `_write` nunca liberava SELECT que a `_select` já não liberasse.
+
+Migração `0045_rls_performance_hardening.sql` reescreve as 16
+políticas do item 1 envolvendo `auth.uid()` em `(select auth.uid())`, e
+separa cada `_write` (FOR ALL) do item 2 em três políticas
+`_insert`/`_update`/`_delete` (mesmo `qual`/`with_check` de sempre, sem
+mais cobrir SELECT) — `notes` está nos dois grupos, resolvido junto.
+Nenhuma tabela usa `MERGE` (PostgREST não emite) e `TRUNCATE` não passa
+por RLS, então a troca de `FOR ALL` por `FOR INSERT/UPDATE/DELETE` não
+deixa nenhum comando descoberto.
+
+**Aplicado em produção só depois de confirmar com o usuário** (mudança em
+política de acesso do banco, ainda que sem trocar nenhuma permissão de
+verdade) via `AskUserQuestion` — aprovado. `get_advisors` (performance)
+rodado de novo depois: os 32 WARN somem por completo, só sobra o que já
+era esperado antes (13 `unused_index` + 35 `unindexed_foreign_keys`, todos
+INFO — early-stage, sem tráfego suficiente pra saber se valem a pena, não
+mexidos nesta rodada; 1 `auth_db_connections_absolute`, configuração de
+infra, não de schema). `get_advisors` (security): inalterado, mesmos 2
+achados de sempre (RLS sem policy em `app.system_settings` — proposital,
+mesa administrativa só via Edge Function; "leaked password protection"
+desligado — configuração de conta, fora do escopo desta limpeza).
+
+**Verificação de que ninguém perdeu nem ganhou acesso**: smoke test de
+impersonação real no banco (`set local role authenticated` + `set local
+request.jwt.claims`, tudo dentro de uma transação com `rollback` no fim —
+mesmo padrão da verificação de isolamento do item 1), criando um viewer e
+um admin sintéticos em duas empresas: viewer só enxerga KPI da própria
+empresa, insert bloqueado (`insufficient_privilege`), update/delete
+também bloqueados — conferido por `row_count` porque UPDATE/DELETE sob
+RLS não lança erro quando a policy filtra a linha, só afeta zero linhas
+(armadilha real: a primeira rodada do smoke test tratou "nenhuma exceção"
+como "permitido" e reportou falso positivo em update/delete — corrigido
+pra checar `GET DIAGNOSTICS row_count` antes de concluir qualquer coisa).
+Admin da própria empresa: select/insert/update/delete permitidos; mesma
+tentativa numa empresa que ele não participa, bloqueada. Nota (`notes`,
+`auth.uid()` reescrito): dono cria/edita normalmente, viewer nem vê nem
+consegue editar/apagar a nota alheia. Todos os casos batem com o
+comportamento de antes da migração — zero regressão de acesso.
+
+**Verificação geral**: `npx tsc --noEmit`, `npm run build`, `npx vitest
+run` (63/63) e `npm run check:contrast` (24/24) limpos depois da limpeza
+de código morto (nenhuma mudança de bundle — eram só `export`s e um
+re-export nunca usados, sem lógica removida). `npx playwright test`
+completo (Desktop + Mobile): 325 passando, 35 skipped, 0 falhas (rodado
+antes da limpeza pra pegar a baseline, e de novo depois — mesmo
+resultado, como esperado já que nenhuma mudança de frontend afeta
+comportamento visível).

@@ -10,7 +10,7 @@ export const COMPANY_ID_2 = '33333333-3333-3333-3333-333333333334' // Vibra — 
 
 const now = Math.floor(Date.now() / 1000)
 const b64 = (obj: unknown) => Buffer.from(JSON.stringify(obj)).toString('base64url')
-export const JWT = `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({
+const JWT = `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({
   sub: USER_ID,
   role: 'authenticated',
   exp: now + 3600,
@@ -600,7 +600,7 @@ export const TASKS = [
   },
 ]
 
-export const SNAPSHOTS = [
+const SNAPSHOTS = [
   {
     company_id: HOLDING_ID,
     company_name: 'Ápice Holding',
@@ -672,7 +672,7 @@ export const NOTES = [
   },
 ]
 
-export const BUDGET_ID = '99999999-9999-9999-9999-999999999991'
+const BUDGET_ID = '99999999-9999-9999-9999-999999999991'
 const BUDGETS = [
   {
     id: BUDGET_ID,
@@ -833,7 +833,7 @@ export const CONTACTS = [
 // (item 1 do pedido) sem depender de fuso ou hora exata.
 const today = new Date()
 const threeDaysAgo = new Date(today.getTime() - 3 * 24 * 3600 * 1000)
-export const INSIGHTS = [
+const INSIGHTS = [
   {
     id: 'ins1',
     company_id: null,

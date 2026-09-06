@@ -14,7 +14,6 @@ import { AlertTriangle, CheckCircle2, Info, Loader2, X } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 export { NumberInput } from './NumberInput'
-export { Logo } from './Logo'
 
 // ------------------------------------------------------------------ blocos
 
