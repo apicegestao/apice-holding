@@ -292,6 +292,9 @@ export default function ProductDashboard() {
       .filter((row) => row.target_value !== null && Number(row.target_value) !== 0)
       .map((row) => attainmentRatio(row.value, row.target_value, row.direction))
       .filter((ratio): ratio is number => ratio !== null)
+      // Alvo superado não empurra a saúde geral além de 100% — ver
+      // comentário equivalente em CompanyDashboard.tsx.
+      .map((ratio) => Math.min(ratio, 1))
     return {
       ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
       medidos: ratios.length,

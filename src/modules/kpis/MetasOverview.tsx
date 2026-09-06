@@ -5,7 +5,7 @@
 // quebra por produto/turma vive de verdade.
 import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronRight, Plus, Search, ToggleLeft, ToggleRight } from 'lucide-react'
+import { ChevronRight, Plus, Search, SlidersHorizontal, ToggleLeft, ToggleRight, X } from 'lucide-react'
 import { attainmentLabel, attainmentRatio, formatAttainmentLabel, formatDate, formatValue, relativeDays } from '../../core/lib/format'
 import { Badge, EmptyState, Loading, PageHeader } from '../../core/ui'
 import { GOAL_STATUS_LABEL, type Kpi } from '../../core/types'
@@ -46,6 +46,12 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
   // Arquivados ficam num ambiente à parte — só aparece a aba quando existe
   // pelo menos um, pra não acrescentar nada na tela de quem nunca arquivou.
   const [showArchived, setShowArchived] = useState(false)
+  // Categoria/ordenar/produto ficam escondidos atrás de um botão "Filtros"
+  // por padrão — pedido explícito do usuário: a busca + três selects
+  // ocupava espaço demais antes de qualquer meta aparecer na tela. Só a
+  // busca (o controle mais usado) e "Nova Meta" continuam sempre visíveis.
+  const [showFilters, setShowFilters] = useState(false)
+  const activeFilterCount = (categoryFilter ? 1 : 0) + (productFilter ? 1 : 0)
 
   // "Filtrar por produto" busca a raiz cujo ramo (em qualquer profundidade)
   // contenha aquele produto — a raiz em si nunca tem product_id (ela é
@@ -180,10 +186,10 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
         actions={
           <>
             {ctx.kpis.length > 0 && (
-              <span className="relative block w-full sm:inline-block sm:w-auto">
+              <span className="relative block w-full min-w-0 flex-1 sm:w-56 sm:flex-none">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-content-faint" />
                 <input
-                  className="input w-full pl-8 sm:w-auto"
+                  className="input w-full pl-8"
                   placeholder="Buscar meta…"
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
@@ -191,66 +197,98 @@ export default function MetasOverview({ ctx }: { ctx: KpisCtx }) {
                 />
               </span>
             )}
-            {/* No celular, os quatro controles secundários (categoria,
-                ordenar, produto, Nova Meta) viravam 4 linhas inteiras
-                empilhadas — muito espaço pra pouca informação. Uma grade
-                2x2 corta isso praticamente pela metade; a partir de sm: o
-                wrapper vira "contents" (some do fluxo) e cada um volta a
-                ser um item solto na mesma linha de sempre. */}
-            <div className="grid w-full grid-cols-2 gap-2 sm:contents">
-              {categories.length > 0 && (
-                <select
-                  className="input w-full sm:w-auto"
-                  value={categoryFilter}
-                  onChange={(event) => setCategoryFilter(event.target.value)}
-                  aria-label="Filtrar por categoria"
-                >
-                  <option value="">Todas as categorias</option>
-                  {categories.map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {rootKpis.length > 1 && (
-                <select
-                  className="input w-full sm:w-auto"
-                  value={sortBy}
-                  onChange={(event) => setSortBy(event.target.value as SortKey)}
-                  aria-label="Ordenar por"
-                >
-                  {(Object.keys(SORT_LABEL) as SortKey[]).map((key) => (
-                    <option key={key} value={key}>
-                      {SORT_LABEL[key]}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {ctx.products.length > 0 && (
-                <select
-                  className="input w-full sm:w-auto"
-                  value={productFilter}
-                  onChange={(event) => setProductFilter(event.target.value)}
-                  aria-label="Filtrar por produto"
-                >
-                  <option value="">Todos os produtos</option>
-                  {ctx.products.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {ctx.canWrite && !showArchived && (
-                <button type="button" className="btn-primary w-full sm:w-auto" onClick={ctx.openCreate}>
-                  <Plus className="h-4 w-4" /> Nova Meta
-                </button>
-              )}
-            </div>
+            {/* Categoria/ordenar/produto ficam atrás deste botão por padrão
+                — antes eram 3 selects sempre visíveis (uma grade 2x2 no
+                celular), ocupando espaço fixo mesmo quando ninguém estava
+                filtrando nada. O badge com a contagem avisa quando algum
+                filtro já está ativo, mesmo com o painel fechado. */}
+            {(categories.length > 0 || rootKpis.length > 1 || ctx.products.length > 0) && (
+              <button
+                type="button"
+                className="btn-ghost shrink-0"
+                onClick={() => setShowFilters((v) => !v)}
+                aria-expanded={showFilters}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Filtros
+                {activeFilterCount > 0 && (
+                  <span className="ml-0.5 rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-semibold text-brand-text">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+            )}
+            {ctx.canWrite && !showArchived && (
+              <button type="button" className="btn-primary w-full shrink-0 sm:w-auto" onClick={ctx.openCreate}>
+                <Plus className="h-4 w-4" /> Nova Meta
+              </button>
+            )}
           </>
         }
       />
+
+      {/* Painel de filtros — recolhido por padrão (ver comentário no botão
+          "Filtros" acima). */}
+      {showFilters && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-line-strong bg-surface p-3">
+          {categories.length > 0 && (
+            <select
+              className="input w-full sm:w-auto"
+              value={categoryFilter}
+              onChange={(event) => setCategoryFilter(event.target.value)}
+              aria-label="Filtrar por categoria"
+            >
+              <option value="">Todas as categorias</option>
+              {categories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
+          )}
+          {rootKpis.length > 1 && (
+            <select
+              className="input w-full sm:w-auto"
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as SortKey)}
+              aria-label="Ordenar por"
+            >
+              {(Object.keys(SORT_LABEL) as SortKey[]).map((key) => (
+                <option key={key} value={key}>
+                  {SORT_LABEL[key]}
+                </option>
+              ))}
+            </select>
+          )}
+          {ctx.products.length > 0 && (
+            <select
+              className="input w-full sm:w-auto"
+              value={productFilter}
+              onChange={(event) => setProductFilter(event.target.value)}
+              aria-label="Filtrar por produto"
+            >
+              <option value="">Todos os produtos</option>
+              {ctx.products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              className="flex items-center gap-1 text-xs font-medium text-content-soft hover:text-content"
+              onClick={() => {
+                setCategoryFilter('')
+                setProductFilter('')
+              }}
+            >
+              <X className="h-3.5 w-3.5" /> Limpar filtros
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Resumo em barra segmentada — dá a proporção de atingido/em
           andamento/em risco/não atingido num relance, sem competir por

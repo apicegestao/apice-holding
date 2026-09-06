@@ -157,6 +157,8 @@ export type KpisCtx = {
   setHistoryFor: (kpi: Kpi | null) => void
   setAttachingTo: (kpi: Kpi | null) => void
   setEditingEntity: (kpi: Kpi | null) => void
+  archiveEdition: (edition: ProductEdition) => Promise<void>
+  unarchiveEdition: (edition: ProductEdition) => Promise<void>
 }
 
 export default function KpisPage() {
@@ -695,6 +697,33 @@ export default function KpisPage() {
     await load()
   }
 
+  // Atalho pra arquivar uma turma direto do Detalhe da meta dela (pedido
+  // explícito do usuário — antes só dava pra arquivar voltando pra
+  // Produtos). Mesma ação de `archiveEdition` em ProductsPage.tsx, só que
+  // chamada daqui — não apaga nada, só marca `archived_at`.
+  const archiveEdition = async (edition: ProductEdition) => {
+    const { error } = await supabase
+      .from('product_editions')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', edition.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify(`Arquivamos "${edition.name}".`)
+    await load()
+  }
+
+  const unarchiveEdition = async (edition: ProductEdition) => {
+    const { error } = await supabase.from('product_editions').update({ archived_at: null }).eq('id', edition.id)
+    if (error) {
+      notify(error.message, 'error')
+      return
+    }
+    notify(`Reativamos "${edition.name}".`)
+    await load()
+  }
+
   const removeMeta = async () => {
     if (!removingMeta) return
     setBusy(true)
@@ -743,6 +772,8 @@ export default function KpisPage() {
     setHistoryFor,
     setAttachingTo,
     setEditingEntity,
+    archiveEdition,
+    unarchiveEdition,
   }
 
   return (

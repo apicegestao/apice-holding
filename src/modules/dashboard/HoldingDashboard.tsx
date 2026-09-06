@@ -415,6 +415,9 @@ export default function HoldingDashboard() {
         )
         .map((meta) => attainmentRatio(meta.value, meta.target_value, meta.direction))
         .filter((ratio): ratio is number => ratio !== null)
+        // Alvo superado não empurra a saúde geral além de 100% — ver
+        // comentário equivalente em CompanyDashboard.tsx.
+        .map((ratio) => Math.min(ratio, 1))
       map.set(company.company_id, ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null)
     }
     return map
@@ -451,6 +454,9 @@ export default function HoldingDashboard() {
       .filter((meta) => meta.target_value !== null && Number(meta.target_value) !== 0)
       .map((meta) => attainmentRatio(meta.value, meta.target_value, meta.direction))
       .filter((ratio): ratio is number => ratio !== null)
+      // Alvo superado não empurra a saúde geral além de 100% — ver
+      // comentário equivalente em CompanyDashboard.tsx.
+      .map((ratio) => Math.min(ratio, 1))
     return {
       ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
       medidos: ratios.length,

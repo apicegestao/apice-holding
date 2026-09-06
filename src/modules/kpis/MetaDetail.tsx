@@ -147,6 +147,14 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
   // simulação de teste) o campo pode vir ausente (undefined) em vez de nulo.
   const canAttachChild = !kpi.product_edition_id
 
+  // Pedido explícito do usuário: arquivar a turma direto daqui, sem
+  // precisar voltar pra Produtos. Diferente do "Arquivar" logo abaixo
+  // (que arquiva só a MEDIÇÃO — o `kpi` — deixando a turma em si intacta
+  // em Produtos), este arquiva a turma de verdade (`product_editions`).
+  const editionForKpi = kpi.product_edition_id
+    ? (ctx.editions.find((item) => item.id === kpi.product_edition_id) ?? null)
+    : null
+
   return (
     <div className="space-y-5">
       {/* --------------------------------------------------------- breadcrumb */}
@@ -264,6 +272,27 @@ export default function MetaDetail({ ctx, kpiId }: { ctx: KpisCtx; kpiId: string
               <button type="button" className="btn-ghost py-1.5 text-xs" onClick={() => ctx.setEditingEntity(kpi)}>
                 <SquarePen className="h-3.5 w-3.5" />{' '}
                 {kpi.product_edition_id ? `Editar ${subItemLabel(productOf(kpi, ctx), { lower: true })}` : 'Editar produto'}
+              </button>
+            )}
+            {ctx.canWrite && editionForKpi && (
+              <button
+                type="button"
+                className="btn-ghost py-1.5 text-xs"
+                onClick={() =>
+                  void (editionForKpi.archived_at
+                    ? ctx.unarchiveEdition(editionForKpi)
+                    : ctx.archiveEdition(editionForKpi))
+                }
+              >
+                {editionForKpi.archived_at ? (
+                  <>
+                    <ArchiveRestore className="h-3.5 w-3.5" /> Reativar {subItemLabel(productOf(kpi, ctx), { lower: true })}
+                  </>
+                ) : (
+                  <>
+                    <Archive className="h-3.5 w-3.5" /> Arquivar {subItemLabel(productOf(kpi, ctx), { lower: true })}
+                  </>
+                )}
               </button>
             )}
             {/* Ativar/desativar: some dos painéis e para de contar na soma

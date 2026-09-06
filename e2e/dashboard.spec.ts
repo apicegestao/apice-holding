@@ -107,13 +107,15 @@ test.describe('painel', () => {
     await expect(page.getByRole('heading', { name: 'Indicadores sem lançamento' })).not.toBeVisible()
   })
 
-  // Item 4: gráfico comparativo aparece quando há o que comparar. "Tarefas
-  // por situação" e "Próximos prazos" saíram do painel a pedido do usuário
-  // (rodada de simplificação) — não tem mais o que testar deles aqui.
-  test('gráfico comparativo aparece no painel da empresa', async ({ page }) => {
+  // "Tarefas por situação" e "Próximos prazos" saíram do painel numa rodada
+  // de simplificação anterior; "Metas: realizado x alvo" saiu a pedido
+  // explícito do usuário nesta rodada — não tem mais o que testar deles
+  // aqui. "Comparação entre produtos" continua e já tem teste próprio
+  // (describe "comparação de produtos no painel da empresa", abaixo).
+  test('"Metas: realizado x alvo" não aparece mais no painel da empresa', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}`)
     await page.waitForLoadState('networkidle')
-    await expect(page.getByText('Metas: realizado x alvo')).toBeVisible()
+    await expect(page.getByText('Metas: realizado x alvo')).not.toBeVisible()
   })
 
   // Novo indicador do painel (item 10 da rodada — "repensar outros
@@ -2026,6 +2028,36 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' }).getByText('Imersão Setembro 2026 — Turma B')).toBeVisible()
   })
 
+  // Pedido explícito do usuário: arquivar a turma direto do Detalhe da meta
+  // dela, sem precisar voltar pra Produtos (antes só existia em Produtos).
+  // Diferente do "Arquivar" que arquiva a MEDIÇÃO (o kpi) — este arquiva a
+  // turma de verdade (product_editions), refletindo em Produtos também.
+  test('"Arquivar turma" no Detalhe arquiva a turma (não a meta) e "Reativar turma" desfaz', async ({ page }) => {
+    const editions = PRODUCT_EDITIONS.map((edition) => ({ ...edition, archived_at: null as string | null }))
+    await page.route('**/rest/v1/product_editions*', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        const id = (new URL(route.request().url()).searchParams.get('id') ?? '').replace('eq.', '')
+        const target = editions.find((edition) => edition.id === id)
+        if (target) Object.assign(target, body)
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(editions) })
+    })
+
+    await page.goto(`/empresa/${COMPANY_ID_2}/kpis/${KPI_EDITION}`)
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('button', { name: 'Arquivar turma' }).click()
+
+    await expect(page.getByText('Arquivamos "Imersão Setembro 2026".')).toBeVisible()
+    // A meta (kpi) em si continua intacta — só a turma some de Produtos,
+    // e o botão aqui vira "Reativar turma".
+    await expect(page.getByRole('button', { name: 'Reativar turma' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Reativar turma' }).click()
+    await expect(page.getByText('Reativamos "Imersão Setembro 2026".')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Arquivar turma' })).toBeVisible()
+  })
+
   test('"Vincular produto" no Detalhe de uma meta sem filhos anexa um produto já cadastrado', async ({ page }) => {
     const kpis = [...KPIS]
     await page.route('**/rest/v1/kpis*', async (route) => {
@@ -2368,6 +2400,9 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
   test('filtro por categoria some com metas de outra categoria', async ({ page }) => {
     await page.goto(`/empresa/${COMPANY_ID_2}/kpis`)
     await page.waitForLoadState('networkidle')
+    // Categoria/ordenar/produto ficam recolhidos atrás de "Filtros" por
+    // padrão — precisa abrir o painel antes de usar qualquer um deles.
+    await page.getByRole('button', { name: 'Filtros' }).click()
     await page.getByLabel('Filtrar por categoria').selectOption('Comercial')
 
     await expect(page.getByRole('link', { name: /Ticket médio/ })).toBeVisible()
@@ -2389,6 +2424,7 @@ test.describe('Metas — Visão Geral e Detalhe', () => {
     const churnBefore = await churn.boundingBox()
     expect(ticketBefore!.y).toBeLessThan(churnBefore!.y)
 
+    await page.getByRole('button', { name: 'Filtros' }).click()
     await page.getByLabel('Ordenar por').selectOption('name')
 
     const ticketAfter = await ticket.boundingBox()

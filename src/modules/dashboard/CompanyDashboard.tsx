@@ -12,17 +12,7 @@ import {
   Target,
   Wallet,
 } from 'lucide-react'
-import {
-  Legend,
-  Line,
-  LabelList,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import { Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { supabase } from '../../core/lib/supabase'
 import {
   attainmentLabel,
@@ -54,26 +44,6 @@ import {
   type Profile,
   type Task,
 } from '../../core/types'
-
-// Ponto colorido do gráfico "Metas: realizado x alvo" — verde na meta,
-// vermelho fora dela, mesmo critério de cor do resto do sistema. O eixo X é
-// categórico (uma meta por ponto, não uma linha do tempo), mas a linha
-// ligando os pontos deixa mais fácil comparar visualmente do que barras
-// separadas.
-function attainmentDot(props: any) {
-  const { cx, cy, payload, index } = props
-  return (
-    <circle
-      key={`dot-${index}`}
-      cx={cx}
-      cy={cy}
-      r={5}
-      fill={payload.naMeta ? '#10B981' : '#F43F5E'}
-      stroke="#fff"
-      strokeWidth={1.5}
-    />
-  )
-}
 
 /** Um KPI (indicador) ativo, com o último valor lançado quando existir. Sem
  *  lançamento ainda é um indicador de verdade — ele não deve desaparecer do
@@ -483,35 +453,17 @@ export default function CompanyDashboard() {
       .filter((row) => row.target_value !== null && Number(row.target_value) !== 0)
       .map((row) => attainmentRatio(row.value, row.target_value, row.direction))
       .filter((ratio): ratio is number => ratio !== null)
+      // Bug real corrigido aqui: alvo batido/superado (ratio > 1) inflava a
+      // média — bastava uma meta bem acima do previsto pra "saúde geral"
+      // passar de 100% (ex. 151% relatado no MDD), o que não faz sentido
+      // pra uma nota que devia ir de 0% a 100%. Cada alvo contribui no
+      // máximo "cheio" (100%) pra média — superar o alvo não empurra a
+      // saúde geral pra além disso.
+      .map((ratio) => Math.min(ratio, 1))
     return {
       ratio: ratios.length ? ratios.reduce((sum, r) => sum + r, 0) / ratios.length : null,
       medidos: ratios.length,
     }
-  }, [metaRows])
-
-  // Comparação entre alvos desta empresa: % do alvo atingido. Unidades
-  // diferentes (R$, %, dias) não podem virar barra na mesma escala — só o
-  // atingimento é comparável entre alvos distintos. `attainmentRatio` já
-  // cuida da inversão de sentido em alvo "down" (menor é melhor, ex.
-  // churn) e já tem teto embutido (300%) — aqui só reaplicamos o mesmo
-  // teto no eixo do gráfico, por clareza visual (não porque a função
-  // precise, ela já limita sozinha).
-  const kpiAttainment = useMemo(() => {
-    const seenNames = new Map<string, number>()
-    return metaRows
-      .filter((row) => row.value !== null && row.target_value !== null && row.target_value !== 0)
-      .map((row) => {
-        const ratio = attainmentRatio(row.value, row.target_value, row.direction)!
-        // Dois alvos da mesma meta (ex. alvo mensal e anual) teriam o
-        // mesmo rótulo no eixo — numera a partir da segunda pra distinguir.
-        const seen = seenNames.get(row.name) ?? 0
-        seenNames.set(row.name, seen + 1)
-        return {
-          nome: seen > 0 ? `${row.name} (${seen + 1})` : row.name,
-          atingimento: Math.round(Math.min(ratio, 3) * 100),
-          naMeta: isOnTarget(row.value!, row.target_value, row.direction) === true,
-        }
-      })
   }, [metaRows])
 
   if (loading) return <Loading />
@@ -877,59 +829,6 @@ export default function CompanyDashboard() {
           </div>
         </Card>
       )}
-
-      {/* ------------------------------------------------- gráfico comparativo */}
-      <Card
-        title="Metas: realizado x alvo"
-        description="Quanto cada meta entregou frente ao próprio alvo. A linha marca os 100%."
-      >
-        {kpiAttainment.length === 0 ? (
-          <EmptyState
-            title="Nada para comparar ainda"
-            description="Defina um alvo e lance ao menos um valor na meta dela."
-          />
-        ) : (
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={kpiAttainment} margin={{ top: 20, right: 24, bottom: 0, left: 16 }}>
-                <XAxis
-                  dataKey="nome"
-                  tick={{ fontSize: 11, fill: chart.tick }}
-                  axisLine={{ stroke: chart.axis }}
-                  tickLine={false}
-                  interval={0}
-                  angle={kpiAttainment.length > 3 ? -20 : 0}
-                  textAnchor={kpiAttainment.length > 3 ? 'end' : 'middle'}
-                  height={kpiAttainment.length > 3 ? 46 : 24}
-                />
-                <YAxis unit="%" tick={{ fontSize: 11, fill: chart.tick }} axisLine={false} tickLine={false} width={44} />
-                <Tooltip
-                  cursor={{ stroke: chart.axis, strokeDasharray: '4 4' }}
-                  contentStyle={{
-                    fontSize: 12,
-                    borderRadius: 8,
-                    background: chart.tooltipBg,
-                    borderColor: chart.tooltipBorder,
-                    color: chart.tooltipText,
-                  }}
-                  itemStyle={{ color: chart.tooltipText }}
-                  labelStyle={{ color: chart.tooltipText }}
-                  formatter={(value: number) => [`${value}% do alvo`, 'Realizado']}
-                />
-                <ReferenceLine y={100} stroke={chart.reference} strokeDasharray="4 4" ifOverflow="extendDomain" />
-                <Line dataKey="atingimento" stroke={chart.axis} strokeWidth={2} dot={attainmentDot}>
-                  <LabelList
-                    dataKey="atingimento"
-                    position="top"
-                    formatter={(value: number) => `${value}%`}
-                    style={{ fontSize: 11, fill: chart.label }}
-                  />
-                </Line>
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </Card>
 
       {isAdmin && insights.length > 0 && (
         <Card

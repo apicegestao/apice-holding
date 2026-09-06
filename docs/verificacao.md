@@ -3633,3 +3633,69 @@ componente é só trocar a chamada por funções já testadas (mesmo padrão já
 provado funcionando no teste novo de `MetasOverview`); fica como nota pra
 uma cobertura futura se algum caso específico de checkpoint "down"
 aparecer.
+
+## 58. Arquivar turma a partir do Detalhe + saúde geral nunca passa de 100% + remove gráfico "Metas: realizado x alvo" + filtros recolhidos em Metas
+
+Usuário trouxe 4 pedidos numa mensagem só.
+
+**1. "Opção de arquivar sub produtos"** — já existia (turma, em Produtos),
+então usei `AskUserQuestion` pra não implementar o pedido errado. Resposta:
+o usuário quer arquivar uma turma **de onde estiver olhando ela**, citando
+o Detalhe do indicador (em Metas) como exemplo — sem precisar voltar pra
+Produtos. `KpisPage.tsx` ganhou `archiveEdition`/`unarchiveEdition` no
+`KpisCtx` (mesmo `product_editions.archived_at`, mesma notificação, que já
+existiam em `ProductsPage.tsx` — só reexpostos aqui). `MetaDetail.tsx`
+ganhou um botão "Arquivar turma"/"Reativar turma" ao lado do "Editar
+turma" existente, resolvendo `editionForKpi` a partir de
+`kpi.product_edition_id`. Comentário no código marca a distinção
+importante: esse botão novo arquiva a **turma** (`product_editions`); o
+"Arquivar" que já existia mais abaixo arquiva a **meta/indicador**
+(`kpis`) — ações diferentes, convivendo na mesma tela, fácil de confundir
+sem o aviso.
+
+**2. "Saúde geral... 151% no MDD"** — bug real. `overallHealth`
+(`CompanyDashboard.tsx`, `ProductDashboard.tsx`, `DepartmentDashboard.tsx`)
+e `companyHealth`/`groupHealth` (`HoldingDashboard.tsx`) tiravam a média de
+`attainmentRatio()` de cada alvo sem capar o valor individual antes de
+somar — um alvo "up" bem superado (ex. 250% batido) empurrava a média
+inteira pra além de 100%, o que não faz sentido pra uma nota pensada como
+"0% a 100% dos alvos sendo cumpridos". Corrigido nos 4 arquivos (5 pontos,
+já que Holding tem dois) com `.map((ratio) => Math.min(ratio, 1))` antes
+do `.reduce()` — bater ou superar um alvo agora conta como "cheio" (100%)
+pra média, nunca mais. `attainmentRatio()` em si não mudou (continua
+correto pro uso normal, cor/largura de barra individual).
+
+**3. "Retire o gráfico de realizado x alvo"** — removido o card "Metas:
+realizado x alvo" de `CompanyDashboard.tsx` (LineChart por KPI individual),
+junto com `attainmentDot()` e o `useMemo` `kpiAttainment` que só
+existiam pra alimentar esse gráfico (código morto depois da remoção,
+removido também, com o import `LabelList` do recharts que ficou sem uso).
+Mantido intocado o gráfico "Comparação entre produtos" (mesma página, dado
+diferente — série histórica por produto) e o gráfico "Metas x realizado"
+de `HoldingDashboard.tsx` (escopo diferente — agregado por empresa, não
+por indicador — o pedido do usuário veio junto de itens 2 e 4, ambos
+específicos da página de empresa, então tratei como escopado à mesma
+página; sinalizar se a intenção era remover o da Holding também).
+
+**4. "Busca... ocupam muito espaço"** — em `MetasOverview.tsx`, os selects
+de categoria/ordenar/produto (3 selects + busca, sempre visíveis antes)
+viram um botão "Filtros" (com badge de contagem quando algum filtro está
+ativo) que abre/fecha um painel recolhível logo abaixo do cabeçalho. Só a
+busca (mais usada) e "Nova Meta" continuam sempre visíveis. Painel tem um
+atalho "Limpar filtros" quando categoria ou produto está ativo.
+
+**Verificação**: `npx tsc --noEmit`, `npm run build`, `npx vitest run`
+(63/63) e `npm run check:contrast` (24/24) limpos. `npx playwright test`
+completo (Desktop + Mobile): **324 passando**, 35 skipped — 1 falha
+isolada de timeout no `beforeEach` de login (recurso disputado por rodar
+com vários workers em paralelo; confirmada flake ao rodar o mesmo teste
+sozinho logo em seguida, passou limpo). Testes ajustados: o teste do
+gráfico removido virou o inverso (`not.toBeVisible()`, nome trocado pra
+deixar claro que é uma remoção deliberada — segue o padrão já usado no
+sistema pra "isso não deve voltar sem decisão consciente"); os testes de
+filtro por categoria e de ordenação ganharam um clique em "Filtros" antes
+de interagir com os selects, já que agora vêm escondidos por padrão.
+Teste novo: arquivar/reativar a turma pelo Detalhe (fixture `KPI_EDITION`/
+`EDITION_ID`), confirmando que a notificação e o texto do botão trocam
+("Arquivar turma" ↔ "Reativar turma") e que a ação bate no
+`product_editions` certo, não no `kpis`.
